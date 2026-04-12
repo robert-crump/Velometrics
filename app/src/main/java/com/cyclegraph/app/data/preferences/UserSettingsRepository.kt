@@ -1,0 +1,53 @@
+package com.cyclegraph.app.data.preferences
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.cyclegraph.app.util.CyclingConstants
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
+
+@Singleton
+class UserSettingsRepository @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
+    companion object {
+        private val KEY_FTP = intPreferencesKey("ftp")
+        private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
+        private val KEY_HOME_LON = doublePreferencesKey("home_lon")
+    }
+
+    val ftp: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[KEY_FTP] ?: CyclingConstants.DEFAULT_FTP
+    }
+
+    val homeLat: Flow<Double> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HOME_LAT] ?: CyclingConstants.HOME_LAT
+    }
+
+    val homeLon: Flow<Double> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HOME_LON] ?: CyclingConstants.HOME_LON
+    }
+
+    suspend fun saveFtp(ftp: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FTP] = ftp
+        }
+    }
+
+    suspend fun saveHomeLocation(lat: Double, lon: Double) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HOME_LAT] = lat
+            prefs[KEY_HOME_LON] = lon
+        }
+    }
+}

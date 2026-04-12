@@ -1,0 +1,90 @@
+package com.cyclegraph.app.data.gpx
+
+import com.cyclegraph.app.domain.model.GpxTrack
+import org.maplibre.android.geometry.LatLng
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.InputStream
+
+object GpxParser {
+
+    fun parse(inputStream: InputStream): Result<GpxTrack> = runCatching {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(inputStream, null)
+
+        val trackPoints = mutableListOf<LatLng>()
+        val routePoints = mutableListOf<LatLng>()
+        var trackName: String? = null
+        var metadataName: String? = null
+
+        var inTrack = false
+        var inTrkSeg = false
+        var inRoute = false
+        var inMetadata = false
+        var inName = false
+        var currentTag = ""
+
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    currentTag = parser.name
+                    when (currentTag) {
+                        "metadata" -> inMetadata = true
+                        "trk" -> inTrack = true
+                        "trkseg" -> inTrkSeg = true
+                        "rte" -> inRoute = true
+                        "name" -> inName = true
+                        "trkpt" -> {
+                            if (inTrkSeg) {
+                                parseLatLon(parser)?.let { trackPoints.add(it) }
+                            }
+                        }
+                        "rtept" -> {
+                            if (inRoute) {
+                                parseLatLon(parser)?.let { routePoints.add(it) }
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.TEXT -> {
+                    if (inName) {
+                        val text = parser.text?.trim()
+                        if (!text.isNullOrEmpty()) {
+                            when {
+                                inTrack && !inTrkSeg -> trackName = text
+                                inMetadata && metadataName == null -> metadataName = text
+                                inRoute && trackName == null -> trackName = text
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "metadata" -> inMetadata = false
+                        "trk" -> inTrack = false
+                        "trkseg" -> inTrkSeg = false
+                        "rte" -> inRoute = false
+                        "name" -> inName = false
+                    }
+                }
+            }
+            event = parser.next()
+        }
+
+        val points = trackPoints.ifEmpty { routePoints }
+        val name = trackName ?: metadataName
+
+        require(points.isNotEmpty()) { "GPX file contains no track or route points" }
+
+        GpxTrack(name = name, points = points)
+    }
+
+    private fun parseLatLon(parser: XmlPullParser): LatLng? {
+        val lat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
+        val lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
+        return if (lat != null && lon != null) LatLng(lat, lon) else null
+    }
+}

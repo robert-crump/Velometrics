@@ -1,0 +1,620 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "7e43b18c862bcd7eeeb2de804b6a37f6",
+    "entities": [
+      {
+        "tableName": "cycling_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `fileName` TEXT NOT NULL, `fileSha1` TEXT NOT NULL, `sessionStart` INTEGER NOT NULL, `sessionEnd` INTEGER NOT NULL, `totalDurationSec` INTEGER NOT NULL, `pauseDurationSec` INTEGER NOT NULL, `netDurationSec` INTEGER NOT NULL, `distanceKm` REAL NOT NULL, `averagePower` INTEGER, `normalizedPower` INTEGER, `fatBurnedGrams` REAL, `carbsBurnedGrams` REAL, `powerZoneDistribution` TEXT, `speedHistogram` TEXT NOT NULL, `intervalCount` INTEGER NOT NULL, `intervalTotalTimeSec` INTEGER NOT NULL, `gpsQualityPercent` REAL NOT NULL, `powerQualityPercent` REAL, `hasPower` INTEGER NOT NULL, `gpsTrack` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileName",
+            "columnName": "fileName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSha1",
+            "columnName": "fileSha1",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionStart",
+            "columnName": "sessionStart",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionEnd",
+            "columnName": "sessionEnd",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalDurationSec",
+            "columnName": "totalDurationSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pauseDurationSec",
+            "columnName": "pauseDurationSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "netDurationSec",
+            "columnName": "netDurationSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceKm",
+            "columnName": "distanceKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "averagePower",
+            "columnName": "averagePower",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "normalizedPower",
+            "columnName": "normalizedPower",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fatBurnedGrams",
+            "columnName": "fatBurnedGrams",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "carbsBurnedGrams",
+            "columnName": "carbsBurnedGrams",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "powerZoneDistribution",
+            "columnName": "powerZoneDistribution",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "speedHistogram",
+            "columnName": "speedHistogram",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intervalCount",
+            "columnName": "intervalCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intervalTotalTimeSec",
+            "columnName": "intervalTotalTimeSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gpsQualityPercent",
+            "columnName": "gpsQualityPercent",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "powerQualityPercent",
+            "columnName": "powerQualityPercent",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "hasPower",
+            "columnName": "hasPower",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gpsTrack",
+            "columnName": "gpsTrack",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_cycling_sessions_fileSha1",
+            "unique": true,
+            "columnNames": [
+              "fileSha1"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_cycling_sessions_fileSha1` ON `${TABLE_NAME}` (`fileSha1`)"
+          }
+        ]
+      },
+      {
+        "tableName": "interval_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `cyclingSessionId` INTEGER NOT NULL, `startTimestamp` INTEGER NOT NULL, `durationSec` INTEGER NOT NULL, `durationNormalizedSec` INTEGER NOT NULL, `distanceM` REAL NOT NULL, `avgPower` INTEGER NOT NULL, `avgSpeedKmh` REAL NOT NULL, `avgSpeedNormalizedKmh` REAL NOT NULL, `direction` TEXT NOT NULL, `startLat` REAL NOT NULL, `startLon` REAL NOT NULL, `endLat` REAL NOT NULL, `endLon` REAL NOT NULL, `gpsTrack` TEXT NOT NULL, `prototypeRouteId` INTEGER, FOREIGN KEY(`cyclingSessionId`) REFERENCES `cycling_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`prototypeRouteId`) REFERENCES `interval_prototype_routes`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cyclingSessionId",
+            "columnName": "cyclingSessionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTimestamp",
+            "columnName": "startTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSec",
+            "columnName": "durationSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationNormalizedSec",
+            "columnName": "durationNormalizedSec",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceM",
+            "columnName": "distanceM",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgPower",
+            "columnName": "avgPower",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgSpeedKmh",
+            "columnName": "avgSpeedKmh",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgSpeedNormalizedKmh",
+            "columnName": "avgSpeedNormalizedKmh",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLat",
+            "columnName": "startLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLon",
+            "columnName": "startLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLat",
+            "columnName": "endLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLon",
+            "columnName": "endLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gpsTrack",
+            "columnName": "gpsTrack",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prototypeRouteId",
+            "columnName": "prototypeRouteId",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_interval_sessions_cyclingSessionId",
+            "unique": false,
+            "columnNames": [
+              "cyclingSessionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_interval_sessions_cyclingSessionId` ON `${TABLE_NAME}` (`cyclingSessionId`)"
+          },
+          {
+            "name": "index_interval_sessions_prototypeRouteId",
+            "unique": false,
+            "columnNames": [
+              "prototypeRouteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_interval_sessions_prototypeRouteId` ON `${TABLE_NAME}` (`prototypeRouteId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "cycling_sessions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "cyclingSessionId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "interval_prototype_routes",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "prototypeRouteId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "interval_prototype_routes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `startLat` REAL NOT NULL, `startLon` REAL NOT NULL, `endLat` REAL NOT NULL, `endLon` REAL NOT NULL, `distanceM` REAL, `avgGpsTrack` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLat",
+            "columnName": "startLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLon",
+            "columnName": "startLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLat",
+            "columnName": "endLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLon",
+            "columnName": "endLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceM",
+            "columnName": "distanceM",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgGpsTrack",
+            "columnName": "avgGpsTrack",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "map_edges",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startLat` REAL NOT NULL, `startLon` REAL NOT NULL, `endLat` REAL NOT NULL, `endLon` REAL NOT NULL, `angleDeg` REAL NOT NULL, `lengthM` REAL NOT NULL, `riddenCount` INTEGER NOT NULL, `sessionRiddenCount` INTEGER NOT NULL, `avgSpeedKmh` REAL NOT NULL, `avgPower` REAL, `powerRiddenCount` INTEGER NOT NULL, `stopProbability` REAL NOT NULL, `stopCount` INTEGER NOT NULL, `avgStopDurationSec` REAL, `startNodeId` INTEGER, `endNodeId` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLat",
+            "columnName": "startLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startLon",
+            "columnName": "startLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLat",
+            "columnName": "endLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endLon",
+            "columnName": "endLon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "angleDeg",
+            "columnName": "angleDeg",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lengthM",
+            "columnName": "lengthM",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "riddenCount",
+            "columnName": "riddenCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionRiddenCount",
+            "columnName": "sessionRiddenCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgSpeedKmh",
+            "columnName": "avgSpeedKmh",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgPower",
+            "columnName": "avgPower",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "powerRiddenCount",
+            "columnName": "powerRiddenCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stopProbability",
+            "columnName": "stopProbability",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stopCount",
+            "columnName": "stopCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgStopDurationSec",
+            "columnName": "avgStopDurationSec",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "startNodeId",
+            "columnName": "startNodeId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "endNodeId",
+            "columnName": "endNodeId",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_map_edges_startLat_startLon",
+            "unique": false,
+            "columnNames": [
+              "startLat",
+              "startLon"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_map_edges_startLat_startLon` ON `${TABLE_NAME}` (`startLat`, `startLon`)"
+          },
+          {
+            "name": "index_map_edges_endLat_endLon",
+            "unique": false,
+            "columnNames": [
+              "endLat",
+              "endLon"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_map_edges_endLat_endLon` ON `${TABLE_NAME}` (`endLat`, `endLon`)"
+          },
+          {
+            "name": "index_map_edges_startNodeId",
+            "unique": false,
+            "columnNames": [
+              "startNodeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_map_edges_startNodeId` ON `${TABLE_NAME}` (`startNodeId`)"
+          },
+          {
+            "name": "index_map_edges_endNodeId",
+            "unique": false,
+            "columnNames": [
+              "endNodeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_map_edges_endNodeId` ON `${TABLE_NAME}` (`endNodeId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "map_nodes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `lat` REAL NOT NULL, `lon` REAL NOT NULL, `isConfirmed` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lon",
+            "columnName": "lon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isConfirmed",
+            "columnName": "isConfirmed",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "pending_points",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `lat` REAL NOT NULL, `lon` REAL NOT NULL, `angleDeg` REAL NOT NULL, `speedKmh` REAL, `power` INTEGER, `sessionId` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lon",
+            "columnName": "lon",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "angleDeg",
+            "columnName": "angleDeg",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speedKmh",
+            "columnName": "speedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "power",
+            "columnName": "power",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pending_points_lat_lon",
+            "unique": false,
+            "columnNames": [
+              "lat",
+              "lon"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_points_lat_lon` ON `${TABLE_NAME}` (`lat`, `lon`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7e43b18c862bcd7eeeb2de804b6a37f6')"
+    ]
+  }
+}

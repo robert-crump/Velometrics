@@ -1,0 +1,54 @@
+# Built application files
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+
+# Gradle files
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Local configuration (SDK path, signing config)
+local.properties
+
+# Android Studio / IntelliJ IDEA
+*.iml
+.idea/
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (API keys)
+google-services.json
+
+# NDK
+obj/
+
+# OS files
+Thumbs.db
+nul
+
+# Kotlin compiler artifacts
+.kotlin/
+
+# Claude Code
+.claude/
+
+# Cleanup report (local only)
+cleanup-report.md

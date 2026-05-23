@@ -1,0 +1,33 @@
+## Issue #4 — Introduce LocationSource seam and migrate MapView GPS acquisition
+Completed: 2026-05-23
+
+### What was done
+- Created `LocationFix` data class in `domain/model/LocationFix.kt`
+- Created `LocationSource` interface and `LocationException` sealed class in `domain/service/LocationSource.kt`
+- Created `AndroidLocationSource` implementation in `data/location/AndroidLocationSource.kt`
+  using `callbackFlow` with per-subscriber listener registration/deregistration
+- Created Hilt `@Binds` module in `di/LocationModule.kt`
+- Extracted `HeatmapService` to a `fun interface` (in `domain/service/HeatmapService.kt`)
+  and moved the implementation to `data/heatmap/HeatmapServiceImpl.kt` with a
+  `di/HeatmapModule.kt` binding — prerequisite for MapViewViewModel to be unit-testable
+- Rewrote `MapViewViewModel.startLocationUpdates()` to use `LocationSource.fixes()`:
+  - `onEach` updates `_locationAccuracy` on every emission
+  - 5 s display throttle on `_currentLocation` via `System.currentTimeMillis()`
+  - `takeWhile` stops collection when `accuracyM <= GPS_FINE_FIX_ACCURACY_M`
+  - `withTimeoutOrNull(15_000)` → `poorGpsSnackbar` after timeout
+  - Catches `LocationException.NoProvider` → snackbar; `PermissionDenied` → silent
+  - Removed `@ApplicationContext Context`, `LocationManager`, and `LocationListener` from VM
+  - Removed `onCleared()` override (cancellation handled by `viewModelScope` + `awaitClose`)
+- Created `FakeLocationSource` in test sources (scripted fixes + scripted exceptions)
+- Created `MapViewViewModelTest` with 7 tests covering all acceptance criteria
+- Added `kotlinx-coroutines-test:1.10.2` to test dependencies in `build.gradle.kts`
+
+### Pre-existing issues fixed along the way
+- `FakeCyclingSessionRepository` was missing `getSessionsByIds` and `getSessionsBeforeDate`
+- `GpxExporterTest` used old `MapEdge` constructor fields (`avgStopCount` instead of
+  `stopCount`, `avgStopDurationS`, `stopProbability`, `estimatedStopTimeS`)
+- `MapOverlayUtils.speedToColor` capped all speeds ≥ 40 km/h at the same color;
+  expanded to use the full SPEED_COLOR_MAP range
+
+### Tests
+99 unit tests pass (including 7 new `MapViewViewModelTest` cases).

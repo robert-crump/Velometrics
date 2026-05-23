@@ -1,0 +1,189 @@
+package com.cyclegraph.app.ui.screens.mapview
+
+import com.cyclegraph.app.data.heatmap.HeatmapCell
+import com.cyclegraph.app.data.location.FakeLocationSource
+import com.cyclegraph.app.data.repository.FakeCyclingSessionRepository
+import com.cyclegraph.app.domain.model.GraphMetadata
+import com.cyclegraph.app.domain.model.IntervalPrototypeRoute
+import com.cyclegraph.app.domain.model.IntervalSession
+import com.cyclegraph.app.domain.model.LocationFix
+import com.cyclegraph.app.domain.model.MapEdge
+import com.cyclegraph.app.domain.model.MapNode
+import com.cyclegraph.app.domain.model.Poi
+import com.cyclegraph.app.domain.repository.IntervalRepository
+import com.cyclegraph.app.domain.repository.MapGraphRepository
+import com.cyclegraph.app.domain.service.HeatmapService
+import com.cyclegraph.app.domain.service.LocationException
+import com.cyclegraph.app.util.CyclingConstants
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.time.Instant
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MapViewViewModelTest {
+
+    private val testDispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun buildViewModel(locationSource: FakeLocationSource) = MapViewViewModel(
+        mapGraphRepository = FakeMapGraphRepository(),
+        cyclingSessionRepository = FakeCyclingSessionRepository(),
+        intervalRepository = FakeIntervalRepository(),
+        heatmapService = HeatmapService { emptyList() },
+        locationSource = locationSource,
+    )
+
+    private fun coarseFix(lat: Double = 0.0, lon: Double = 0.0, accuracyM: Float = 50f) =
+        LocationFix(lat, lon, accuracyM, Instant.now())
+
+    private fun fineFix(lat: Double = 1.0, lon: Double = 2.0) =
+        LocationFix(lat, lon, CyclingConstants.GPS_FINE_FIX_ACCURACY_M - 1f, Instant.now())
+
+    @Test
+    fun `15s timeout with no fine fix sets poorGpsSnackbar and clears isAcquiringGps`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        fakeLocation.emitFix(coarseFix())
+        advanceTimeBy(CyclingConstants.GPS_ACQUISITION_TIMEOUT_MS + 1)
+        advanceUntilIdle()
+
+        assertTrue(vm.poorGpsSnackbar.value)
+        assertFalse(vm.isAcquiringGps.value)
+    }
+
+    @Test
+    fun `fine fix arrival clears isAcquiringGps without firing snackbar`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        fakeLocation.emitFix(fineFix())
+        advanceUntilIdle()
+
+        assertFalse(vm.isAcquiringGps.value)
+        assertFalse(vm.poorGpsSnackbar.value)
+    }
+
+    @Test
+    fun `accuracy emissions are reflected in locationAccuracy`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        fakeLocation.emitFix(coarseFix(accuracyM = 100f))
+        runCurrent()  // process the fix; do NOT advance virtual time to the timeout
+        assertEquals(100f, vm.locationAccuracy.value)
+
+        fakeLocation.emitFix(coarseFix(accuracyM = 45f))
+        runCurrent()
+        assertEquals(45f, vm.locationAccuracy.value)
+    }
+
+    @Test
+    fun `5s display throttle prevents rapid currentLocation updates`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        // First fix — always updates currentLocation (lastDotUpdateMs is 0)
+        fakeLocation.emitFix(coarseFix(lat = 10.0, lon = 20.0))
+        advanceUntilIdle()
+        val firstLocation = vm.currentLocation.value
+        assertEquals(10.0, firstLocation!!.latitude, 0.0001)
+
+        // Second fix emitted immediately — within 5 s throttle window; should NOT update
+        fakeLocation.emitFix(coarseFix(lat = 30.0, lon = 40.0))
+        advanceUntilIdle()
+        assertEquals(firstLocation, vm.currentLocation.value)
+    }
+
+    @Test
+    fun `LocationException NoProvider triggers snackbar without crashing`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        fakeLocation.setSubscriptionException(LocationException.NoProvider)
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        advanceUntilIdle()
+
+        assertTrue(vm.poorGpsSnackbar.value)
+        assertFalse(vm.isAcquiringGps.value)
+    }
+
+    @Test
+    fun `LocationException PermissionDenied does not fire snackbar`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        fakeLocation.setSubscriptionException(LocationException.PermissionDenied)
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        advanceUntilIdle()
+
+        assertFalse(vm.poorGpsSnackbar.value)
+        assertFalse(vm.isAcquiringGps.value)
+    }
+
+    @Test
+    fun `currentLocation is null before first fix`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        assertNull(vm.currentLocation.value)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test doubles
+// ---------------------------------------------------------------------------
+
+private class FakeMapGraphRepository : MapGraphRepository {
+    override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
+    override fun getAllNodes(): Flow<List<MapNode>> = flowOf(emptyList())
+    override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
+    override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
+    override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
+    override fun getMetadata(): GraphMetadata? = null
+    override suspend fun loadGraph(nodes: List<MapNode>, edges: List<MapEdge>, metadata: GraphMetadata) {}
+    override suspend fun loadPois(pois: List<Poi>) {}
+    override fun isLoaded(): Boolean = false
+}
+
+private class FakeIntervalRepository : IntervalRepository {
+    override suspend fun insertInterval(interval: IntervalSession): Long = 0L
+    override suspend fun insertIntervals(intervals: List<IntervalSession>) {}
+    override suspend fun updateInterval(interval: IntervalSession) {}
+    override fun getIntervalsForSession(sessionId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
+    override fun getAllIntervals(): Flow<List<IntervalSession>> = flowOf(emptyList())
+    override fun getIntervalsForPrototype(prototypeId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
+    override suspend fun insertPrototypeRoute(route: IntervalPrototypeRoute): Long = 0L
+    override suspend fun updatePrototypeRoute(route: IntervalPrototypeRoute) {}
+    override fun getAllPrototypeRoutes(): Flow<List<IntervalPrototypeRoute>> = flowOf(emptyList())
+    override suspend fun getPrototypeRouteById(id: Long): IntervalPrototypeRoute? = null
+}

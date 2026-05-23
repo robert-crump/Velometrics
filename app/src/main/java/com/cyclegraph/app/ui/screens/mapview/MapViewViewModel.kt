@@ -1,36 +1,34 @@
 package com.cyclegraph.app.ui.screens.mapview
 
-import android.content.Context
-import android.location.LocationListener
-import android.location.LocationManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cyclegraph.app.data.heatmap.HeatmapCell
 import com.cyclegraph.app.domain.model.CyclingSession
-import com.cyclegraph.app.domain.service.HeatmapService
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.maplibre.android.geometry.LatLng
 import com.cyclegraph.app.domain.model.IntervalPrototypeRoute
 import com.cyclegraph.app.domain.model.IntervalSession
 import com.cyclegraph.app.domain.model.MapEdge
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
 import com.cyclegraph.app.domain.repository.IntervalRepository
 import com.cyclegraph.app.domain.repository.MapGraphRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
+import com.cyclegraph.app.domain.service.HeatmapService
+import com.cyclegraph.app.domain.service.LocationException
+import com.cyclegraph.app.domain.service.LocationSource
 import com.cyclegraph.app.util.CyclingConstants
 import com.cyclegraph.app.util.IntervalGroup
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 
 @HiltViewModel
@@ -39,10 +37,9 @@ class MapViewViewModel @Inject constructor(
     private val cyclingSessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
     private val heatmapService: HeatmapService,
-    @ApplicationContext private val context: Context
+    private val locationSource: LocationSource,
 ) : ViewModel() {
 
-    // Eagerly started so the graph stays loaded even when the Map tab is not active
     val allEdges: StateFlow<List<MapEdge>> = mapGraphRepository.getAllEdges()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -56,7 +53,6 @@ class MapViewViewModel @Inject constructor(
     private val _showSpeedOverlay = MutableStateFlow(false)
     val showSpeedOverlay: StateFlow<Boolean> = _showSpeedOverlay.asStateFlow()
 
-    // Active speed categories; when overlay first enabled, show the 40+ category by default
     private val _selectedSpeedCategories = MutableStateFlow<Set<String>>(emptySet())
     val selectedSpeedCategories: StateFlow<Set<String>> = _selectedSpeedCategories.asStateFlow()
 
@@ -68,7 +64,6 @@ class MapViewViewModel @Inject constructor(
     fun toggleSpeedOverlay() {
         val newShow = !_showSpeedOverlay.value
         _showSpeedOverlay.value = newShow
-        // When enabling, start with the fastest category; when disabling, clear selection
         _selectedSpeedCategories.value = if (newShow) setOf("40-50 km/h") else emptySet()
     }
 
@@ -135,7 +130,6 @@ class MapViewViewModel @Inject constructor(
 
     fun toggleIntervalOverlay() { _showIntervalOverlay.update { !it } }
 
-    // Tap interaction state
     private val _selectedInterval = MutableStateFlow<IntervalSession?>(null)
     val selectedInterval: StateFlow<IntervalSession?> = _selectedInterval.asStateFlow()
 
@@ -170,81 +164,38 @@ class MapViewViewModel @Inject constructor(
     private val _isAcquiringGps = MutableStateFlow(false)
     val isAcquiringGps: StateFlow<Boolean> = _isAcquiringGps.asStateFlow()
 
-    private var locationListener: LocationListener? = null
     private var locationUpdateJob: Job? = null
-
     private var lastDotUpdateMs = 0L
 
     fun startLocationUpdates() {
         locationUpdateJob?.cancel()
         _poorGpsSnackbar.value = false
         _isAcquiringGps.value = true
-        locationUpdateJob = viewModelScope.launch(Dispatchers.Main) {
-            var locationManager: LocationManager? = null
+        locationUpdateJob = viewModelScope.launch {
             try {
-                locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val provider = LocationManager.GPS_PROVIDER
-                if (!locationManager.isProviderEnabled(provider)) return@launch
-
-                // Remove any existing listener before registering a new one
-                locationListener?.let { locationManager.removeUpdates(it) }
-
-                val listener = LocationListener { location ->
-                    // Always update accuracy so the halo and fine-fix zoom stay reactive
-                    _locationAccuracy.value = location.accuracy
-
-                    // Only move the blue dot every 5 seconds to avoid jitter
-                    val nowMs = System.currentTimeMillis()
-                    if (nowMs - lastDotUpdateMs >= CyclingConstants.LOCATION_DISPLAY_THROTTLE_MS) {
-                        lastDotUpdateMs = nowMs
-                        _currentLocation.value = LatLng(location.latitude, location.longitude)
-                    }
-
-                    // Good enough fix — stop acquiring
-                    if (location.accuracy <= CyclingConstants.GPS_FINE_FIX_ACCURACY_M) {
-                        locationListener?.let {
-                            try { locationManager?.removeUpdates(it) } catch (_: Exception) {}
+                val timedOut = withTimeoutOrNull(CyclingConstants.GPS_ACQUISITION_TIMEOUT_MS) {
+                    locationSource.fixes()
+                        .onEach { fix ->
+                            _locationAccuracy.value = fix.accuracyM
+                            val nowMs = System.currentTimeMillis()
+                            if (nowMs - lastDotUpdateMs >= CyclingConstants.LOCATION_DISPLAY_THROTTLE_MS) {
+                                lastDotUpdateMs = nowMs
+                                _currentLocation.value = LatLng(fix.lat, fix.lon)
+                            }
                         }
-                        locationUpdateJob?.cancel()
-                    }
+                        .takeWhile { fix -> fix.accuracyM > CyclingConstants.GPS_FINE_FIX_ACCURACY_M }
+                        .collect {}
                 }
-                locationListener = listener
-
-                @Suppress("MissingPermission")
-                locationManager.requestLocationUpdates(
-                    provider,
-                    CyclingConstants.LOCATION_UPDATE_MIN_TIME_MS,
-                    0f,
-                    listener,
-                    context.mainLooper
-                )
-
-                // Wait up to 15 seconds for a good fix
-                delay(CyclingConstants.GPS_ACQUISITION_TIMEOUT_MS)
-                // Only reached if no <10 m fix was obtained
+                if (timedOut == null) {
+                    _poorGpsSnackbar.value = true
+                }
+            } catch (_: LocationException.NoProvider) {
                 _poorGpsSnackbar.value = true
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: SecurityException) {
-                // Location permission not granted
-            } catch (_: Exception) {
-                // Provider unavailable
+            } catch (_: LocationException.PermissionDenied) {
+                // permission not granted; silently ignore
             } finally {
                 _isAcquiringGps.value = false
-                locationManager?.let { lm ->
-                    locationListener?.let { l ->
-                        try { lm.removeUpdates(l) } catch (_: Exception) {}
-                    }
-                }
             }
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        try {
-            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            locationListener?.let { locationManager.removeUpdates(it) }
-        } catch (_: Exception) {}
     }
 }

@@ -52,4 +52,12 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
 
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> =
         sessions.sortedByDescending { it.sessionStart }.take(limit)
+
+    override fun getSessionsByIds(ids: List<Long>): Flow<List<CyclingSession>> =
+        flowOf(sessions.filter { it.id in ids })
+
+    override suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession> =
+        sessions.filter { it.sessionStart.toEpochMilli() < epochMs }
+            .sortedByDescending { it.sessionStart }
+            .take(limit)
 }

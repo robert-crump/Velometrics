@@ -34,7 +34,10 @@ object MapOverlayUtils {
             speedKmh < 25.0 -> CyclingConstants.SPEED_COLOR_MAP["20-25 km/h"]!!
             speedKmh < 30.0 -> CyclingConstants.SPEED_COLOR_MAP["25-30 km/h"]!!
             speedKmh < 40.0 -> CyclingConstants.SPEED_COLOR_MAP["30-40 km/h"]!!
-            else -> CyclingConstants.SPEED_COLOR_MAP["40-50 km/h"]!!  // cap: 40+ km/h all get the same color
+            speedKmh < 50.0 -> CyclingConstants.SPEED_COLOR_MAP["40-50 km/h"]!!
+            speedKmh < 60.0 -> CyclingConstants.SPEED_COLOR_MAP["50-60 km/h"]!!
+            speedKmh < 70.0 -> CyclingConstants.SPEED_COLOR_MAP["60-70 km/h"]!!
+            else -> CyclingConstants.SPEED_COLOR_MAP[">70 km/h"]!!
         }
     }
 

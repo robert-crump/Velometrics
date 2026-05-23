@@ -1,8 +1,6 @@
 package com.cyclegraph.app.ui.screens.navigation
 
-import android.content.Context
-import android.location.LocationListener
-import android.location.LocationManager
+import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,28 +9,28 @@ import com.cyclegraph.app.domain.model.GpxTrack
 import com.cyclegraph.app.domain.model.Poi
 import com.cyclegraph.app.domain.model.PoiWithDistances
 import com.cyclegraph.app.domain.repository.MapGraphRepository
+import com.cyclegraph.app.domain.service.LocationException
+import com.cyclegraph.app.domain.service.LocationSource
 import com.cyclegraph.app.domain.service.NavigationRouteHolder
 import com.cyclegraph.app.domain.service.TrackGeometryUtils
 import com.cyclegraph.app.util.CyclingConstants
 import com.cyclegraph.app.util.GeoUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
-import kotlin.coroutines.resume
 
 enum class PoiMode { NEARBY, ALONG_TRACK }
 enum class PoiTab  { LIST, MAP }
@@ -41,7 +39,7 @@ enum class PoiTab  { LIST, MAP }
 class NavigationViewModel @Inject constructor(
     private val mapGraphRepository: MapGraphRepository,
     private val navigationRouteHolder: NavigationRouteHolder,
-    @ApplicationContext private val context: Context
+    private val locationSource: LocationSource
 ) : ViewModel() {
 
     private val _gpxTrack = MutableStateFlow<GpxTrack?>(null)
@@ -171,14 +169,14 @@ class NavigationViewModel @Inject constructor(
 
     // --- GPX loading ---
 
-    fun loadGpxFromUri(uri: Uri) {
+    fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver) {
         viewModelScope.launch {
             _isLoadingGpx.value = true
             _errorMessage.value = null
             _allPois.value = emptyList()
             try {
                 val track = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                    contentResolver.openInputStream(uri)?.use { stream ->
                         GpxParser.parse(stream).getOrThrow()
                     } ?: error("Could not open file")
                 }
@@ -312,98 +310,23 @@ class NavigationViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetchRoughGpsPosition(): LatLng? = withContext(Dispatchers.Main) {
-        try {
-            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val provider = LocationManager.GPS_PROVIDER
-
-            if (!locationManager.isProviderEnabled(provider)) return@withContext null
-
-            val lastKnown = try {
-                @Suppress("MissingPermission")
-                locationManager.getLastKnownLocation(provider)
-            } catch (_: SecurityException) { null }
-
-            if (lastKnown != null && lastKnown.accuracy <= CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M) {
-                return@withContext LatLng(lastKnown.latitude, lastKnown.longitude)
-            }
-
-            val networkProvider = LocationManager.NETWORK_PROVIDER
-            if (locationManager.isProviderEnabled(networkProvider)) {
-                val networkLast = try {
-                    @Suppress("MissingPermission")
-                    locationManager.getLastKnownLocation(networkProvider)
-                } catch (_: SecurityException) { null }
-                if (networkLast != null && networkLast.accuracy <= CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M) {
-                    return@withContext LatLng(networkLast.latitude, networkLast.longitude)
-                }
-            }
-
-            suspendCancellableCoroutine { cont ->
-                val listener = object : LocationListener {
-                    override fun onLocationChanged(location: android.location.Location) {
-                        if (location.accuracy <= CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M) {
-                            try {
-                                @Suppress("MissingPermission")
-                                locationManager.removeUpdates(this)
-                            } catch (_: Exception) {}
-                            if (cont.isActive) cont.resume(LatLng(location.latitude, location.longitude))
-                        }
-                    }
-                }
-                cont.invokeOnCancellation {
-                    try {
-                        @Suppress("MissingPermission")
-                        locationManager.removeUpdates(listener)
-                    } catch (_: Exception) {}
-                }
-                try {
-                    @Suppress("MissingPermission")
-                    locationManager.requestLocationUpdates(
-                        provider, CyclingConstants.LOCATION_UPDATE_MIN_TIME_MS, 0f, listener, context.mainLooper
-                    )
-                } catch (e: SecurityException) {
-                    cont.resume(null)
-                }
-            }
-        } catch (e: Exception) {
-            null
-        }
+    private suspend fun fetchRoughGpsPosition(): LatLng? = try {
+        val cached = locationSource.lastKnownFix(CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M)
+        val fix = cached
+            ?: locationSource.fixes().first { it.accuracyM <= CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M }
+        LatLng(fix.lat, fix.lon)
+    } catch (_: LocationException) {
+        null
     }
 
     private fun startContinuousLocationTracking() {
         locationTrackingJob?.cancel()
-        locationTrackingJob = viewModelScope.launch(Dispatchers.Main) {
+        locationTrackingJob = viewModelScope.launch {
             try {
-                val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val provider = LocationManager.GPS_PROVIDER
-                if (!locationManager.isProviderEnabled(provider)) return@launch
-
-                suspendCancellableCoroutine<Unit> { cont ->
-                    val listener = LocationListener { location ->
-                        _userPosition.value = LatLng(location.latitude, location.longitude)
-                    }
-                    cont.invokeOnCancellation {
-                        try {
-                            @Suppress("MissingPermission")
-                            locationManager.removeUpdates(listener)
-                        } catch (_: Exception) {}
-                    }
-                    try {
-                        @Suppress("MissingPermission")
-                        locationManager.requestLocationUpdates(
-                            provider, CyclingConstants.LOCATION_UPDATE_MIN_TIME_MS, 0f, listener, context.mainLooper
-                        )
-                    } catch (e: SecurityException) {
-                        cont.resume(Unit)
-                    }
+                locationSource.fixes().collect {
+                    _userPosition.value = LatLng(it.lat, it.lon)
                 }
-            } catch (_: Exception) {}
+            } catch (_: LocationException) { /* swallow */ }
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        locationTrackingJob?.cancel()
     }
 }

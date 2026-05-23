@@ -113,7 +113,7 @@ fun NavigationScreen(
 
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> if (uri != null) viewModel.loadGpxFromUri(uri) }
+    ) { uri -> if (uri != null) viewModel.loadGpxFromUri(uri, context.contentResolver) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()

@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CycleGraph"
+rootProject.name = "Velometrics"
 include(":app")
  

@@ -78,14 +78,15 @@ fun NavigationScreen(
     val isLoadingGpx    by viewModel.isLoadingGpx.collectAsState()
     val isLoadingPois   by viewModel.isLoadingPois.collectAsState()
     val errorMessage    by viewModel.errorMessage.collectAsState()
-    val selectedPoi     by viewModel.selectedPoi.collectAsState()
-    val popupPoiWD      by viewModel.popupPoiWithDistances.collectAsState()
+    val poiSelection    by viewModel.poiSelection.collectAsState()
+    val selectedPoi    = poiSelection.selected?.poi
+    val popupPoiWD     = poiSelection.selected?.popup
+    val pendingZoomTo  = poiSelection.pendingZoomTo
     val lookAheadKm     by viewModel.lookAheadKm.collectAsState()
     val selectedMode    by viewModel.selectedMode.collectAsState()
     val selectedTab     by viewModel.selectedTab.collectAsState()
     val nearbyRadiusM   by viewModel.nearbyRadiusM.collectAsState()
     val searchCorridorM     by viewModel.searchCorridorM.collectAsState()
-    val navigateToPoi       by viewModel.navigateToPoi.collectAsState()
     val availableCategories by viewModel.availableCategories.collectAsState()
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
@@ -259,13 +260,13 @@ fun NavigationScreen(
     }
 
     // Fly to POI selected from list at ~500 m zoom (zoom 15)
-    LaunchedEffect(navigateToPoi, mapAndStyle) {
+    LaunchedEffect(pendingZoomTo, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
-        val poi = navigateToPoi ?: return@LaunchedEffect
+        val poi = pendingZoomTo ?: return@LaunchedEffect
         ms.first.easeCamera(
             CameraUpdateFactory.newLatLngZoom(LatLng(poi.lat, poi.lon), 15.0), 400
         )
-        viewModel.consumeNavigateToPoi()
+        viewModel.consumePoiCameraMove()
     }
 
     // Map click listener — cluster expand or POI popup
@@ -296,12 +297,12 @@ fun NavigationScreen(
                 val poiId = poiFeatures[0].getStringProperty("poiId")
                 val poiWD = latestPoisForClick.find { it.poi.poiId == poiId }
                 if (poiWD != null) {
-                    viewModel.selectPoiFromMap(poiWD)
+                    viewModel.pickPoiFromMap(poiWD)
                     return@addOnMapClickListener true
                 }
             }
 
-            if (latestPopupPoiWD != null) viewModel.clearPoiPopup()
+            if (latestPopupPoiWD != null) viewModel.dismissPoi()
             false
         }
     }
@@ -466,7 +467,7 @@ fun NavigationScreen(
                             items(pois, key = { it.poi.poiId }) { poiWD ->
                                 PoiRow(
                                     poiWD = poiWD,
-                                    onClick = { viewModel.selectPoi(poiWD) }
+                                    onClick = { viewModel.pickPoiFromList(poiWD) }
                                 )
                             }
 

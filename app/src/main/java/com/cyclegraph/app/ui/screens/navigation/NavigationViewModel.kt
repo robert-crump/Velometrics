@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cyclegraph.app.data.gpx.GpxParser
 import com.cyclegraph.app.domain.model.GpxTrack
-import com.cyclegraph.app.domain.model.Poi
 import com.cyclegraph.app.domain.model.PoiWithDistances
 import com.cyclegraph.app.domain.repository.MapGraphRepository
 import com.cyclegraph.app.domain.service.LocationException
@@ -27,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
@@ -88,18 +88,8 @@ class NavigationViewModel @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _selectedPoi = MutableStateFlow<Poi?>(null)
-    val selectedPoi: StateFlow<Poi?> = _selectedPoi.asStateFlow()
-
-    private val _highlightedPoiId = MutableStateFlow<String?>(null)
-    val highlightedPoiId: StateFlow<String?> = _highlightedPoiId.asStateFlow()
-
-    private val _popupPoiWithDistances = MutableStateFlow<PoiWithDistances?>(null)
-    val popupPoiWithDistances: StateFlow<PoiWithDistances?> = _popupPoiWithDistances.asStateFlow()
-
-    /** One-shot: set when a POI is selected from the list to trigger camera zoom on the map. */
-    private val _navigateToPoi = MutableStateFlow<Poi?>(null)
-    val navigateToPoi: StateFlow<Poi?> = _navigateToPoi.asStateFlow()
+    private val _poiSelection = MutableStateFlow(PoiSelectionState.None)
+    val poiSelection: StateFlow<PoiSelectionState> = _poiSelection.asStateFlow()
 
     private var locationTrackingJob: Job? = null
 
@@ -118,18 +108,14 @@ class NavigationViewModel @Inject constructor(
         _selectedMode.value = mode
         _allPois.value = emptyList()
         _selectedTab.value = PoiTab.LIST
-        _popupPoiWithDistances.value = null
-        _selectedPoi.value = null
-        _navigateToPoi.value = null
+        _poiSelection.value = PoiSelectionState.None
         _errorMessage.value = null
     }
 
     fun resetMode() {
         _selectedMode.value = null
         _allPois.value = emptyList()
-        _popupPoiWithDistances.value = null
-        _selectedPoi.value = null
-        _navigateToPoi.value = null
+        _poiSelection.value = PoiSelectionState.None
         _errorMessage.value = null
     }
 
@@ -144,26 +130,22 @@ class NavigationViewModel @Inject constructor(
 
     // --- POI selection / popup ---
 
-    fun setHighlightedPoi(poiId: String?) { _highlightedPoiId.value = poiId }
-
-    fun selectPoiFromMap(poiWD: PoiWithDistances) {
-        _popupPoiWithDistances.value = poiWD
-        _selectedPoi.value = poiWD.poi
-    }
-
-    fun clearPoiPopup() {
-        _popupPoiWithDistances.value = null
-        _selectedPoi.value = null
-    }
-
-    fun selectPoi(poiWD: PoiWithDistances) {
-        _selectedPoi.value = poiWD.poi
-        _navigateToPoi.value = poiWD.poi   // triggers camera zoom in screen
-        _popupPoiWithDistances.value = poiWD
+    fun pickPoiFromList(poiWD: PoiWithDistances) {
+        _poiSelection.update { it.pickFromList(poiWD) }
         _selectedTab.value = PoiTab.MAP
     }
 
-    fun consumeNavigateToPoi() { _navigateToPoi.value = null }
+    fun pickPoiFromMap(poiWD: PoiWithDistances) {
+        _poiSelection.update { it.pickFromMap(poiWD) }
+    }
+
+    fun dismissPoi() {
+        _poiSelection.update { it.dismiss() }
+    }
+
+    fun consumePoiCameraMove() {
+        _poiSelection.update { it.consumeCameraMove() }
+    }
 
     fun setCategoryFilter(category: String?) { _selectedCategory.value = category }
 

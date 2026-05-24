@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cyclegraph.app.domain.model.CyclingSession
 import com.cyclegraph.app.domain.model.IntervalSession
+import com.cyclegraph.app.domain.model.energy
 import com.cyclegraph.app.domain.service.SessionComparison
 import com.cyclegraph.app.ui.components.*
 import com.cyclegraph.app.util.CyclingConstants.TRACK_FIT_PADDING
@@ -620,14 +621,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
                     label = "Calories",
-                    value = if (session.fatBurnedGrams != null && session.carbsBurnedGrams != null) {
-                        val totalKcal = maxOf(0.0, session.fatBurnedGrams!!) * 9.3 + maxOf(0.0, session.carbsBurnedGrams!!) * 4.1
-                        val kcalInt = totalKcal.toLong()
-                        // Format with '.' as thousands separator (e.g. 1.234 kcal)
-                        val formatted = kcalInt.toString().reversed()
-                            .chunked(3).joinToString(".").reversed()
-                        "$formatted kcal"
-                    } else "—",
+                    value = session.energy?.formatTotalKcal() ?: "—",
                     current = null,
                     median = null,
                     higherIsBetter = false
@@ -663,9 +657,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
                     label = "Fat / Carbs",
-                    value = if (session.fatBurnedGrams != null && session.carbsBurnedGrams != null)
-                        "%.0fg / %.0fg".format(maxOf(0.0, session.fatBurnedGrams!!), maxOf(0.0, session.carbsBurnedGrams!!))
-                    else "—",
+                    value = session.energy?.formatFatCarbGrams() ?: "—",
                     current = null,
                     median = null,
                     higherIsBetter = false

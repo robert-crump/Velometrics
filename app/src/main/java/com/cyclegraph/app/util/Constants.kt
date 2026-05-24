@@ -30,6 +30,7 @@ object CyclingConstants {
     // Physics / calculation
     const val MTS_PER_SEC_TO_KMH = 3.6             // m/s → km/h conversion factor
     const val KCAL_PER_GRAM_FAT = 9.3              // dietary fat energy density (kcal/g)
+    const val KCAL_PER_GRAM_CARB = 4.1             // dietary carbohydrate energy density (kcal/g)
     const val NORMALIZED_POWER_WINDOW = 29          // rolling window size for normalized power (30-sec)
     const val MINIMUM_GPS_DATAPOINTS = 60           // min GPS points required to import a ride
     const val POWER_DATA_COVERAGE_THRESHOLD = 0.10  // fraction of points needing power to count as power ride

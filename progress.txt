@@ -55,3 +55,43 @@ Completed: 2026-05-23
 
 ### Tests
 104 unit tests pass (including 5 new `NavigationViewModelTest` cases).
+
+---
+
+## Issue #6 — Move "POIs nearby" from "Navigate" to "Map"
+Completed: 2026-06-04
+
+### What was done
+
+**Shared component extraction**
+- Added `categoryDisplayName()` and `formatPoiDistance()` to `FormatUtils.kt` (promoted from
+  private functions in `NavigationScreen`)
+- Created `ui/components/PoiPopupCard.kt`: shared composable displaying POI name, category,
+  opening hours (conditional), air distance (conditional on GPS), and "Open in Maps" button;
+  `openPoiInGoogleMaps()` top-level function alongside it
+
+**POI layer on Map tab (`MapViewScreen` / `MapViewViewModel`)**
+- `MapViewViewModel`: lazy-loads all POIs from repository on first toggle of the POI layer;
+  derives `visiblePois` by combining `_allPois`, `_viewportBounds`, and `_selectedPoiCategories`
+  via `combine`; `selectPoiFromMap()` computes air distance from current GPS fix (null if
+  unavailable); `updateViewportBounds()` called by the screen's camera idle listener
+- `MapViewScreen`: registers `addOnCameraIdleListener` in `onMapReady` to keep viewport bounds
+  in sync; `LaunchedEffect` for POI rendering and highlight; extended map click listener handles
+  cluster zoom-in, individual POI popup, then falls through to existing interval tap logic;
+  `PoiPopupCard` shown at bottom center when a POI is selected
+- Layers bottom sheet: POI toggle row; indented `Checkbox` sub-rows per category, only visible
+  when the POI layer is on; all categories activated by default when layer first enabled;
+  relies on MapLibre clustering (radius 50, maxZoom 14) instead of a zoom floor
+
+**Remove NEARBY mode from Navigate**
+- `NavigationViewModel`: removed `PoiMode` enum, `selectedMode`, `fetchPoisNearbyByRadius()`,
+  `nearbyRadiusM`/`setNearbyRadius()`; Navigate is now always in ALONG_TRACK mode;
+  `setUserPositionFromPermission()` and `refreshDistances()` simplified accordingly
+- `NavigationScreen`: removed `ModeSelectionScreen` composable and mode-selection flow;
+  screen opens directly to LIST/MAP tabs; GPX file picker moved to a Route icon in the
+  TopAppBar actions; permission request triggered on GPX load via `LaunchedEffect(gpxTrack)`
+- `NavigationViewModelTest`: removed 4 NEARBY-specific tests; updated the ALONG_TRACK
+  permission-fallback test (no longer requires `setMode()`)
+
+### Tests
+100 unit tests pass.

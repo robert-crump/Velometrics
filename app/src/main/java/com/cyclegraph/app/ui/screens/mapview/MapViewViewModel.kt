@@ -7,6 +7,8 @@ import com.cyclegraph.app.domain.model.CyclingSession
 import com.cyclegraph.app.domain.model.IntervalPrototypeRoute
 import com.cyclegraph.app.domain.model.IntervalSession
 import com.cyclegraph.app.domain.model.MapEdge
+import com.cyclegraph.app.domain.model.Poi
+import com.cyclegraph.app.domain.model.PoiWithDistances
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
 import com.cyclegraph.app.domain.repository.IntervalRepository
 import com.cyclegraph.app.domain.repository.MapGraphRepository
@@ -14,6 +16,7 @@ import com.cyclegraph.app.domain.service.HeatmapService
 import com.cyclegraph.app.domain.service.LocationException
 import com.cyclegraph.app.domain.service.LocationSource
 import com.cyclegraph.app.util.CyclingConstants
+import com.cyclegraph.app.util.GeoUtils
 import com.cyclegraph.app.util.IntervalGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -21,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import javax.inject.Inject
 
 @HiltViewModel
@@ -147,6 +153,67 @@ class MapViewViewModel @Inject constructor(
         _selectedGroup.value = null
         _highlightedIntervalId.value = null
     }
+
+    // --- POI layer ---
+
+    private val _allPois = MutableStateFlow<List<Poi>>(emptyList())
+
+    private val _showPoiLayer = MutableStateFlow(false)
+    val showPoiLayer: StateFlow<Boolean> = _showPoiLayer.asStateFlow()
+
+    private val _selectedPoiCategories = MutableStateFlow<Set<String>>(emptySet())
+    val selectedPoiCategories: StateFlow<Set<String>> = _selectedPoiCategories.asStateFlow()
+
+    private val _viewportBounds = MutableStateFlow<LatLngBounds?>(null)
+
+    private val _selectedPoi = MutableStateFlow<PoiWithDistances?>(null)
+    val selectedPoi: StateFlow<PoiWithDistances?> = _selectedPoi.asStateFlow()
+
+    val availablePoiCategories: StateFlow<List<String>> = _allPois
+        .map { pois -> pois.map { it.category }.distinct().sorted() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val visiblePois: StateFlow<List<Poi>> = combine(
+        _allPois, _viewportBounds, _selectedPoiCategories
+    ) { pois, bounds, categories ->
+        if (bounds == null || categories.isEmpty()) emptyList()
+        else pois.filter { poi ->
+            poi.category in categories && bounds.contains(LatLng(poi.lat, poi.lon))
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun togglePoiLayer() {
+        val enabling = !_showPoiLayer.value
+        _showPoiLayer.value = enabling
+        if (enabling) {
+            viewModelScope.launch {
+                if (_allPois.value.isEmpty()) {
+                    _allPois.value = mapGraphRepository.getAllPois().first()
+                }
+                _selectedPoiCategories.value = _allPois.value.map { it.category }.toSet()
+            }
+        }
+    }
+
+    fun togglePoiCategory(category: String) {
+        _selectedPoiCategories.update { current ->
+            if (category in current) current - category else current + category
+        }
+    }
+
+    fun updateViewportBounds(bounds: LatLngBounds) {
+        _viewportBounds.value = bounds
+    }
+
+    fun selectPoiFromMap(poi: Poi) {
+        val loc = _currentLocation.value
+        val distanceM = if (loc != null) {
+            GeoUtils.haversineDistance(loc.latitude, loc.longitude, poi.lat, poi.lon)
+        } else null
+        _selectedPoi.value = PoiWithDistances(poi, distanceM, trackDistanceM = null)
+    }
+
+    fun dismissPoi() { _selectedPoi.value = null }
 
     // --- Current location with accuracy ---
 

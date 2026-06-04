@@ -32,8 +32,7 @@ import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 
-enum class PoiMode { NEARBY, ALONG_TRACK }
-enum class PoiTab  { LIST, MAP }
+enum class PoiTab { LIST, MAP }
 
 @HiltViewModel
 class NavigationViewModel @Inject constructor(
@@ -53,15 +52,8 @@ class NavigationViewModel @Inject constructor(
     private val _lookAheadKm = MutableStateFlow(2.0)
     val lookAheadKm: StateFlow<Double> = _lookAheadKm.asStateFlow()
 
-    private val _selectedMode = MutableStateFlow<PoiMode?>(null)
-    val selectedMode: StateFlow<PoiMode?> = _selectedMode.asStateFlow()
-
     private val _selectedTab = MutableStateFlow(PoiTab.LIST)
     val selectedTab: StateFlow<PoiTab> = _selectedTab.asStateFlow()
-
-    // Nearby radius in metres; discrete values: 200, 500, 1000, 2000, 5000
-    private val _nearbyRadiusM = MutableStateFlow(500.0)
-    val nearbyRadiusM: StateFlow<Double> = _nearbyRadiusM.asStateFlow()
 
     // Search corridor for ALONG_TRACK mode in metres; discrete values: 50, 200, 500, 1000, 5000
     private val _searchCorridorM = MutableStateFlow(200.0)
@@ -102,25 +94,7 @@ class NavigationViewModel @Inject constructor(
         }
     }
 
-    // --- Mode / Tab management ---
-
-    fun setMode(mode: PoiMode) {
-        _selectedMode.value = mode
-        _allPois.value = emptyList()
-        _selectedTab.value = PoiTab.LIST
-        _poiSelection.value = PoiSelectionState.None
-        _errorMessage.value = null
-    }
-
-    fun resetMode() {
-        _selectedMode.value = null
-        _allPois.value = emptyList()
-        _poiSelection.value = PoiSelectionState.None
-        _errorMessage.value = null
-    }
-
     fun setSelectedTab(tab: PoiTab) { _selectedTab.value = tab }
-    fun setNearbyRadius(m: Double) { _nearbyRadiusM.value = m }
     fun setSearchCorridorM(m: Double) { _searchCorridorM.value = m }
 
     fun setLookAheadKm(km: Double) {
@@ -183,40 +157,7 @@ class NavigationViewModel @Inject constructor(
 
     // --- POI fetching ---
 
-    /** Fetches POIs within a radius of the user's current GPS position (NEARBY mode). */
-    fun fetchPoisNearbyByRadius() {
-        viewModelScope.launch {
-            _isLoadingPois.value = true
-            _errorMessage.value = null
-            try {
-                val position = fetchRoughGpsPosition() ?: run {
-                    _errorMessage.value = "No GPS position available"
-                    return@launch
-                }
-                _userPosition.value = position
-
-                val radiusM = _nearbyRadiusM.value
-                val allRepoPois = mapGraphRepository.getAllPois().first()
-
-                val result = allRepoPois.mapNotNull { poi ->
-                    val airDistM = GeoUtils.haversineDistance(
-                        position.latitude, position.longitude, poi.lat, poi.lon
-                    )
-                    if (airDistM <= radiusM) PoiWithDistances(poi, airDistM, trackDistanceM = null)
-                    else null
-                }.sortedBy { it.airDistanceM ?: Double.MAX_VALUE }
-
-                _allPois.value = result
-                startContinuousLocationTracking()
-            } catch (e: Exception) {
-                _errorMessage.value = "POI lookup failed: ${e.message}"
-            } finally {
-                _isLoadingPois.value = false
-            }
-        }
-    }
-
-    /** Fetches POIs along the loaded GPX track (ALONG_TRACK mode). */
+    /** Fetches POIs along the loaded GPX track. */
     fun fetchPoisAlongTrack() {
         val track = _gpxTrack.value ?: run {
             _errorMessage.value = "Load a GPX track first"
@@ -274,16 +215,10 @@ class NavigationViewModel @Inject constructor(
         }
     }
 
-    fun refreshDistances() {
-        when (_selectedMode.value) {
-            PoiMode.NEARBY      -> fetchPoisNearbyByRadius()
-            PoiMode.ALONG_TRACK -> fetchPoisAlongTrack()
-            null                -> {}
-        }
-    }
+    fun refreshDistances() { fetchPoisAlongTrack() }
 
     fun setUserPositionFromPermission(granted: Boolean) {
-        if (!granted && _selectedMode.value == PoiMode.ALONG_TRACK) {
+        if (!granted) {
             val fallback = _gpxTrack.value?.points?.firstOrNull()
             if (fallback != null) {
                 _userPosition.value = fallback

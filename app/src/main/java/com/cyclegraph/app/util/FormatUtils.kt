@@ -90,4 +90,25 @@ object FormatUtils {
         val diffFormatted = "${sign}${formatDuration(abs(diff))}"
         return "$currentFormatted ($diffFormatted | %+d%%)".format(pct)
     }
+
+    fun categoryDisplayName(category: String): String = when (category) {
+        "cafe"       -> "Café"
+        "bakery"     -> "Bakery"
+        "restaurant" -> "Restaurant"
+        "fast_food"  -> "Fast food"
+        "fuel"       -> "Fuel station"
+        "friture"    -> "Friture"
+        else         -> category.replaceFirstChar { it.uppercase() }
+    }
+
+    // Formats a distance in metres: < 1 km → nearest 10 m; ≥ 1 km → one decimal with comma separator
+    fun formatPoiDistance(m: Double): String {
+        return if (m < 1000.0) {
+            val rounded = ((m / 10.0).roundToInt() * 10).coerceAtLeast(10)
+            "$rounded m"
+        } else {
+            val km = m / 1000.0
+            "${"%.1f".format(km).replace('.', ',')} km"
+        }
+    }
 }

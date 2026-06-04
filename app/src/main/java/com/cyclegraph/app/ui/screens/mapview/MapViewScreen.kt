@@ -14,12 +14,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cyclegraph.app.domain.model.IntervalSession
@@ -27,7 +29,11 @@ import com.cyclegraph.app.ui.components.ComposableMapView
 import com.cyclegraph.app.ui.components.MapHeatmapRenderer
 import com.cyclegraph.app.ui.components.MapIntervalRenderer
 import com.cyclegraph.app.ui.components.MapOverlayRenderer
+import com.cyclegraph.app.ui.components.MapPoiRenderer
 import com.cyclegraph.app.ui.components.MapTrackRenderer
+import com.cyclegraph.app.ui.components.PoiPopupCard
+import com.cyclegraph.app.ui.components.openPoiInGoogleMaps
+import com.cyclegraph.app.util.FormatUtils
 import com.cyclegraph.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.cyclegraph.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
 import com.cyclegraph.app.util.CyclingConstants.SPEED_COLOR_MAP
@@ -35,7 +41,6 @@ import com.cyclegraph.app.util.CyclingConstants.STOP_COLOR_LONG
 import com.cyclegraph.app.util.CyclingConstants.STOP_COLOR_MEDIUM
 import com.cyclegraph.app.util.CyclingConstants.STOP_COLOR_SHORT
 import com.cyclegraph.app.util.CyclingConstants.TRACK_COLORS
-import com.cyclegraph.app.util.FormatUtils
 import com.cyclegraph.app.util.GpsTrackParser
 import com.cyclegraph.app.util.IntervalGroup
 import com.cyclegraph.app.util.MapOverlayUtils
@@ -83,6 +88,12 @@ fun MapViewScreen(
     val intervalGroups = intervalData.first
     val ungroupedIntervals = intervalData.second
 
+    val showPoiLayer by viewModel.showPoiLayer.collectAsState()
+    val visiblePois by viewModel.visiblePois.collectAsState()
+    val availablePoiCategories by viewModel.availablePoiCategories.collectAsState()
+    val selectedPoiCategories by viewModel.selectedPoiCategories.collectAsState()
+    val selectedPoi by viewModel.selectedPoi.collectAsState()
+
     val currentLocation by viewModel.currentLocation.collectAsState()
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
     val isAcquiringGps by viewModel.isAcquiringGps.collectAsState()
@@ -105,6 +116,8 @@ fun MapViewScreen(
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
+
+    val context = LocalContext.current
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
@@ -129,6 +142,8 @@ fun MapViewScreen(
     val currentShowInterval by rememberUpdatedState(showIntervalOverlay)
     val currentGroups by rememberUpdatedState(intervalGroups)
     val currentAllIntervals by rememberUpdatedState(allIntervals)
+    val currentShowPoi by rememberUpdatedState(showPoiLayer)
+    val currentVisiblePois by rememberUpdatedState(visiblePois)
 
     // Sync visible tracks with map
     LaunchedEffect(visibleSessionIds, mapAndStyle) {
@@ -198,6 +213,21 @@ fun MapViewScreen(
         }
     }
 
+    // POI layer sync
+    LaunchedEffect(showPoiLayer, visiblePois, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        MapPoiRenderer.removePois(ms.second)
+        if (showPoiLayer && visiblePois.isNotEmpty()) {
+            MapPoiRenderer.addPois(ms.second, visiblePois)
+        }
+    }
+
+    // POI highlight sync
+    LaunchedEffect(selectedPoi, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        MapPoiRenderer.highlightPoi(ms.second, selectedPoi?.poi)
+    }
+
     // Interval overlay sync
     LaunchedEffect(showIntervalOverlay, ungroupedIntervals, intervalGroups, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
@@ -222,12 +252,42 @@ fun MapViewScreen(
         }
     }
 
-    // Map click listener for interval tap interaction
+    // Map click listener for POI and interval tap interaction
     LaunchedEffect(mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         ms.first.addOnMapClickListener { latLng ->
-            if (!currentShowInterval) return@addOnMapClickListener false
             val screenPoint = ms.first.projection.toScreenLocation(latLng)
+
+            // POI cluster tap → zoom in
+            if (currentShowPoi) {
+                val clusterFeatures = ms.first.queryRenderedFeatures(screenPoint, MapPoiRenderer.POI_CLUSTER_LAYER)
+                if (clusterFeatures.isNotEmpty()) {
+                    val feature = clusterFeatures[0]
+                    val geo = feature.geometry()
+                    val lat = if (geo is Point) geo.latitude() else latLng.latitude
+                    val lon = if (geo is Point) geo.longitude() else latLng.longitude
+                    ms.first.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), ms.first.cameraPosition.zoom + 2.0), 500
+                    )
+                    return@addOnMapClickListener true
+                }
+
+                // Individual POI tap → popup
+                val poiFeatures = ms.first.queryRenderedFeatures(screenPoint, MapPoiRenderer.POI_LAYER)
+                if (poiFeatures.isNotEmpty()) {
+                    val poiId = poiFeatures[0].getStringProperty("poiId")
+                    val poi = currentVisiblePois.find { it.poiId == poiId }
+                    if (poi != null) {
+                        viewModel.selectPoiFromMap(poi)
+                        return@addOnMapClickListener true
+                    }
+                }
+            }
+
+            if (!currentShowInterval) {
+                viewModel.dismissPoi()
+                return@addOnMapClickListener false
+            }
 
             // Query grouped layer first (higher priority)
             val groupedFeatures = ms.first.queryRenderedFeatures(screenPoint, "interval-grouped-layer")
@@ -248,6 +308,7 @@ fun MapViewScreen(
             }
 
             viewModel.clearSelection()
+            viewModel.dismissPoi()
             false
         }
     }
@@ -259,6 +320,10 @@ fun MapViewScreen(
             gesturesEnabled = true,
             onMapReady = { map, style ->
                 mapAndStyle = Pair(map, style)
+                viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                map.addOnCameraIdleListener {
+                    viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                }
             }
         )
 
@@ -270,6 +335,17 @@ fun MapViewScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
+            )
+        }
+
+        // POI popup card
+        selectedPoi?.let { poiWD ->
+            PoiPopupCard(
+                poiWithDistances = poiWD,
+                onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
             )
         }
 
@@ -406,6 +482,41 @@ fun MapViewScreen(
                         checked = showIntervalOverlay,
                         onCheckedChange = { viewModel.toggleIntervalOverlay() }
                     )
+                }
+
+                // POIs toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("POIs", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = showPoiLayer,
+                        onCheckedChange = { viewModel.togglePoiLayer() }
+                    )
+                }
+
+                // Category sub-layers (only when POI layer is on)
+                if (showPoiLayer) {
+                    availablePoiCategories.forEach { category ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                FormatUtils.categoryDisplayName(category),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Checkbox(
+                                checked = category in selectedPoiCategories,
+                                onCheckedChange = { viewModel.togglePoiCategory(category) }
+                            )
+                        }
+                    }
                 }
 
                 if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showHeatmap || showIntervalOverlay) {

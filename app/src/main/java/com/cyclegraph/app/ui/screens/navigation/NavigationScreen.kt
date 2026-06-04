@@ -1,36 +1,69 @@
 package com.cyclegraph.app.ui.screens.navigation
 
-import android.graphics.PointF
+import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.cyclegraph.app.domain.model.PoiWithDistances
-import com.cyclegraph.app.domain.service.TrackGeometryUtils
 import com.cyclegraph.app.ui.components.ComposableMapView
 import com.cyclegraph.app.ui.components.MapPoiRenderer
 import com.cyclegraph.app.ui.components.MapTrackRenderer
@@ -38,6 +71,7 @@ import com.cyclegraph.app.ui.components.PoiPopupCard
 import com.cyclegraph.app.ui.components.openPoiInGoogleMaps
 import com.cyclegraph.app.util.CyclingConstants
 import com.cyclegraph.app.util.FormatUtils
+import com.cyclegraph.app.util.OpeningHoursUtils
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -48,15 +82,6 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.roundToInt
-import kotlin.math.sin
-
-private val LOOK_AHEAD_OPTIONS      = listOf(1.0, 2.0, 5.0, 10.0, 20.0)   // km
-private val SEARCH_CORRIDOR_OPTIONS = listOf(50.0, 200.0, 500.0, 1000.0, 5000.0) // metres
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,35 +89,31 @@ fun NavigationScreen(
     viewModel: NavigationViewModel = hiltViewModel(),
     onNavigateToHome: () -> Unit = {}
 ) {
-    val gpxTrack        by viewModel.gpxTrack.collectAsState()
-    val userPosition    by viewModel.userPosition.collectAsState()
-    val pois            by viewModel.pois.collectAsState()
-    val selectedCategory by viewModel.selectedCategory.collectAsState()
-    val isLoadingPois   by viewModel.isLoadingPois.collectAsState()
-    val errorMessage    by viewModel.errorMessage.collectAsState()
-    val poiSelection    by viewModel.poiSelection.collectAsState()
-    val selectedPoi    = poiSelection.selected?.poi
-    val popupPoiWD     = poiSelection.selected?.popup
-    val pendingZoomTo  = poiSelection.pendingZoomTo
-    val lookAheadKm     by viewModel.lookAheadKm.collectAsState()
-    val selectedTab     by viewModel.selectedTab.collectAsState()
-    val searchCorridorM     by viewModel.searchCorridorM.collectAsState()
-    val availableCategories by viewModel.availableCategories.collectAsState()
+    val gpxTrack       by viewModel.gpxTrack.collectAsState()
+    val userPosition   by viewModel.userPosition.collectAsState()
+    val pois           by viewModel.pois.collectAsState()
+    val isLoadingPois  by viewModel.isLoadingPois.collectAsState()
+    val errorMessage   by viewModel.errorMessage.collectAsState()
+    val poiSelection   by viewModel.poiSelection.collectAsState()
+    val lookAheadOption by viewModel.lookAheadOption.collectAsState()
+    val selectedPoi  = poiSelection.selected?.poi
+    val popupPoiWD   = poiSelection.selected?.popup
+    val pendingZoomTo = poiSelection.pendingZoomTo
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var trackRendered by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
-    var pendingCameraFit by remember { mutableStateOf(false) }
-
-    var lookAheadSliderIndex by remember {
-        mutableStateOf(LOOK_AHEAD_OPTIONS.indexOf(lookAheadKm).let { if (it < 0) 1 else it }.toFloat())
-    }
-    var corridorSliderIndex by remember {
-        mutableStateOf(SEARCH_CORRIDOR_OPTIONS.indexOf(searchCorridorM).let { if (it < 0) 1 else it }.toFloat())
-    }
-
-    val listState = rememberLazyListState()
     val context = LocalContext.current
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val peekHeight = (screenHeightDp * 0.25f).dp
+
+    val scaffoldState = rememberBottomSheetScaffoldState(
+        bottomSheetState = rememberStandardBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            skipHiddenState = false
+        )
+    )
 
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -100,65 +121,29 @@ fun NavigationScreen(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        viewModel.setUserPositionFromPermission(granted)
-        if (granted && viewModel.gpxTrack.value != null) {
-            viewModel.fetchPoisAlongTrack()
-        }
+    ) { _ ->
+        if (viewModel.gpxTrack.value != null) viewModel.refreshUserPosition()
     }
 
-    // Initialise slider positions on first composition
-    LaunchedEffect(Unit) {
-        lookAheadSliderIndex = LOOK_AHEAD_OPTIONS.indexOf(viewModel.lookAheadKm.value)
-            .let { if (it < 0) 1 else it }.toFloat()
-        corridorSliderIndex = SEARCH_CORRIDOR_OPTIONS.indexOf(viewModel.searchCorridorM.value)
-            .let { if (it < 0) 1 else it }.toFloat()
-        pendingCameraFit = true
-    }
-
-    // When GPX track loads → request permission + schedule camera fit
+    // When GPX loads → request location permission; when cleared → hide sheet
     LaunchedEffect(gpxTrack) {
         if (gpxTrack != null) {
-            permissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
-            pendingCameraFit = true
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            scaffoldState.bottomSheetState.partialExpand()
+        } else {
+            scaffoldState.bottomSheetState.hide()
         }
     }
 
-    // Re-fit camera when look-ahead changes
-    LaunchedEffect(lookAheadKm) { pendingCameraFit = true }
-
-    val latestPois         by rememberUpdatedState(pois)
-    val latestUserPos      by rememberUpdatedState(userPosition)
-    val latestGpxTrack     by rememberUpdatedState(gpxTrack)
-    val latestLookAheadKm  by rememberUpdatedState(lookAheadKm)
-
-    // Camera fit — fires once per pendingCameraFit=true, only when MAP tab is active
-    LaunchedEffect(pendingCameraFit, selectedTab, mapAndStyle) {
-        if (!pendingCameraFit || selectedTab != PoiTab.MAP) return@LaunchedEffect
+    // Camera fit — fires once per GPX load, fits full track into view
+    LaunchedEffect(gpxTrack, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
-        val track = latestGpxTrack
-        if (track == null || track.points.size < 2) return@LaunchedEffect
-        val pos = latestUserPos
-        if (pos != null) {
-            val projection = TrackGeometryUtils.projectPointOntoTrack(pos, track.points)
-            val sub = TrackGeometryUtils.extractSubTrack(
-                track.points, projection,
-                lookAheadM = latestLookAheadKm * 1000.0,
-                lookBackM  = latestLookAheadKm * 1000.0
-            )
-            if (sub.size >= 2) {
-                val b = LatLngBounds.Builder().apply { sub.forEach { include(it) } }
-                ms.first.easeCamera(
-                    CameraUpdateFactory.newLatLngBounds(b.build(), CyclingConstants.TRACK_FIT_PADDING), 500
-                )
-            }
-        } else {
-            val b = LatLngBounds.Builder().apply { track.points.forEach { include(it) } }
-            ms.first.easeCamera(
-                CameraUpdateFactory.newLatLngBounds(b.build(), CyclingConstants.TRACK_FIT_PADDING), 500
-            )
-        }
-        pendingCameraFit = false
+        val track = gpxTrack ?: return@LaunchedEffect
+        if (track.points.size < 2) return@LaunchedEffect
+        val bounds = LatLngBounds.Builder().apply { track.points.forEach { include(it) } }.build()
+        ms.first.easeCamera(
+            CameraUpdateFactory.newLatLngBounds(bounds, CyclingConstants.TRACK_FIT_PADDING), 500
+        )
     }
 
     // Render GPX track on map
@@ -195,7 +180,7 @@ fun NavigationScreen(
         MapPoiRenderer.highlightPoi(ms.second, latestSelectedPoiForRender)
     }
 
-    // Keep selected POI highlighted on map
+    // Keep selected POI highlighted
     LaunchedEffect(selectedPoi, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapPoiRenderer.highlightPoi(ms.second, selectedPoi)
@@ -225,9 +210,8 @@ fun NavigationScreen(
                 val geo = feature.geometry()
                 val lat = if (geo is Point) geo.latitude() else latLng.latitude
                 val lon = if (geo is Point) geo.longitude() else latLng.longitude
-                val zoom = ms.first.cameraPosition.zoom
                 ms.first.animateCamera(
-                    CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), zoom + 2.0), 500
+                    CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), ms.first.cameraPosition.zoom + 2.0), 500
                 )
                 return@addOnMapClickListener true
             }
@@ -248,201 +232,159 @@ fun NavigationScreen(
     }
 
     // ---- UI Layout ----
-    val isListTab = selectedTab == PoiTab.LIST
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Navigate") },
-            actions = {
-                IconButton(onClick = {
-                    gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
-                }) {
-                    Icon(Icons.Default.Route, contentDescription = "Load GPX route")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Navigate") },
+                actions = {
+                    if (gpxTrack != null) {
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Load new .gpx") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Clear map") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.clearGpx()
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-        )
-
-        TabRow(selectedTabIndex = if (isListTab) 0 else 1) {
-            Tab(
-                selected = isListTab,
-                onClick = { viewModel.setSelectedTab(PoiTab.LIST) },
-                text = { Text("List") }
-            )
-            Tab(
-                selected = !isListTab,
-                onClick = { viewModel.setSelectedTab(PoiTab.MAP) },
-                text = { Text("Map") }
             )
         }
+    ) { outerPadding ->
+        BottomSheetScaffold(
+            modifier = Modifier.padding(outerPadding),
+            scaffoldState = scaffoldState,
+            sheetPeekHeight = peekHeight,
+            sheetContent = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        LookAheadOption.entries.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = lookAheadOption == option,
+                                onClick = { viewModel.setLookAheadOption(option) },
+                                shape = SegmentedButtonDefaults.itemShape(index, LookAheadOption.entries.size),
+                                label = { Text("Next ${option.km}km") }
+                            )
+                        }
+                    }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+                    HorizontalDivider()
 
-            // ---- LIST PANEL ----
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = if (isListTab) 1f else 0f }
-                    .zIndex(if (isListTab) 1f else 0f)
-            ) {
-                if (gpxTrack != null) {
-                    val laIdx = lookAheadSliderIndex.roundToInt()
-                        .coerceIn(0, LOOK_AHEAD_OPTIONS.lastIndex)
-                    Text(
-                        text = "Search radius: ${FormatUtils.formatPoiDistance(LOOK_AHEAD_OPTIONS[laIdx] * 1000.0)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
-                    )
-                    Slider(
-                        value = lookAheadSliderIndex,
-                        onValueChange = { lookAheadSliderIndex = it },
-                        onValueChangeFinished = {
-                            val idx = lookAheadSliderIndex.roundToInt()
-                                .coerceIn(0, LOOK_AHEAD_OPTIONS.lastIndex)
-                            viewModel.setLookAheadKm(LOOK_AHEAD_OPTIONS[idx])
-                        },
-                        valueRange = 0f..4f,
-                        steps = 3,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-
-                    val corrIdx = corridorSliderIndex.roundToInt()
-                        .coerceIn(0, SEARCH_CORRIDOR_OPTIONS.lastIndex)
-                    Text(
-                        text = "Search corridor: ${FormatUtils.formatPoiDistance(SEARCH_CORRIDOR_OPTIONS[corrIdx])}",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
-                    )
-                    Slider(
-                        value = corridorSliderIndex,
-                        onValueChange = { corridorSliderIndex = it },
-                        onValueChangeFinished = {
-                            val idx = corridorSliderIndex.roundToInt()
-                                .coerceIn(0, SEARCH_CORRIDOR_OPTIONS.lastIndex)
-                            viewModel.setSearchCorridorM(SEARCH_CORRIDOR_OPTIONS[idx])
-                            viewModel.fetchPoisAlongTrack()
-                        },
-                        valueRange = 0f..4f,
-                        steps = 3,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
-
-                errorMessage?.let { error ->
-                    Text(
-                        text = error,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                    )
-                }
-
-                CategoryFilterDropdown(
-                    availableCategories = availableCategories,
-                    selectedCategory = selectedCategory,
-                    onFilter = { viewModel.setCategoryFilter(it) }
-                )
-                Text(
-                    text = "Total: ${pois.size} results",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                )
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    items(pois, key = { it.poi.poiId }) { poiWD ->
-                        PoiRow(
-                            poiWD = poiWD,
-                            onClick = { viewModel.pickPoiFromList(poiWD) }
+                    errorMessage?.let { msg ->
+                        Text(
+                            text = msg,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }
 
-                    if (pois.isEmpty() && isLoadingPois) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = "Determining GPS position...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    if (isLoadingPois && pois.isEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Finding POIs...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
+                    } else if (pois.isEmpty() && gpxTrack != null && !isLoadingPois) {
+                        Text(
+                            text = "No POIs found along this route.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                        )
                     }
 
-                    if (pois.isEmpty() && !isLoadingPois) {
-                        item {
-                            val hint = if (gpxTrack != null) "No POIs found along this route." else null
-                            hint?.let {
-                                Text(
-                                    text = it,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(vertical = 16.dp)
-                                )
-                            }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        items(pois, key = { it.poi.poiId }) { poiWD ->
+                            PoiRow(
+                                poiWD = poiWD,
+                                onClick = { viewModel.pickPoiFromList(poiWD) }
+                            )
                         }
                     }
                 }
             }
-
-            // ---- MAP PANEL ----
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = if (!isListTab) 1f else 0f }
-                    .zIndex(if (!isListTab) 1f else 0f)
-            ) {
+        ) { _ ->
+            Box(modifier = Modifier.fillMaxSize()) {
                 ComposableMapView(
                     modifier = Modifier.fillMaxSize(),
                     gesturesEnabled = true,
                     onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
                 )
 
-                UserLocationEdgeIndicator(
-                    mapAndStyle = mapAndStyle,
-                    userPosition = userPosition
-                )
-
-                val latestMapForFab by rememberUpdatedState(mapAndStyle)
-                val latestUserPosForFab by rememberUpdatedState(userPosition)
-                SmallFloatingActionButton(
-                    onClick = {
-                        val pos = latestUserPosForFab ?: return@SmallFloatingActionButton
-                        val ms = latestMapForFab ?: return@SmallFloatingActionButton
-                        ms.first.animateCamera(
-                            CameraUpdateFactory.newLatLngZoom(pos, 16.0)
-                        )
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp)
-                ) {
-                    Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
+                // Empty-state overlay — shown before any GPX is loaded
+                if (gpxTrack == null) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Button(onClick = {
+                            gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
+                        }) {
+                            Icon(
+                                Icons.Default.Route,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add .gpx")
+                        }
+                    }
                 }
 
+                // Locate-me button — shown once a GPX is loaded
+                if (gpxTrack != null) {
+                    SmallFloatingActionButton(
+                        onClick = { viewModel.refreshUserPosition() },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = peekHeight + 16.dp)
+                    ) {
+                        Icon(Icons.Default.MyLocation, contentDescription = "Locate me on track")
+                    }
+                }
+
+                // POI popup card
                 popupPoiWD?.let { poiWD ->
                     PoiPopupCard(
                         poiWithDistances = poiWD,
                         onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 72.dp)
+                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = peekHeight + 8.dp)
                     )
                 }
             }
@@ -450,60 +392,8 @@ fun NavigationScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryFilterDropdown(
-    availableCategories: List<String>,
-    selectedCategory: String?,
-    onFilter: (String?) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = if (selectedCategory == null) "All categories"
-                        else FormatUtils.categoryDisplayName(selectedCategory)
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-    ) {
-        OutlinedTextField(
-            value = selectedLabel,
-            onValueChange = {},
-            readOnly = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth()
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("All categories") },
-                onClick = { onFilter(null); expanded = false }
-            )
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
-            availableCategories
-                .sortedBy { FormatUtils.categoryDisplayName(it) }
-                .forEach { category ->
-                    DropdownMenuItem(
-                        text = { Text(FormatUtils.categoryDisplayName(category)) },
-                        onClick = { onFilter(category); expanded = false }
-                    )
-                }
-        }
-    }
-}
-
-@Composable
-private fun PoiRow(
-    poiWD: PoiWithDistances,
-    onClick: () -> Unit
-) {
+private fun PoiRow(poiWD: PoiWithDistances, onClick: () -> Unit) {
     val poi = poiWD.poi
     Row(
         modifier = Modifier
@@ -525,25 +415,48 @@ private fun PoiRow(
                 text = poi.name.ifEmpty { "Unnamed ${poi.category}" },
                 style = MaterialTheme.typography.bodyMedium
             )
-            val details = buildString {
-                append(FormatUtils.categoryDisplayName(poi.category))
-                poi.cuisine?.let { append(" ($it)") }
-                poi.openingHours?.let { append(" · $it") }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val subtitle = buildString {
+                    append(FormatUtils.categoryDisplayName(poi.category))
+                    poi.cuisine?.let { append(" ($it)") }
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OpenClosedBadge(poi.openingHours)
             }
-            Text(
-                text = details,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
 
-        poiWD.airDistanceM?.let { m ->
+        poiWD.trackDistanceM?.let { m ->
             Text(
                 text = FormatUtils.formatPoiDistance(m),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@Composable
+private fun OpenClosedBadge(openingHours: String?) {
+    val isOpen = openingHours?.let { OpeningHoursUtils.isOpenNow(it) } ?: return
+    val bgColor = if (isOpen) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+    val label = if (isOpen) "Open" else "Closed"
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 
@@ -557,13 +470,13 @@ private fun categoryColor(category: String): String = when (category) {
     else         -> "#607D8B"
 }
 
-private const val USER_MARKER_SOURCE    = "user-position-source"
+private const val USER_MARKER_SOURCE     = "user-position-source"
 private const val USER_MARKER_HALO_LAYER = "user-position-halo-layer"
 private const val USER_MARKER_LAYER      = "user-position-layer"
 
 private fun renderUserMarker(style: Style, position: LatLng) {
     removeUserMarker(style)
-    val point = Point.fromLngLat(position.longitude, position.latitude)
+    val point  = Point.fromLngLat(position.longitude, position.latitude)
     val source = GeoJsonSource(USER_MARKER_SOURCE, Feature.fromGeometry(point))
     style.addSource(source)
 
@@ -586,74 +499,6 @@ private fun renderUserMarker(style: Style, position: LatLng) {
 
 private fun removeUserMarker(style: Style) {
     try { style.removeLayer(USER_MARKER_HALO_LAYER) } catch (_: Exception) {}
-    try { style.removeLayer(USER_MARKER_LAYER) } catch (_: Exception) {}
-    try { style.removeSource(USER_MARKER_SOURCE) } catch (_: Exception) {}
-}
-
-@Composable
-private fun UserLocationEdgeIndicator(
-    mapAndStyle: Pair<MapLibreMap, Style>?,
-    userPosition: LatLng?
-) {
-    var userScreenPoint by remember { mutableStateOf<PointF?>(null) }
-    val indicatorColor = MaterialTheme.colorScheme.primary
-
-    DisposableEffect(mapAndStyle?.first, userPosition) {
-        val map = mapAndStyle?.first
-        val pos = userPosition
-        if (map != null && pos != null) {
-            fun update() { userScreenPoint = map.projection.toScreenLocation(pos) }
-            update()
-            val moveListener  = MapLibreMap.OnCameraMoveListener  { update() }
-            val idleListener  = MapLibreMap.OnCameraIdleListener  { update() }
-            map.addOnCameraMoveListener(moveListener)
-            map.addOnCameraIdleListener(idleListener)
-            onDispose {
-                map.removeOnCameraMoveListener(moveListener)
-                map.removeOnCameraIdleListener(idleListener)
-            }
-        } else {
-            onDispose {}
-        }
-    }
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val sp = userScreenPoint ?: return@Canvas
-        val w = size.width
-        val h = size.height
-
-        val buffer = 20f
-        if (sp.x >= buffer && sp.x <= w - buffer && sp.y >= buffer && sp.y <= h - buffer) return@Canvas
-
-        val cx = w / 2f
-        val cy = h / 2f
-        val dx = sp.x - cx
-        val dy = sp.y - cy
-        if (abs(dx) < 0.001f && abs(dy) < 0.001f) return@Canvas
-
-        val edgePadding = 48f
-        val halfW = w / 2f - edgePadding
-        val halfH = h / 2f - edgePadding
-        val scaleX = if (abs(dx) > 0.001f) halfW / abs(dx) else Float.MAX_VALUE
-        val scaleY = if (abs(dy) > 0.001f) halfH / abs(dy) else Float.MAX_VALUE
-        val scale = min(scaleX, scaleY)
-        val ex = cx + dx * scale
-        val ey = cy + dy * scale
-
-        drawCircle(color = indicatorColor, radius = 22f, center = Offset(ex, ey), alpha = 0.88f)
-
-        val angle = atan2(dy.toDouble(), dx.toDouble())
-        val cosA = cos(angle).toFloat()
-        val sinA = sin(angle).toFloat()
-        val tipX  = ex + cosA * 12f
-        val tipY  = ey + sinA * 12f
-        val w1X   = ex - cosA * 5f + (-sinA) * 8f
-        val w1Y   = ey - sinA * 5f +   cosA  * 8f
-        val w2X   = ex - cosA * 5f - (-sinA) * 8f
-        val w2Y   = ey - sinA * 5f -   cosA  * 8f
-        drawPath(
-            path = Path().apply { moveTo(tipX, tipY); lineTo(w1X, w1Y); lineTo(w2X, w2Y); close() },
-            color = Color.White
-        )
-    }
+    try { style.removeLayer(USER_MARKER_LAYER) }      catch (_: Exception) {}
+    try { style.removeSource(USER_MARKER_SOURCE) }    catch (_: Exception) {}
 }

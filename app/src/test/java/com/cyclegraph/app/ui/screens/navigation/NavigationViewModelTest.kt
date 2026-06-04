@@ -2,12 +2,12 @@ package com.cyclegraph.app.ui.screens.navigation
 
 import com.cyclegraph.app.data.location.FakeLocationSource
 import com.cyclegraph.app.domain.model.GraphMetadata
-import com.cyclegraph.app.domain.model.LocationFix
+import com.cyclegraph.app.domain.model.GpxTrack
 import com.cyclegraph.app.domain.model.MapEdge
 import com.cyclegraph.app.domain.model.MapNode
 import com.cyclegraph.app.domain.model.Poi
 import com.cyclegraph.app.domain.repository.MapGraphRepository
-import com.cyclegraph.app.domain.service.NavigationRouteHolder
+import com.cyclegraph.app.domain.service.LocationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +23,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.maplibre.android.geometry.LatLng
-import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NavigationViewModelTest {
@@ -45,18 +44,22 @@ class NavigationViewModelTest {
         pois: List<Poi> = emptyList(),
     ) = NavigationViewModel(
         mapGraphRepository = FakeMapGraphRepository(pois),
-        navigationRouteHolder = NavigationRouteHolder(),
         locationSource = locationSource,
     )
 
     @Test
-    fun `setUserPositionFromPermission false falls back to track start`() = runTest(testDispatcher) {
-        val vm = buildViewModel()
+    fun `refreshUserPosition falls back to track start when GPS unavailable`() = runTest(testDispatcher) {
+        val locationSource = FakeLocationSource().apply {
+            setLastKnown(null)
+            setSubscriptionException(LocationException.PermissionDenied)
+        }
+        val vm = buildViewModel(locationSource = locationSource)
         val trackStart = LatLng(51.0, 0.0)
-        vm.loadGpxFromPoints(listOf(trackStart, LatLng(52.0, 0.1)), "Test Route")
+        vm.loadGpxFromTrack(GpxTrack(name = "Test", points = listOf(trackStart, LatLng(52.0, 0.1))))
         advanceUntilIdle()
 
-        vm.setUserPositionFromPermission(false)
+        vm.refreshUserPosition()
+        advanceUntilIdle()
 
         assertNotNull(vm.userPosition.value)
         assertEquals(51.0, vm.userPosition.value!!.latitude, 0.0001)

@@ -27,11 +27,14 @@ class RouteClusteringService @Inject constructor(
         private const val SAMPLE_SPACING_M = 50.0      // sample session A every 50 m
         private const val MATCH_THRESHOLD_M = 25.0     // A sample counts as visited if B has a point within 25 m
         private const val SIMILARITY_THRESHOLD = 0.85  // pair qualifies for clustering at ≥85% similarity
-        private const val MAX_LENGTH_DELTA_KM = 5.0    // absolute cap on length difference
-        private const val LENGTH_DELTA_FRACTION = 0.10 // also cap at 10% of shorter route's distance
+        private const val MAX_LENGTH_DELTA_KM = 7.0    // absolute cap on length difference
+        private const val LENGTH_DELTA_FRACTION = 0.15 // also cap at 15% of shorter route's distance
         private const val MAX_CENTROID_DIST_M = 3000.0 // routes with centroids >3 km apart are different
         private const val MIN_GROUP_SIZE = 3
         private const val MIN_SESSION_DIST_KM = 1.0    // skip bogus/accidental sessions
+
+        // Flip to true (locally) to log per-pair rejection reasons + summary.
+        private const val DEBUG_LOGGING = false
     }
 
     // ─── Shared data structures ───
@@ -66,22 +69,51 @@ class RouteClusteringService @Inject constructor(
             MAX_LENGTH_DELTA_KM * 1000.0,
             min(a.recordedDistM, b.recordedDistM) * LENGTH_DELTA_FRACTION
         )
-        if (abs(a.recordedDistM - b.recordedDistM) > lengthDeltaThresholdM) return false
-        if (GeoUtils.haversineDistance(a.centroid[0], a.centroid[1], b.centroid[0], b.centroid[1]) >= MAX_CENTROID_DIST_M) return false
-        return pairSimilarity(a, b) >= SIMILARITY_THRESHOLD
+        val lengthDelta = abs(a.recordedDistM - b.recordedDistM)
+        if (lengthDelta > lengthDeltaThresholdM) {
+            if (DEBUG_LOGGING) Log.d(
+                TAG,
+                "reject ${a.session.id}/${b.session.id}: length Δ=${lengthDelta.toInt()}m > ${lengthDeltaThresholdM.toInt()}m"
+            )
+            return false
+        }
+        val centroidDist = GeoUtils.haversineDistance(
+            a.centroid[0], a.centroid[1], b.centroid[0], b.centroid[1]
+        )
+        if (centroidDist >= MAX_CENTROID_DIST_M) {
+            if (DEBUG_LOGGING) Log.d(
+                TAG,
+                "reject ${a.session.id}/${b.session.id}: centroid dist=${centroidDist.toInt()}m ≥ ${MAX_CENTROID_DIST_M.toInt()}m"
+            )
+            return false
+        }
+        val sim = pairSimilarity(a, b)
+        if (sim < SIMILARITY_THRESHOLD) {
+            if (DEBUG_LOGGING) Log.d(
+                TAG,
+                "reject ${a.session.id}/${b.session.id}: similarity=${"%.3f".format(sim)} < $SIMILARITY_THRESHOLD"
+            )
+            return false
+        }
+        if (DEBUG_LOGGING) Log.d(
+            TAG,
+            "accept ${a.session.id}/${b.session.id}: sim=${"%.3f".format(sim)}, lenΔ=${lengthDelta.toInt()}m, cenΔ=${centroidDist.toInt()}m"
+        )
+        return true
     }
 
     /** Bidirectional similarity: max of coverage(A→B) and coverage(B→A). */
     private fun pairSimilarity(a: PreparedTrack, b: PreparedTrack): Double =
         max(coverageScore(a.sampledPoints, b.grid), coverageScore(b.sampledPoints, a.grid))
 
-    // ─── Full clustering (used by pull-to-refresh) ───
+    // ─── Full clustering (single-linkage / connected components) ───
 
     suspend fun runClustering() = withContext(Dispatchers.Default) {
         val allSessions = sessionRepository.getRecentSessionsList(Int.MAX_VALUE)
         val sessionsWithGps = allSessions.filter { it.gpsTrack != null }
 
         if (sessionsWithGps.size < MIN_GROUP_SIZE) {
+            if (DEBUG_LOGGING) Log.d(TAG, "summary: ${sessionsWithGps.size} sessions w/ GPS < MIN_GROUP_SIZE=$MIN_GROUP_SIZE — clearing all routes")
             repeatedRouteRepository.deleteAll()
             return@withContext
         }
@@ -89,34 +121,48 @@ class RouteClusteringService @Inject constructor(
         val prepared = sessionsWithGps.mapNotNull { prepareTrack(it) }
         val n = prepared.size
 
-        // ─── Step 1: compute qualifying pairs ───
-        val edgeSet = HashSet<Long>()
+        // ─── Step 1: build edge graph (qualifying pairs) ───
+        val adjacency = Array(n) { mutableListOf<Int>() }
+        var edgeCount = 0
         for (i in 0 until n) {
             for (j in i + 1 until n) {
                 if (pairQualifies(prepared[i], prepared[j])) {
-                    edgeSet.add(packEdge(i, j))
+                    adjacency[i].add(j)
+                    adjacency[j].add(i)
+                    edgeCount++
                 }
             }
         }
 
-        // ─── Step 2: complete-linkage agglomerative clustering ───
-        val clusters = (0 until n).map { mutableListOf(it) }.toMutableList()
-        var changed = true
-        while (changed) {
-            changed = false
-            outer@ for (i in 0 until clusters.size) {
-                for (j in i + 1 until clusters.size) {
-                    if (allPairsMatch(clusters[i], clusters[j], edgeSet)) {
-                        clusters[i].addAll(clusters[j])
-                        clusters.removeAt(j)
-                        changed = true
-                        break@outer
+        // ─── Step 2: connected components (single-linkage) ───
+        val componentId = IntArray(n) { -1 }
+        var nextComponent = 0
+        for (start in 0 until n) {
+            if (componentId[start] != -1) continue
+            // BFS
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            componentId[start] = nextComponent
+            while (queue.isNotEmpty()) {
+                val node = queue.removeFirst()
+                for (neighbor in adjacency[node]) {
+                    if (componentId[neighbor] == -1) {
+                        componentId[neighbor] = nextComponent
+                        queue.add(neighbor)
                     }
                 }
             }
+            nextComponent++
         }
 
-        val validGroups = clusters.filter { it.size >= MIN_GROUP_SIZE }
+        val components = Array(nextComponent) { mutableListOf<Int>() }
+        for (i in 0 until n) components[componentId[i]].add(i)
+        val validGroups = components.filter { it.size >= MIN_GROUP_SIZE }
+
+        if (DEBUG_LOGGING) Log.d(
+            TAG,
+            "summary: $n sessions → $edgeCount edges → ${components.size} components → ${validGroups.size} ≥ MIN_GROUP_SIZE=$MIN_GROUP_SIZE"
+        )
 
         // ─── Step 3: name preservation ───
         val existingRoutes = repeatedRouteRepository.getAllRoutesList()
@@ -148,104 +194,6 @@ class RouteClusteringService @Inject constructor(
             for (route in finalRoutes) {
                 repeatedRouteRepository.saveRoute(route)
             }
-        }
-    }
-
-    // ─── Incremental clustering (used after each import) ───
-
-    suspend fun runIncrementalClustering(newSessionId: Long) = withContext(Dispatchers.Default) {
-        val newSession = withContext(Dispatchers.IO) {
-            sessionRepository.getSessionById(newSessionId)
-        } ?: return@withContext
-
-        val newPrepared = prepareTrack(newSession) ?: return@withContext
-
-        val existingRoutes = withContext(Dispatchers.IO) {
-            repeatedRouteRepository.getAllRoutesList()
-        }
-
-        // ─── Step 1: try to add to an existing cluster (complete-linkage) ───
-        data class RouteCandidate(val route: RepeatedRoute, val avgSimilarity: Double)
-        val routeCandidates = mutableListOf<RouteCandidate>()
-
-        for (route in existingRoutes) {
-            val routePrepared = route.sessions.mapNotNull { prepareTrack(it) }
-            if (routePrepared.isEmpty()) continue
-
-            var allCompatible = true
-            var totalSim = 0.0
-            for (rp in routePrepared) {
-                if (!pairQualifies(newPrepared, rp)) {
-                    allCompatible = false
-                    break
-                }
-                totalSim += pairSimilarity(newPrepared, rp)
-            }
-            if (allCompatible) {
-                routeCandidates.add(RouteCandidate(route, totalSim / routePrepared.size))
-            }
-        }
-
-        if (routeCandidates.isNotEmpty()) {
-            val best = routeCandidates.maxByOrNull { it.avgSimilarity }!!
-            val updatedRoute = best.route.copy(sessions = best.route.sessions + newSession)
-            withContext(Dispatchers.IO) { repeatedRouteRepository.saveRoute(updatedRoute) }
-            return@withContext
-        }
-
-        // ─── Step 2: compare with cluster-less sessions ───
-        val allRouteSessionIds = existingRoutes.flatMap { r -> r.sessions.map { it.id } }.toSet()
-        val clusterlessSessions = withContext(Dispatchers.IO) {
-            sessionRepository.getRecentSessionsList(Int.MAX_VALUE)
-                .filter { it.id != newSessionId && it.id !in allRouteSessionIds }
-        }
-
-        val compatible = clusterlessSessions.mapNotNull { s ->
-            val p = prepareTrack(s) ?: return@mapNotNull null
-            if (pairQualifies(newPrepared, p)) p else null
-        }
-
-        if (compatible.size < MIN_GROUP_SIZE - 1) return@withContext
-
-        // ─── Step 3: complete-linkage over workSet (new session + compatible cluster-less) ───
-        val workSet = listOf(newPrepared) + compatible
-        val n = workSet.size
-        val edgeSet = HashSet<Long>()
-        for (i in 0 until n) {
-            for (j in i + 1 until n) {
-                if (pairQualifies(workSet[i], workSet[j])) {
-                    edgeSet.add(packEdge(i, j))
-                }
-            }
-        }
-
-        val clusters = (0 until n).map { mutableListOf(it) }.toMutableList()
-        var changed = true
-        while (changed) {
-            changed = false
-            outer@ for (i in 0 until clusters.size) {
-                for (j in i + 1 until clusters.size) {
-                    if (allPairsMatch(clusters[i], clusters[j], edgeSet)) {
-                        clusters[i].addAll(clusters[j])
-                        clusters.removeAt(j)
-                        changed = true
-                        break@outer
-                    }
-                }
-            }
-        }
-
-        val newSessionCluster = clusters.first { 0 in it }
-        if (newSessionCluster.size >= MIN_GROUP_SIZE) {
-            val sessions = newSessionCluster.map { workSet[it].session }
-            val routeNumber = existingRoutes.size + 1
-            val newRoute = RepeatedRoute(
-                id = 0L,
-                name = "Repeated Route $routeNumber",
-                sessions = sessions,
-                representativeTrack = null
-            )
-            withContext(Dispatchers.IO) { repeatedRouteRepository.saveRoute(newRoute) }
         }
     }
 
@@ -296,19 +244,6 @@ class RouteClusteringService @Inject constructor(
             }
             return false
         }
-    }
-
-    // ─── Edge helpers ───
-
-    private fun packEdge(i: Int, j: Int): Long =
-        if (i < j) i.toLong().shl(32) or j.toLong()
-        else j.toLong().shl(32) or i.toLong()
-
-    private fun allPairsMatch(c1: List<Int>, c2: List<Int>, edges: HashSet<Long>): Boolean {
-        for (a in c1) for (b in c2) {
-            if (packEdge(a, b) !in edges) return false
-        }
-        return true
     }
 
     // ─── GPS track helpers ───

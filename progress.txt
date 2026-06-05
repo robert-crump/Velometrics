@@ -1,3 +1,45 @@
+## Issue #1 — Repeated Routes: too few clusters + perceived recalculation on tab open
+Completed: 2026-06-05 | Closed: 2026-06-05
+
+### What was done
+
+**Clustering algorithm (`domain/service/RouteClusteringService.kt`)**
+- Replaced complete-linkage agglomerative clustering with **single-linkage / connected
+  components** (BFS over the qualifying-pair graph). Complete-linkage required every pair
+  in a cluster to independently meet 85% similarity, which shattered clusters on the first
+  GPS-noise outlier
+- Relaxed length-delta filter to accommodate ±10% per-ride length variation:
+  `LENGTH_DELTA_FRACTION` 0.10 → 0.15, `MAX_LENGTH_DELTA_KM` 5 → 7
+- Kept `SIMILARITY_THRESHOLD` (0.85), `MATCH_THRESHOLD_M` (25), `MIN_GROUP_SIZE` (3) unchanged
+- Deleted `runIncrementalClustering` (~95 LOC); single code path now — full clustering runs
+  after each import (in background) and on pull-to-refresh
+- Added `DEBUG_LOGGING` compile-time const: when enabled, logs per-pair accept/reject reasons
+  with actual length-Δ / centroid-Δ / similarity values, plus a summary
+  `N sessions → M edges → K components → L ≥ MIN_GROUP_SIZE`
+
+**Background execution + caching for Routes tab**
+- Created `di/CoroutineScopeModule.kt`: `@ApplicationScope` qualifier + `@Singleton` provider
+  for `CoroutineScope(SupervisorJob + Dispatchers.Default)`
+- Created `data/cache/RepeatedRoutesCache.kt` (`@Singleton`) hoisting
+  `repository.getAllRoutes()` into a hot `StateFlow` collected on the app scope; survives
+  ViewModel recreation, so tab switches no longer trigger Room re-query + GPS track JSON
+  re-parsing, and the loading spinner only ever shows on cold app start
+- `RepeatedRoutesViewModel`: now reads `routes` and `isLoading` from the cache instead of
+  collecting the repository Flow directly
+- `HomeViewModel.importFromUris`: per-file `runIncrementalClustering` call deleted; after
+  the batch loop completes, `appScope.launch { runClustering() }` re-clusters on a scope
+  that survives the user navigating away from the dashboard
+
+### Known accepted limitation
+If the new algorithm splits an existing custom-named cluster into multiple, the name only
+carries to a child that's an exact subset of the old cluster (existing name-preservation
+logic in `RouteClusteringService.kt`). Newly-split routes may need to be re-named once.
+
+### Tests
+Pre-existing unit tests pass; `compileDebugKotlin` clean (only pre-existing warnings remain).
+
+---
+
 ## Issue #13 — Navigate: Receiver of .gpx share intents
 Completed: 2026-06-05 | Closed: 2026-06-05
 

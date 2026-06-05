@@ -9,10 +9,12 @@ import com.cyclegraph.app.data.fitimport.FitImportService
 import com.cyclegraph.app.data.fitimport.ImportResult
 import com.cyclegraph.app.domain.model.CyclingSession
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
+import com.cyclegraph.app.di.ApplicationScope
 import com.cyclegraph.app.domain.service.RouteClusteringService
 import com.cyclegraph.app.domain.service.SessionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +62,7 @@ class HomeViewModel @Inject constructor(
     private val fitImportService: FitImportService,
     private val sessionComparator: SessionComparator,
     private val routeClusteringService: RouteClusteringService,
+    @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -165,16 +168,15 @@ class HomeViewModel @Inject constructor(
                         result = fitImportService.importFile(fileName, bytes, forceImport = true)
                     }
 
-                    if (result is ImportResult.Success) {
-                        routeClusteringService.runIncrementalClustering(result.sessionId)
-                    }
-
                     lastResult = result
                 }
 
                 recalculateAllStats()
                 _importState.value = ImportUiState.Done(lastResult)
             }
+
+            // Re-cluster on a scope that survives navigation away from the dashboard.
+            appScope.launch { routeClusteringService.runClustering() }
         }
     }
 

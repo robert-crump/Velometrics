@@ -2,8 +2,8 @@ package com.cyclegraph.app.ui.screens.routeplanner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cyclegraph.app.data.cache.RepeatedRoutesCache
 import com.cyclegraph.app.domain.model.RepeatedRoute
-import com.cyclegraph.app.domain.repository.RepeatedRouteRepository
 import com.cyclegraph.app.domain.service.RouteClusteringService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,19 +23,16 @@ enum class RouteSortOrder {
 
 @HiltViewModel
 class RepeatedRoutesViewModel @Inject constructor(
-    repository: RepeatedRouteRepository,
+    cache: RepeatedRoutesCache,
     private val clusteringService: RouteClusteringService
 ) : ViewModel() {
 
     private val _sortOrder = MutableStateFlow(RouteSortOrder.FREQUENCY_DESC)
     val sortOrder: StateFlow<RouteSortOrder> = _sortOrder.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    val isLoading: StateFlow<Boolean> = cache.isLoading
 
-    val routes: StateFlow<List<RepeatedRoute>> = repository
-        .getAllRoutes()
-        .onEach { _isLoading.value = false }
+    val routes: StateFlow<List<RepeatedRoute>> = cache.routes
         .combine(_sortOrder) { list, order ->
             when (order) {
                 RouteSortOrder.DISTANCE_ASC -> list.sortedBy { r ->

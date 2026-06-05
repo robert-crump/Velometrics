@@ -1,3 +1,27 @@
+## Issue #13 — Navigate: Receiver of .gpx share intents
+Completed: 2026-06-05 | Closed: 2026-06-05
+
+### What was done
+- Added `android:launchMode="singleTop"` to `MainActivity` so that an incoming share intent
+  reuses the existing activity instance (via `onNewIntent`) rather than creating a new one
+- Added two `<intent-filter>` blocks to `AndroidManifest.xml`: one for `ACTION_VIEW`, one for
+  `ACTION_SEND`, each declaring `application/gpx+xml` and `application/xml` MIME types
+- Created `ui/intent/GpxIntentViewModel.kt`: a tiny `@HiltViewModel` scoped to the activity,
+  holding `pendingGpxUri: StateFlow<Uri?>` with `setPendingUri()` / `consumePendingUri()`
+- `MainActivity`: injects `GpxIntentViewModel` via `viewModels()`; extracts the GPX URI from
+  the intent in both `onCreate` and `onNewIntent` via `extractGpxUri(intent)` (handles both
+  `ACTION_VIEW` → `intent.data` and `ACTION_SEND` → `EXTRA_STREAM`); a `LaunchedEffect` in
+  `setContent` auto-navigates to the Navigate tab (`launchSingleTop = true`) when the URI is set
+- `NavigationScreen`: receives the activity-scoped `GpxIntentViewModel` via
+  `hiltViewModel(LocalContext.current as ComponentActivity)`; a `LaunchedEffect(pendingUri)`
+  calls `viewModel.loadGpxFromUri()` on arrival and then clears the pending URI — existing
+  GPX is silently replaced with no confirmation dialog
+
+### Tests
+100 unit tests pass.
+
+---
+
 ## Issue #4 — Introduce LocationSource seam and migrate MapView GPS acquisition
 Completed: 2026-05-23
 

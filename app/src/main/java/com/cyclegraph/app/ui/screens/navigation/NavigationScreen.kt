@@ -1,6 +1,7 @@
 package com.cyclegraph.app.ui.screens.navigation
 
 import android.Manifest
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -72,6 +73,7 @@ import com.cyclegraph.app.ui.components.MapPoiRenderer
 import com.cyclegraph.app.ui.components.MapTrackRenderer
 import com.cyclegraph.app.ui.components.PoiPopupCard
 import com.cyclegraph.app.ui.components.openPoiInGoogleMaps
+import com.cyclegraph.app.ui.intent.GpxIntentViewModel
 import com.cyclegraph.app.util.CyclingConstants
 import com.cyclegraph.app.util.FormatUtils
 import com.cyclegraph.app.util.OpeningHoursUtils
@@ -89,6 +91,7 @@ import org.maplibre.geojson.Point
 @Composable
 fun NavigationScreen(
     viewModel: NavigationViewModel = hiltViewModel(),
+    intentViewModel: GpxIntentViewModel = hiltViewModel(LocalContext.current as ComponentActivity),
     onNavigateToHome: () -> Unit = {}
 ) {
     val gpxTrack        by viewModel.gpxTrack.collectAsState()
@@ -101,6 +104,14 @@ fun NavigationScreen(
     val pendingCameraBounds by viewModel.pendingCameraBounds.collectAsState()
     val offTrackDialogKm    by viewModel.offTrackDialogKm.collectAsState()
 
+    val context = LocalContext.current
+    val pendingUri by intentViewModel.pendingGpxUri.collectAsState()
+    LaunchedEffect(pendingUri) {
+        val uri = pendingUri ?: return@LaunchedEffect
+        viewModel.loadGpxFromUri(uri, context.contentResolver)
+        intentViewModel.consumePendingUri()
+    }
+
     val selectedPoi  = poiSelection.selected?.poi
     val popupPoiWD   = poiSelection.selected?.popup
     val pendingZoomTo = poiSelection.pendingZoomTo
@@ -109,7 +120,6 @@ fun NavigationScreen(
     var trackRendered by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val peekHeight = (screenHeightDp * 0.25f).dp
 

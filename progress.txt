@@ -1,3 +1,34 @@
+## Navigate drawer polish + dismiss fix
+Completed: 2026-06-05
+
+### What was done
+
+**Off-track dialog dismiss was sluggish**
+- `doFetchAllTrackPois` was running per-POI geometric projections (`projectPoiOntoTrack`,
+  `computeDistanceAlongTrack`) on `Dispatchers.Main`; the loop blocked the UI thread long enough
+  that Compose could not recompose to hide the dialog after `dismissOffTrackDialog()` set the state
+- Wrapped the computation body in `withContext(Dispatchers.Default)` so the main thread stays free
+
+**Navigate drawer: replaced BottomSheetScaffold with PullUpDrawer**
+- `BottomSheetScaffold` computed `sheetExpansionPadding` as a discrete binary (0 dp vs top-bar
+  height) conditioned on `currentValue == SheetValue.Expanded`; the switch caused a visible
+  layout jump each time the drawer crossed the fully-expanded threshold
+- Extracted the `PullUpDrawer` composable from `SessionDetailScreen` into the shared
+  `ui/components/PullUpDrawer.kt`, adding a `snapFractions: List<Float>` parameter so both
+  screens can configure their own snap stops
+- `SessionDetailScreen` now imports `PullUpDrawer` from the shared location; all
+  PullUpDrawer-only imports removed from that file
+- `NavigationScreen` replaced `BottomSheetScaffold` with `PullUpDrawer(snapFractions =
+  listOf(0.25f, 0.50f, 1.00f), initialFraction = 0.25f)`; the `sheetExpansionPadding` logic
+  and all Material3 bottom-sheet imports were removed; the POI `LazyColumn` was replaced with a
+  plain `Column + forEach` (required because `PullUpDrawer` already provides a `verticalScroll`)
+- Drawer state resets on new GPX load via `key(gpxTrack)` wrapper
+
+### Tests
+`compileDebugKotlin` clean (only pre-existing deprecation warnings).
+
+---
+
 ## Issue #2 — File import slow when existing database is large (>100 rides)
 Completed: 2026-06-05 | Closed: 2026-06-05
 

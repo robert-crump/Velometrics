@@ -9,16 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,8 +24,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,16 +36,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,6 +65,7 @@ import com.cyclegraph.app.ui.components.ComposableMapView
 import com.cyclegraph.app.ui.components.MapPoiRenderer
 import com.cyclegraph.app.ui.components.MapTrackRenderer
 import com.cyclegraph.app.ui.components.PoiPopupCard
+import com.cyclegraph.app.ui.components.PullUpDrawer
 import com.cyclegraph.app.ui.components.openPoiInGoogleMaps
 import com.cyclegraph.app.ui.intent.GpxIntentViewModel
 import com.cyclegraph.app.util.CyclingConstants
@@ -122,16 +116,6 @@ fun NavigationScreen(
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val peekHeight = (screenHeightDp * 0.25f).dp
-
-    val gpxLoaded = gpxTrack != null
-    val scaffoldState = key(gpxLoaded) {
-        rememberBottomSheetScaffoldState(
-            bottomSheetState = rememberStandardBottomSheetState(
-                initialValue = if (gpxLoaded) SheetValue.PartiallyExpanded else SheetValue.Hidden,
-                skipHiddenState = gpxLoaded
-            )
-        )
-    }
 
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -304,139 +288,133 @@ fun NavigationScreen(
             )
         }
     ) { outerPadding ->
-        val sheetExpansionPadding = if (scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded) {
-            outerPadding.calculateTopPadding()
-        } else {
-            0.dp
-        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(outerPadding)
+        ) {
+            ComposableMapView(
+                modifier = Modifier.fillMaxSize(),
+                gesturesEnabled = true,
+                onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
+            )
 
-        BottomSheetScaffold(
-            modifier = Modifier.padding(outerPadding),
-            scaffoldState = scaffoldState,
-            sheetPeekHeight = peekHeight,
-            sheetDragHandle = {
-                Box(modifier = Modifier.padding(top = sheetExpansionPadding)) {
-                    BottomSheetDefaults.DragHandle()
-                }
-            },
-            sheetContent = {
-                Column(modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = sheetExpansionPadding)
+            // Empty-state overlay — shown before any GPX is loaded
+            if (gpxTrack == null) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        LookAheadOption.entries.forEachIndexed { index, option ->
-                            SegmentedButton(
-                                selected = lookAheadOption == option,
-                                onClick = { viewModel.setLookAheadOption(option) },
-                                shape = SegmentedButtonDefaults.itemShape(index, LookAheadOption.entries.size),
-                                label = { Text("Next ${option.km}km") }
-                            )
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    errorMessage?.let { msg ->
-                        Text(
-                            text = msg,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    Button(onClick = {
+                        gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
+                    }) {
+                        Icon(
+                            Icons.Default.Route,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
-                    }
-
-                    if (isLoadingPois && pois.isEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "Finding POIs...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else if (pois.isEmpty() && gpxTrack != null && !isLoadingPois) {
-                        Text(
-                            text = "No POIs found along this route.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
-                        )
-                    }
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        items(pois, key = { it.poi.poiId }) { poiWD ->
-                            PoiRow(
-                                poiWD = poiWD,
-                                onClick = { viewModel.pickPoiFromList(poiWD) }
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add .gpx")
                     }
                 }
             }
-        ) { _ ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                ComposableMapView(
-                    modifier = Modifier.fillMaxSize(),
-                    gesturesEnabled = true,
-                    onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
+
+            // Locate-me button — shown once a GPX is loaded, sits above the peek snap
+            if (gpxTrack != null) {
+                SmallFloatingActionButton(
+                    onClick = { viewModel.refreshUserPosition() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = peekHeight + 16.dp)
+                ) {
+                    Icon(Icons.Default.MyLocation, contentDescription = "Locate me on track")
+                }
+            }
+
+            // POI popup card
+            popupPoiWD?.let { poiWD ->
+                PoiPopupCard(
+                    poiWithDistances = poiWD,
+                    onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = peekHeight + 8.dp)
                 )
+            }
 
-                // Empty-state overlay — shown before any GPX is loaded
-                if (gpxTrack == null) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Button(onClick = {
-                            gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
-                        }) {
-                            Icon(
-                                Icons.Default.Route,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Add .gpx")
-                        }
-                    }
-                }
-
-                // Locate-me button — shown once a GPX is loaded
+            // Drawer — only present when a GPX is loaded; resets on new GPX load
+            key(gpxTrack) {
                 if (gpxTrack != null) {
-                    SmallFloatingActionButton(
-                        onClick = { viewModel.refreshUserPosition() },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = peekHeight + 16.dp)
+                    PullUpDrawer(
+                        snapFractions = listOf(0.25f, 0.50f, 1.00f),
+                        initialFraction = 0.25f
                     ) {
-                        Icon(Icons.Default.MyLocation, contentDescription = "Locate me on track")
-                    }
-                }
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            LookAheadOption.entries.forEachIndexed { index, option ->
+                                SegmentedButton(
+                                    selected = lookAheadOption == option,
+                                    onClick = { viewModel.setLookAheadOption(option) },
+                                    shape = SegmentedButtonDefaults.itemShape(index, LookAheadOption.entries.size),
+                                    label = { Text("Next ${option.km}km") }
+                                )
+                            }
+                        }
 
-                // POI popup card
-                popupPoiWD?.let { poiWD ->
-                    PoiPopupCard(
-                        poiWithDistances = poiWD,
-                        onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = peekHeight + 8.dp)
-                    )
+                        HorizontalDivider()
+
+                        errorMessage?.let { msg ->
+                            Text(
+                                text = msg,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        if (isLoadingPois && pois.isEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Finding POIs...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else if (pois.isEmpty() && !isLoadingPois) {
+                            Text(
+                                text = "No POIs found along this route.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            pois.forEach { poiWD ->
+                                PoiRow(
+                                    poiWD = poiWD,
+                                    onClick = { viewModel.pickPoiFromList(poiWD) }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
             }
         }

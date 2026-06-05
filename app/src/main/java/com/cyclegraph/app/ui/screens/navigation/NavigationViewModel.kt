@@ -208,23 +208,26 @@ class NavigationViewModel @Inject constructor(
 
     private suspend fun doFetchAllTrackPois(track: GpxTrack, position: LatLng) {
         val allRepoPois = mapGraphRepository.getAllPois().first()
-        val userProjection = TrackGeometryUtils.projectPointOntoTrack(position, track.points)
-        allTrackPois = allRepoPois.mapNotNull { poi ->
-            val (_, offRoute) = TrackGeometryUtils.projectPoiOntoTrack(poi.lat, poi.lon, track.points)
-            if (offRoute > CORRIDOR_M) return@mapNotNull null
-            val poiProjection = TrackGeometryUtils.projectPointOntoTrack(LatLng(poi.lat, poi.lon), track.points)
-            val isAhead = poiProjection.segmentIndex > userProjection.segmentIndex ||
-                (poiProjection.segmentIndex == userProjection.segmentIndex &&
-                    poiProjection.fraction >= userProjection.fraction)
-            val trackDistM = if (isAhead) {
-                TrackGeometryUtils.computeDistanceAlongTrack(track.points, userProjection, poiProjection)
-            } else {
-                -TrackGeometryUtils.computeDistanceAlongTrack(track.points, poiProjection, userProjection)
-            }
-            val airDistM = GeoUtils.haversineDistance(position.latitude, position.longitude, poi.lat, poi.lon)
-            PoiWithDistances(poi, airDistM, trackDistM)
-        }.sortedBy { it.trackDistanceM ?: Double.MAX_VALUE }
-        _pois.value = allTrackPois
+        val result = withContext(Dispatchers.Default) {
+            val userProjection = TrackGeometryUtils.projectPointOntoTrack(position, track.points)
+            allRepoPois.mapNotNull { poi ->
+                val (_, offRoute) = TrackGeometryUtils.projectPoiOntoTrack(poi.lat, poi.lon, track.points)
+                if (offRoute > CORRIDOR_M) return@mapNotNull null
+                val poiProjection = TrackGeometryUtils.projectPointOntoTrack(LatLng(poi.lat, poi.lon), track.points)
+                val isAhead = poiProjection.segmentIndex > userProjection.segmentIndex ||
+                    (poiProjection.segmentIndex == userProjection.segmentIndex &&
+                        poiProjection.fraction >= userProjection.fraction)
+                val trackDistM = if (isAhead) {
+                    TrackGeometryUtils.computeDistanceAlongTrack(track.points, userProjection, poiProjection)
+                } else {
+                    -TrackGeometryUtils.computeDistanceAlongTrack(track.points, poiProjection, userProjection)
+                }
+                val airDistM = GeoUtils.haversineDistance(position.latitude, position.longitude, poi.lat, poi.lon)
+                PoiWithDistances(poi, airDistM, trackDistM)
+            }.sortedBy { it.trackDistanceM ?: Double.MAX_VALUE }
+        }
+        allTrackPois = result
+        _pois.value = result
     }
 
     private suspend fun fetchRoughGpsPosition(): LatLng? = try {

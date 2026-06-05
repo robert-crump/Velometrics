@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import javax.inject.Inject
 
 enum class LookAheadOption(val km: Int) { KM5(5), KM10(10), KM25(25) }
@@ -38,11 +39,13 @@ class NavigationViewModel @Inject constructor(
     private val _userPosition = MutableStateFlow<LatLng?>(null)
     val userPosition: StateFlow<LatLng?> = _userPosition.asStateFlow()
 
-    private val _lookAheadOption = MutableStateFlow(LookAheadOption.KM5)
-    val lookAheadOption: StateFlow<LookAheadOption> = _lookAheadOption.asStateFlow()
+    private val _lookAheadOption = MutableStateFlow<LookAheadOption?>(null)
+    val lookAheadOption: StateFlow<LookAheadOption?> = _lookAheadOption.asStateFlow()
 
-    private val _allPois = MutableStateFlow<List<PoiWithDistances>>(emptyList())
-    val pois: StateFlow<List<PoiWithDistances>> = _allPois.asStateFlow()
+    private var allTrackPois: List<PoiWithDistances> = emptyList()
+
+    private val _pois = MutableStateFlow<List<PoiWithDistances>>(emptyList())
+    val pois: StateFlow<List<PoiWithDistances>> = _pois.asStateFlow()
 
     private val _isLoadingGpx = MutableStateFlow(false)
     val isLoadingGpx: StateFlow<Boolean> = _isLoadingGpx.asStateFlow()
@@ -55,6 +58,14 @@ class NavigationViewModel @Inject constructor(
 
     private val _poiSelection = MutableStateFlow(PoiSelectionState.None)
     val poiSelection: StateFlow<PoiSelectionState> = _poiSelection.asStateFlow()
+
+    private val _pendingCameraBounds = MutableStateFlow<LatLngBounds?>(null)
+    val pendingCameraBounds: StateFlow<LatLngBounds?> = _pendingCameraBounds.asStateFlow()
+
+    private val _offTrackDialogKm = MutableStateFlow<Double?>(null)
+    val offTrackDialogKm: StateFlow<Double?> = _offTrackDialogKm.asStateFlow()
+
+    private var hasCheckedOffTrack = false
 
     fun pickPoiFromList(poiWD: PoiWithDistances) {
         _poiSelection.value = _poiSelection.value.pickFromList(poiWD)
@@ -72,16 +83,32 @@ class NavigationViewModel @Inject constructor(
         _poiSelection.value = _poiSelection.value.consumeCameraMove()
     }
 
+    fun consumeCameraFit() {
+        _pendingCameraBounds.value = null
+    }
+
+    fun dismissOffTrackDialog() {
+        _offTrackDialogKm.value = null
+    }
+
     fun setLookAheadOption(option: LookAheadOption) {
-        _lookAheadOption.value = option
-        if (_gpxTrack.value != null) fetchPoisAlongTrack()
+        if (_lookAheadOption.value == option) {
+            _lookAheadOption.value = null
+            _pois.value = allTrackPois
+            _pendingCameraBounds.value = computeFullTrackBounds()
+        } else {
+            _lookAheadOption.value = option
+            _pois.value = filterPoisForLookAhead(option)
+            _pendingCameraBounds.value = computeLookAheadBounds(option)
+        }
     }
 
     fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver) {
         viewModelScope.launch {
             _isLoadingGpx.value = true
             _errorMessage.value = null
-            _allPois.value = emptyList()
+            allTrackPois = emptyList()
+            _pois.value = emptyList()
             try {
                 val track = withContext(Dispatchers.IO) {
                     contentResolver.openInputStream(uri)?.use { stream ->
@@ -103,13 +130,17 @@ class NavigationViewModel @Inject constructor(
 
     fun clearGpx() {
         _gpxTrack.value = null
-        _allPois.value = emptyList()
+        allTrackPois = emptyList()
+        _pois.value = emptyList()
         _userPosition.value = null
         _errorMessage.value = null
         _poiSelection.value = PoiSelectionState.None
+        _lookAheadOption.value = null
+        _pendingCameraBounds.value = null
+        _offTrackDialogKm.value = null
+        hasCheckedOffTrack = false
     }
 
-    /** Gets a single GPS fix, updates user position, then fetches POIs along the track. */
     fun refreshUserPosition() {
         val track = _gpxTrack.value ?: return
         viewModelScope.launch {
@@ -121,7 +152,13 @@ class NavigationViewModel @Inject constructor(
                     track.points.firstOrNull()
                 } ?: return@launch
                 _userPosition.value = position
-                doFetchPois(track, position)
+                if (!hasCheckedOffTrack) {
+                    hasCheckedOffTrack = true
+                    checkOffTrack(position, track)
+                }
+                doFetchAllTrackPois(track, position)
+                val option = _lookAheadOption.value
+                if (option != null) _pois.value = filterPoisForLookAhead(option)
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to get location: ${e.message}"
             } finally {
@@ -130,47 +167,64 @@ class NavigationViewModel @Inject constructor(
         }
     }
 
-    /** Re-fetches POIs using the current user position without a new GPS call. */
-    fun fetchPoisAlongTrack() {
-        val track = _gpxTrack.value ?: return
-        val position = _userPosition.value ?: track.points.firstOrNull() ?: return
-        viewModelScope.launch {
-            _isLoadingPois.value = true
-            _errorMessage.value = null
-            try {
-                doFetchPois(track, position)
-            } catch (e: Exception) {
-                _errorMessage.value = "POI lookup failed: ${e.message}"
-            } finally {
-                _isLoadingPois.value = false
-            }
+    private fun checkOffTrack(position: LatLng, track: GpxTrack) {
+        val projection = TrackGeometryUtils.projectPointOntoTrack(position, track.points)
+        if (projection.distanceFromTrackM > OFF_TRACK_THRESHOLD_M) {
+            _offTrackDialogKm.value = projection.distanceFromTrackM / 1000.0
         }
     }
 
-    private suspend fun doFetchPois(track: GpxTrack, position: LatLng) {
-        val allRepoPois = mapGraphRepository.getAllPois().first()
+    private fun filterPoisForLookAhead(option: LookAheadOption): List<PoiWithDistances> {
+        val limitM = option.km * 1000.0
+        return allTrackPois.filter { poiWD ->
+            val dist = poiWD.trackDistanceM ?: return@filter false
+            dist in 0.0..limitM
+        }
+    }
+
+    private fun computeLookAheadBounds(option: LookAheadOption): LatLngBounds? {
+        val track = _gpxTrack.value ?: return null
+        val position = _userPosition.value ?: return null
         val userProjection = TrackGeometryUtils.projectPointOntoTrack(position, track.points)
         val subTrack = TrackGeometryUtils.extractSubTrack(
             track.points, userProjection,
-            lookAheadM = _lookAheadOption.value.km * 1000.0,
-            lookBackM  = 0.0
+            lookAheadM = option.km * 1000.0,
+            lookBackM = 0.0
         )
+        if (subTrack.size < 2) return null
+        return LatLngBounds.Builder().apply {
+            include(position)
+            subTrack.forEach { include(it) }
+        }.build()
+    }
 
-        _allPois.value = allRepoPois.mapNotNull { poi ->
-            if (subTrack.size < 2) return@mapNotNull null
-            val (_, offRoute) = TrackGeometryUtils.projectPoiOntoTrack(poi.lat, poi.lon, subTrack)
+    private fun computeFullTrackBounds(): LatLngBounds? {
+        val track = _gpxTrack.value ?: return null
+        if (track.points.size < 2) return null
+        return LatLngBounds.Builder().apply {
+            track.points.forEach { include(it) }
+        }.build()
+    }
+
+    private suspend fun doFetchAllTrackPois(track: GpxTrack, position: LatLng) {
+        val allRepoPois = mapGraphRepository.getAllPois().first()
+        val userProjection = TrackGeometryUtils.projectPointOntoTrack(position, track.points)
+        allTrackPois = allRepoPois.mapNotNull { poi ->
+            val (_, offRoute) = TrackGeometryUtils.projectPoiOntoTrack(poi.lat, poi.lon, track.points)
             if (offRoute > CORRIDOR_M) return@mapNotNull null
-            val poiProjection = TrackGeometryUtils.projectPointOntoTrack(
-                LatLng(poi.lat, poi.lon), track.points
-            )
-            val trackDistM = TrackGeometryUtils.computeDistanceAlongTrack(
-                track.points, userProjection, poiProjection
-            )
-            val airDistM = GeoUtils.haversineDistance(
-                position.latitude, position.longitude, poi.lat, poi.lon
-            )
+            val poiProjection = TrackGeometryUtils.projectPointOntoTrack(LatLng(poi.lat, poi.lon), track.points)
+            val isAhead = poiProjection.segmentIndex > userProjection.segmentIndex ||
+                (poiProjection.segmentIndex == userProjection.segmentIndex &&
+                    poiProjection.fraction >= userProjection.fraction)
+            val trackDistM = if (isAhead) {
+                TrackGeometryUtils.computeDistanceAlongTrack(track.points, userProjection, poiProjection)
+            } else {
+                -TrackGeometryUtils.computeDistanceAlongTrack(track.points, poiProjection, userProjection)
+            }
+            val airDistM = GeoUtils.haversineDistance(position.latitude, position.longitude, poi.lat, poi.lon)
             PoiWithDistances(poi, airDistM, trackDistM)
         }.sortedBy { it.trackDistanceM ?: Double.MAX_VALUE }
+        _pois.value = allTrackPois
     }
 
     private suspend fun fetchRoughGpsPosition(): LatLng? = try {
@@ -184,5 +238,6 @@ class NavigationViewModel @Inject constructor(
 
     companion object {
         private const val CORRIDOR_M = 200.0
+        private const val OFF_TRACK_THRESHOLD_M = 1000.0
     }
 }

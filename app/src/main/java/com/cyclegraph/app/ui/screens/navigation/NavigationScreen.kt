@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -41,15 +43,16 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -74,7 +77,6 @@ import com.cyclegraph.app.util.FormatUtils
 import com.cyclegraph.app.util.OpeningHoursUtils
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -89,13 +91,16 @@ fun NavigationScreen(
     viewModel: NavigationViewModel = hiltViewModel(),
     onNavigateToHome: () -> Unit = {}
 ) {
-    val gpxTrack       by viewModel.gpxTrack.collectAsState()
-    val userPosition   by viewModel.userPosition.collectAsState()
-    val pois           by viewModel.pois.collectAsState()
-    val isLoadingPois  by viewModel.isLoadingPois.collectAsState()
-    val errorMessage   by viewModel.errorMessage.collectAsState()
-    val poiSelection   by viewModel.poiSelection.collectAsState()
+    val gpxTrack        by viewModel.gpxTrack.collectAsState()
+    val userPosition    by viewModel.userPosition.collectAsState()
+    val pois            by viewModel.pois.collectAsState()
+    val isLoadingPois   by viewModel.isLoadingPois.collectAsState()
+    val errorMessage    by viewModel.errorMessage.collectAsState()
+    val poiSelection    by viewModel.poiSelection.collectAsState()
     val lookAheadOption by viewModel.lookAheadOption.collectAsState()
+    val pendingCameraBounds by viewModel.pendingCameraBounds.collectAsState()
+    val offTrackDialogKm    by viewModel.offTrackDialogKm.collectAsState()
+
     val selectedPoi  = poiSelection.selected?.poi
     val popupPoiWD   = poiSelection.selected?.popup
     val pendingZoomTo = poiSelection.pendingZoomTo
@@ -108,12 +113,15 @@ fun NavigationScreen(
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val peekHeight = (screenHeightDp * 0.25f).dp
 
-    val scaffoldState = rememberBottomSheetScaffoldState(
-        bottomSheetState = rememberStandardBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            skipHiddenState = false
+    val gpxLoaded = gpxTrack != null
+    val scaffoldState = key(gpxLoaded) {
+        rememberBottomSheetScaffoldState(
+            bottomSheetState = rememberStandardBottomSheetState(
+                initialValue = if (gpxLoaded) SheetValue.PartiallyExpanded else SheetValue.Hidden,
+                skipHiddenState = gpxLoaded
+            )
         )
-    )
+    }
 
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -125,13 +133,9 @@ fun NavigationScreen(
         if (viewModel.gpxTrack.value != null) viewModel.refreshUserPosition()
     }
 
-    // When GPX loads → request location permission; when cleared → hide sheet
     LaunchedEffect(gpxTrack) {
         if (gpxTrack != null) {
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            scaffoldState.bottomSheetState.partialExpand()
-        } else {
-            scaffoldState.bottomSheetState.hide()
         }
     }
 
@@ -140,10 +144,21 @@ fun NavigationScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         val track = gpxTrack ?: return@LaunchedEffect
         if (track.points.size < 2) return@LaunchedEffect
-        val bounds = LatLngBounds.Builder().apply { track.points.forEach { include(it) } }.build()
+        val bounds = org.maplibre.android.geometry.LatLngBounds.Builder()
+            .apply { track.points.forEach { include(it) } }.build()
         ms.first.easeCamera(
             CameraUpdateFactory.newLatLngBounds(bounds, CyclingConstants.TRACK_FIT_PADDING), 500
         )
+    }
+
+    // Look-ahead camera animation — fires when ViewModel sets pending bounds
+    LaunchedEffect(pendingCameraBounds, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val bounds = pendingCameraBounds ?: return@LaunchedEffect
+        ms.first.easeCamera(
+            CameraUpdateFactory.newLatLngBounds(bounds, CyclingConstants.TRACK_FIT_PADDING), 600
+        )
+        viewModel.consumeCameraFit()
     }
 
     // Render GPX track on map
@@ -231,6 +246,18 @@ fun NavigationScreen(
         }
     }
 
+    // Off-track dialog
+    offTrackDialogKm?.let { km ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissOffTrackDialog() },
+            title = { Text("Off Track") },
+            text = { Text("You are currently off-track by %.1f km.".format(km)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissOffTrackDialog() }) { Text("Dismiss") }
+            }
+        )
+    }
+
     // ---- UI Layout ----
     Scaffold(
         topBar = {
@@ -267,12 +294,26 @@ fun NavigationScreen(
             )
         }
     ) { outerPadding ->
+        val sheetExpansionPadding = if (scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded) {
+            outerPadding.calculateTopPadding()
+        } else {
+            0.dp
+        }
+
         BottomSheetScaffold(
             modifier = Modifier.padding(outerPadding),
             scaffoldState = scaffoldState,
             sheetPeekHeight = peekHeight,
+            sheetDragHandle = {
+                Box(modifier = Modifier.padding(top = sheetExpansionPadding)) {
+                    BottomSheetDefaults.DragHandle()
+                }
+            },
             sheetContent = {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = sheetExpansionPadding)
+                ) {
                     SingleChoiceSegmentedButtonRow(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -419,12 +460,8 @@ private fun PoiRow(poiWD: PoiWithDistances, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val subtitle = buildString {
-                    append(FormatUtils.categoryDisplayName(poi.category))
-                    poi.cuisine?.let { append(" ($it)") }
-                }
                 Text(
-                    text = subtitle,
+                    text = FormatUtils.categoryDisplayName(poi.category),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -432,7 +469,7 @@ private fun PoiRow(poiWD: PoiWithDistances, onClick: () -> Unit) {
             }
         }
 
-        poiWD.trackDistanceM?.let { m ->
+        poiWD.trackDistanceM?.takeIf { it >= 0.0 }?.let { m ->
             Text(
                 text = FormatUtils.formatPoiDistance(m),
                 style = MaterialTheme.typography.labelSmall,

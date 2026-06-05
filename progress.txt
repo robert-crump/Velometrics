@@ -95,3 +95,50 @@ Completed: 2026-06-04
 
 ### Tests
 100 unit tests pass.
+
+---
+
+## Issue #14 — Navigate: Bugfixes
+Completed: 2026-06-05
+
+### What was done
+
+**Remove "cuisine" from POI row**
+- Removed `poi.cuisine?.let { append(" ($it)") }` from `PoiRow` in `NavigationScreen`; category
+  label is now shown without the cuisine qualifier
+
+**Bottom drawer handle always visible**
+- Replaced the fixed `rememberStandardBottomSheetState(skipHiddenState = false)` with a `key(gpxLoaded)`
+  block that recreates the state when GPX load state changes
+- Pre-GPX: `skipHiddenState = false`, `initialValue = Hidden` (no handle shown)
+- Post-GPX: `skipHiddenState = true`, `initialValue = PartiallyExpanded` (handle always visible,
+  user cannot drag sheet fully hidden)
+- `LaunchedEffect(gpxTrack)` simplified to only launch the location permission request; sheet
+  expansion is now handled by `initialValue`
+
+**Full-screen mode overlap fix**
+- Added `sheetExpansionPadding` (= `outerPadding.calculateTopPadding()` when expanded, 0 otherwise)
+  applied to both `sheetDragHandle` and `sheetContent` Column, keeping handle and buttons clear
+  of the top app bar when the sheet is fully expanded
+
+**No look-ahead active by default; look-ahead buttons control camera + list**
+- `_lookAheadOption` changed from `StateFlow<LookAheadOption>` (defaulting KM5) to
+  `StateFlow<LookAheadOption?>` (defaulting null)
+- Added `allTrackPois: List<PoiWithDistances>` internal cache; full track POIs are fetched once
+  on GPS fix and stored here
+- `setLookAheadOption(option)` now toggles: clicking the active button deselects (→ null);
+  POI list is filtered in-memory from `allTrackPois` (no repo re-fetch); `pendingCameraBounds`
+  is set to the appropriate `LatLngBounds` (look-ahead sub-track bounds or full-track bounds)
+- `LaunchedEffect(pendingCameraBounds, mapAndStyle)` in screen animates via `easeCamera` at 600ms
+  then calls `consumeCameraFit()`
+- Behind-user POIs get a signed negative `trackDistanceM`; the distance label in `PoiRow` is
+  suppressed for negative values (`takeIf { it >= 0.0 }`)
+
+**Off-track dialog**
+- `checkOffTrack()` fires once per GPX load (guarded by `hasCheckedOffTrack` flag) after the
+  first GPS fix; uses `TrackGeometryUtils.projectPointOntoTrack` to measure perpendicular distance
+- If distance > 1000 m, `_offTrackDialogKm` is set → `AlertDialog` shown with exact km distance
+  and a single Dismiss button; `dismissOffTrackDialog()` clears the state
+
+### Tests
+100 unit tests pass.

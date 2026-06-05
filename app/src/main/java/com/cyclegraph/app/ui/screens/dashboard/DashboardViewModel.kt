@@ -11,7 +11,6 @@ import com.cyclegraph.app.domain.model.CyclingSession
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
 import com.cyclegraph.app.di.ApplicationScope
 import com.cyclegraph.app.domain.service.RouteClusteringService
-import com.cyclegraph.app.domain.service.SessionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -22,7 +21,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -60,7 +58,6 @@ data class MonthlyRideSummary(
 class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val fitImportService: FitImportService,
-    private val sessionComparator: SessionComparator,
     private val routeClusteringService: RouteClusteringService,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
@@ -171,19 +168,11 @@ class HomeViewModel @Inject constructor(
                     lastResult = result
                 }
 
-                recalculateAllStats()
                 _importState.value = ImportUiState.Done(lastResult)
             }
 
             // Re-cluster on a scope that survives navigation away from the dashboard.
             appScope.launch { routeClusteringService.runClustering() }
-        }
-    }
-
-    private suspend fun recalculateAllStats() {
-        val allSessions = sessionRepository.getAllSessions().first()
-        for (session in allSessions) {
-            sessionComparator.computeComparison(session)
         }
     }
 

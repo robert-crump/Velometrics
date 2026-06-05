@@ -1,7 +1,7 @@
 package com.cyclegraph.app.domain.service
 
-import com.cyclegraph.app.domain.model.CyclingSession
 import com.cyclegraph.app.domain.model.RepeatedRoute
+import com.cyclegraph.app.domain.model.SessionClusterData
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
 import com.cyclegraph.app.domain.repository.RepeatedRouteRepository
 import android.util.Log
@@ -40,26 +40,26 @@ class RouteClusteringService @Inject constructor(
     // ─── Shared data structures ───
 
     private data class PreparedTrack(
-        val session: CyclingSession,
+        val sessionId: Long,
         val sampledPoints: List<List<Double>>,
         val grid: SpatialGrid,
         val centroid: List<Double>,
         val recordedDistM: Double
     )
 
-    private fun prepareTrack(session: CyclingSession): PreparedTrack? {
-        if (session.gpsTrack == null || session.distanceKm < MIN_SESSION_DIST_KM) return null
-        val raw = parseGpsTrack(session.gpsTrack) ?: return null
+    private fun prepareTrack(data: SessionClusterData): PreparedTrack? {
+        if (data.gpsTrack == null || data.distanceKm < MIN_SESSION_DIST_KM) return null
+        val raw = parseGpsTrack(data.gpsTrack) ?: return null
         if (raw.size < 4) return null
         val totalLen = trackLengthM(raw)
         if (totalLen < 100.0) return null
         val sampleCount = max(2, (totalLen / SAMPLE_SPACING_M).toInt())
         return PreparedTrack(
-            session = session,
+            sessionId = data.id,
             sampledPoints = resampleTrack(raw, sampleCount),
             grid = SpatialGrid(raw),
             centroid = computeCentroid(raw),
-            recordedDistM = session.distanceKm * 1000.0
+            recordedDistM = data.distanceKm * 1000.0
         )
     }
 
@@ -73,7 +73,7 @@ class RouteClusteringService @Inject constructor(
         if (lengthDelta > lengthDeltaThresholdM) {
             if (DEBUG_LOGGING) Log.d(
                 TAG,
-                "reject ${a.session.id}/${b.session.id}: length Δ=${lengthDelta.toInt()}m > ${lengthDeltaThresholdM.toInt()}m"
+                "reject ${a.sessionId}/${b.sessionId}: length Δ=${lengthDelta.toInt()}m > ${lengthDeltaThresholdM.toInt()}m"
             )
             return false
         }
@@ -83,7 +83,7 @@ class RouteClusteringService @Inject constructor(
         if (centroidDist >= MAX_CENTROID_DIST_M) {
             if (DEBUG_LOGGING) Log.d(
                 TAG,
-                "reject ${a.session.id}/${b.session.id}: centroid dist=${centroidDist.toInt()}m ≥ ${MAX_CENTROID_DIST_M.toInt()}m"
+                "reject ${a.sessionId}/${b.sessionId}: centroid dist=${centroidDist.toInt()}m ≥ ${MAX_CENTROID_DIST_M.toInt()}m"
             )
             return false
         }
@@ -91,13 +91,13 @@ class RouteClusteringService @Inject constructor(
         if (sim < SIMILARITY_THRESHOLD) {
             if (DEBUG_LOGGING) Log.d(
                 TAG,
-                "reject ${a.session.id}/${b.session.id}: similarity=${"%.3f".format(sim)} < $SIMILARITY_THRESHOLD"
+                "reject ${a.sessionId}/${b.sessionId}: similarity=${"%.3f".format(sim)} < $SIMILARITY_THRESHOLD"
             )
             return false
         }
         if (DEBUG_LOGGING) Log.d(
             TAG,
-            "accept ${a.session.id}/${b.session.id}: sim=${"%.3f".format(sim)}, lenΔ=${lengthDelta.toInt()}m, cenΔ=${centroidDist.toInt()}m"
+            "accept ${a.sessionId}/${b.sessionId}: sim=${"%.3f".format(sim)}, lenΔ=${lengthDelta.toInt()}m, cenΔ=${centroidDist.toInt()}m"
         )
         return true
     }
@@ -109,16 +109,16 @@ class RouteClusteringService @Inject constructor(
     // ─── Full clustering (single-linkage / connected components) ───
 
     suspend fun runClustering() = withContext(Dispatchers.Default) {
-        val allSessions = sessionRepository.getRecentSessionsList(Int.MAX_VALUE)
-        val sessionsWithGps = allSessions.filter { it.gpsTrack != null }
+        val allClusterData = sessionRepository.getAllClusterData()
+        val clusterDataWithGps = allClusterData.filter { it.gpsTrack != null }
 
-        if (sessionsWithGps.size < MIN_GROUP_SIZE) {
-            if (DEBUG_LOGGING) Log.d(TAG, "summary: ${sessionsWithGps.size} sessions w/ GPS < MIN_GROUP_SIZE=$MIN_GROUP_SIZE — clearing all routes")
+        if (clusterDataWithGps.size < MIN_GROUP_SIZE) {
+            if (DEBUG_LOGGING) Log.d(TAG, "summary: ${clusterDataWithGps.size} sessions w/ GPS < MIN_GROUP_SIZE=$MIN_GROUP_SIZE — clearing all routes")
             repeatedRouteRepository.deleteAll()
             return@withContext
         }
 
-        val prepared = sessionsWithGps.mapNotNull { prepareTrack(it) }
+        val prepared = clusterDataWithGps.mapNotNull { prepareTrack(it) }
         val n = prepared.size
 
         // ─── Step 1: build edge graph (qualifying pairs) ───
@@ -164,11 +164,14 @@ class RouteClusteringService @Inject constructor(
             "summary: $n sessions → $edgeCount edges → ${components.size} components → ${validGroups.size} ≥ MIN_GROUP_SIZE=$MIN_GROUP_SIZE"
         )
 
-        // ─── Step 3: name preservation ───
+        // ─── Step 3: load full sessions only for valid groups, then preserve names ───
+        val groupSessionIds = validGroups.flatten().map { prepared[it].sessionId }.distinct()
+        val fullSessionMap = sessionRepository.getSessionsByIdsList(groupSessionIds).associateBy { it.id }
+
         val existingRoutes = repeatedRouteRepository.getAllRoutesList()
         val newRoutes = validGroups.map { indices ->
-            val sessions = indices.map { prepared[it].session }
-            val sessionIdSet = sessions.map { it.id }.toSet()
+            val sessionIdSet = indices.map { prepared[it].sessionId }.toSet()
+            val sessions = indices.mapNotNull { fullSessionMap[prepared[it].sessionId] }
             val matchedExisting = existingRoutes.firstOrNull { existing ->
                 val existingSet = existing.sessions.map { it.id }.toSet()
                 existingSet.isNotEmpty() && existingSet.all { id -> id in sessionIdSet }

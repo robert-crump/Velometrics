@@ -2,6 +2,7 @@ package com.cyclegraph.app.data.local.dao
 
 import androidx.room.*
 import com.cyclegraph.app.data.local.entity.CyclingSessionEntity
+import com.cyclegraph.app.domain.model.SessionClusterData
 import kotlinx.coroutines.flow.Flow
 
 data class SessionIdAndTrack(
@@ -50,6 +51,12 @@ interface CyclingSessionDao {
     @Query("SELECT id, gpsTrack FROM cycling_sessions")
     suspend fun getAllIdsAndTracks(): List<SessionIdAndTrack>
 
+    @Query("SELECT id, gpsTrack, distanceKm FROM cycling_sessions")
+    suspend fun getAllClusterData(): List<SessionClusterData>
+
     @Query("SELECT * FROM cycling_sessions WHERE id IN (:ids) ORDER BY sessionStart DESC")
     fun getSessionsByIds(ids: List<Long>): Flow<List<CyclingSessionEntity>>
+
+    @Query("SELECT * FROM cycling_sessions WHERE id IN (:ids) ORDER BY sessionStart DESC")
+    suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSessionEntity>
 }

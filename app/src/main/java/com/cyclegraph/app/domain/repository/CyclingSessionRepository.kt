@@ -1,6 +1,7 @@
 package com.cyclegraph.app.domain.repository
 
 import com.cyclegraph.app.domain.model.CyclingSession
+import com.cyclegraph.app.domain.model.SessionClusterData
 import kotlinx.coroutines.flow.Flow
 
 interface CyclingSessionRepository {
@@ -17,4 +18,6 @@ interface CyclingSessionRepository {
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
     suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession>
+    suspend fun getAllClusterData(): List<SessionClusterData>
+    suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSession>
 }

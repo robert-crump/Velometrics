@@ -52,16 +52,8 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
 
     override suspend fun getAllRoutesList(): List<RepeatedRoute> {
         val entities = dao.getAllRoutesList()
-        val sessions = sessionRepository.getAllSessions()
-        // We need a one-shot snapshot — collect first emission via first()
-        // Instead, fetch all sessions as a list via the repository
-        val allSessions = mutableListOf<CyclingSession>()
-        // Use getAllRoutesList approach: collect ids from all entities, fetch sessions individually
-        val allIds = entities.flatMap { parseIds(it.sessionIds) }.toSet()
-        for (id in allIds) {
-            sessionRepository.getSessionById(id)?.let { allSessions.add(it) }
-        }
-        val sessionMap = allSessions.associateBy { it.id }
+        val allIds = entities.flatMap { parseIds(it.sessionIds) }.distinct()
+        val sessionMap = sessionRepository.getSessionsByIdsList(allIds).associateBy { it.id }
         return entities.mapNotNull { entityToDomain(it, sessionMap) }
     }
 

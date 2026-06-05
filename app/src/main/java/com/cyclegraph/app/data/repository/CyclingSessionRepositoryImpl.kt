@@ -2,6 +2,7 @@ package com.cyclegraph.app.data.repository
 
 import com.cyclegraph.app.data.local.dao.CyclingSessionDao
 import com.cyclegraph.app.domain.model.CyclingSession
+import com.cyclegraph.app.domain.model.SessionClusterData
 import com.cyclegraph.app.domain.repository.CyclingSessionRepository
 import com.cyclegraph.app.util.toDomain
 import com.cyclegraph.app.util.toEntity
@@ -69,5 +70,13 @@ class CyclingSessionRepositoryImpl @Inject constructor(
 
     override suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession> {
         return dao.getSessionsBeforeDate(epochMs, limit).map { it.toDomain() }
+    }
+
+    override suspend fun getAllClusterData(): List<SessionClusterData> {
+        return dao.getAllClusterData()
+    }
+
+    override suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSession> {
+        return dao.getSessionsByIdsList(ids).map { it.toDomain() }
     }
 }

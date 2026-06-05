@@ -1,3 +1,32 @@
+## Issue #2 — File import slow when existing database is large (>100 rides)
+Completed: 2026-06-05 | Closed: 2026-06-05
+
+### What was done
+
+**Remove dead post-import recalculation (`HomeViewModel.kt`)**
+- Deleted `recalculateAllStats()` and its `sessionComparator` injection; the method called
+  `computeComparison()` for every session and discarded all results — `SessionComparison` is
+  computed on-demand in `SessionDetailViewModel` — adding ~100 sequential DB queries to the
+  critical path while the progress bar was shown
+
+**Lightweight session loading for clustering (`RouteClusteringService.kt`)**
+- Added `SessionClusterData(id, gpsTrack, distanceKm)` domain model
+- Added `getAllClusterData()` DAO query (`SELECT id, gpsTrack, distanceKm`) and
+  `getSessionsByIdsList()` suspend batch query; plumbed both through repository interface and impl
+- `RouteClusteringService.runClustering()` now loads the lightweight projection for the O(n²)
+  pairwise step and fetches full `CyclingSession` objects only for the sessions that form valid
+  repeated-route groups
+
+**Fix N+1 query in route list loading (`RepeatedRouteRepositoryImpl.kt`)**
+- `getAllRoutesList()` previously called `getSessionById()` in a per-ID loop (one DB query per
+  session across all route entities) plus had a dead `getAllSessions()` call that was never
+  consumed; replaced with a single `getSessionsByIdsList()` batch query
+
+### Tests
+`compileDebugKotlin` and `kspDebugKotlin` clean (only pre-existing warnings).
+
+---
+
 ## Issue #1 — Repeated Routes: too few clusters + perceived recalculation on tab open
 Completed: 2026-06-05 | Closed: 2026-06-05
 

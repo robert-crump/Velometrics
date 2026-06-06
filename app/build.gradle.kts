@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.cyclegraph.app"
+    namespace = "com.velometrics.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.cyclegraph.app"
+        applicationId = "com.velometrics.app"
         minSdk = 34
         targetSdk = 35
         versionCode = 1

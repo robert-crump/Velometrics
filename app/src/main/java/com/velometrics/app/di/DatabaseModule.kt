@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.velometrics.app.data.local.CycleGraphDatabase
+import com.velometrics.app.data.local.VelometricsDatabase
 import com.velometrics.app.data.local.CyclingAssetDatabase
 import com.velometrics.app.data.local.dao.*
 import dagger.Module
@@ -61,11 +61,11 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): CycleGraphDatabase {
+    fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
         return Room.databaseBuilder(
             context,
-            CycleGraphDatabase::class.java,
-            "cyclegraph_database"
+            VelometricsDatabase::class.java,
+            "velometrics_database"
         )
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6)
             .fallbackToDestructiveMigration()
@@ -73,22 +73,22 @@ object DatabaseModule {
     }
 
     @Provides
-    fun provideCyclingSessionDao(database: CycleGraphDatabase): CyclingSessionDao {
+    fun provideCyclingSessionDao(database: VelometricsDatabase): CyclingSessionDao {
         return database.cyclingSessionDao()
     }
 
     @Provides
-    fun provideIntervalSessionDao(database: CycleGraphDatabase): IntervalSessionDao {
+    fun provideIntervalSessionDao(database: VelometricsDatabase): IntervalSessionDao {
         return database.intervalSessionDao()
     }
 
     @Provides
-    fun provideIntervalPrototypeRouteDao(database: CycleGraphDatabase): IntervalPrototypeRouteDao {
+    fun provideIntervalPrototypeRouteDao(database: VelometricsDatabase): IntervalPrototypeRouteDao {
         return database.intervalPrototypeRouteDao()
     }
 
     @Provides
-    fun provideRepeatedRouteDao(database: CycleGraphDatabase): RepeatedRouteDao {
+    fun provideRepeatedRouteDao(database: VelometricsDatabase): RepeatedRouteDao {
         return database.repeatedRouteDao()
     }
 

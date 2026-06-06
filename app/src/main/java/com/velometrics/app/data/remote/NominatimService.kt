@@ -5,7 +5,7 @@ import retrofit2.http.Headers
 import retrofit2.http.Query
 
 interface NominatimService {
-    @Headers("User-Agent: CycleGraph/1.0 (contact: app@cyclegraph.com)")
+    @Headers("User-Agent: Velometrics/1.0 (contact: app@velometrics.com)")
     @GET("search")
     suspend fun search(
         @Query("q") query: String,

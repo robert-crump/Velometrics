@@ -20,7 +20,7 @@ import com.velometrics.app.ui.components.BottomNavBar
 import com.velometrics.app.ui.intent.GpxIntentViewModel
 import com.velometrics.app.ui.navigation.VelometricsNavHost
 import com.velometrics.app.ui.navigation.Screen
-import com.velometrics.app.ui.theme.CycleGraphTheme
+import com.velometrics.app.ui.theme.VelometricsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         extractGpxUri(intent)?.let { gpxIntentViewModel.setPendingUri(it) }
         enableEdgeToEdge()
         setContent {
-            CycleGraphTheme {
+            VelometricsTheme {
                 val navController = rememberNavController()
                 val pendingUri by gpxIntentViewModel.pendingGpxUri.collectAsState()
 

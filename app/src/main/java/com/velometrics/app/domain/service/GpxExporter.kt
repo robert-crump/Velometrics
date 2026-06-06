@@ -24,7 +24,7 @@ class GpxExporter @Inject constructor() {
         val timestamp = isoFormatter.format(Instant.now())
 
         writer.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        writer.append("<gpx version=\"1.1\" creator=\"CycleGraph\"")
+        writer.append("<gpx version=\"1.1\" creator=\"Velometrics\"")
         writer.append(" xmlns=\"http://www.topografix.com/GPX/1/1\"")
         writer.append(" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"")
         writer.append(" xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")

@@ -120,7 +120,7 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("CycleGraph")
+                        Text("Velometrics")
                         if (sessionCount > 0) {
                             Text(
                                 text = "$sessionCount rides",

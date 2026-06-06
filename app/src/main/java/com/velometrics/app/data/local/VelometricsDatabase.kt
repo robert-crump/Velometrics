@@ -18,7 +18,7 @@ import com.velometrics.app.data.local.entity.*
     exportSchema = true
 )
 @TypeConverters(Converters::class)
-abstract class CycleGraphDatabase : RoomDatabase() {
+abstract class VelometricsDatabase : RoomDatabase() {
     abstract fun cyclingSessionDao(): CyclingSessionDao
     abstract fun intervalSessionDao(): IntervalSessionDao
     abstract fun intervalPrototypeRouteDao(): IntervalPrototypeRouteDao

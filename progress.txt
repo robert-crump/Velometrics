@@ -1,3 +1,47 @@
+## Issue #18 — FastWayHomeService: time-optimized A* pathfinding to home
+Completed: 2026-06-07 | Closed: 2026-06-07
+
+### What was done
+
+**`FastWayHomeService.kt` (new, `domain/service/`)**
+- `@Singleton` service injecting `MapGraphRepository`, `EdgeStatsEstimator` (#17), and
+  `UserSettingsRepository` (for `homeLat`/`homeLon`)
+- `findFastWayHome(start: LatLng): FastWayHomeResult?` — locates the nearest graph edge to
+  `start`, runs `aStarToHome()` toward the configured home location, converts the resulting
+  edge sequence into `ScoredSegment`s, and scores it via `RideEstimator.estimateRide()` (#16)
+  once per percentile band
+- `FastWayHomeResult(path, slow, avg, fast, anySegmentsEstimated)` aggregates the three
+  `RideEstimate`s plus whether any segment along the path used estimated (non-real) stats
+- `aStarToHome()` is a brand-new, independent A* — `RoutePlanner.aStarReturn()` is untouched.
+  Skeleton (priority queue `Node(idx, gCost, fCost)`, `gCosts`/`cameFrom`/`closedSet`,
+  goal-radius check, path reconstruction) mirrors `aStarReturn`, but:
+  - cost is **time-based**: `lengthM / speedP50` (converted to m/s), not distance-based
+  - heuristic converts remaining haversine distance to a lower-bound time using
+    `CyclingConstants.GPS_IMPLIED_MAX_SPEED_KMH` (120 km/h), keeping it admissible
+  - target is the configured home location, not the route's start point
+- Connectivity cache (`edgeByIndex`/`adjacency`/`edgeStartPoints`/`edgeEndPoints`) is built
+  the same way as `RoutePlanner`'s (decode `geometryEncoded` via `PolylineDecoder`, fall back
+  to node lat/lon, adjacency from `fromNode`/`toNode` topology), plus a precomputed
+  `edgeStatsByIndex: Map<Int, EdgeStats>`: real stats for traversed edges with percentile
+  data, `EdgeStatsEstimator.estimateStatsNear()` (with its 15 km/h fallback) for
+  untraversed/data-sparse edges — precomputed once so the A* loop stays synchronous and fast
+- No edges are excluded from the search graph; all are routable via the fallback-cost estimate
+
+**`FastWayHomeServiceTest.kt` (new)**
+- Small fixture chain graph (`N0 -> N1 -> N2 -> N3`/home, 2 traversed + 1 untraversed edge)
+  confirms a concrete path is found end-to-end, `anySegmentsEstimated` is true (the untraversed
+  edge falls back to 15 km/h since no nearby traversed edge shares its bearing), and
+  Slow >= Avg >= Fast ride durations
+- A disconnected two-component fixture confirms `findFastWayHome` returns `null` gracefully
+- Added `io.mockk:mockk` as a test dependency to fake `UserSettingsRepository` (a concrete,
+  `Context`-backed `DataStore` wrapper with no existing test-double pattern in the codebase)
+
+### Tests
+132 unit tests pass (the 4 pre-existing `FormatUtilsTest` locale-formatting failures are
+unrelated — they fail identically on a clean `main`).
+
+---
+
 ## Issue #17 — Nearest-traversed-edge statistic estimation primitive
 Completed: 2026-06-07 | Closed: 2026-06-07
 

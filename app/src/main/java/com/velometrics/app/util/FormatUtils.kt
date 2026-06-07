@@ -3,6 +3,7 @@
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -39,9 +40,9 @@ object FormatUtils {
         return "${hours}h ${minutes}m ${seconds}s"
     }
 
-    fun formatDistance(km: Double): String = "%.1f km".format(km)
+    fun formatDistance(km: Double): String = "%.1f km".format(Locale.US, km)
 
-    fun formatSpeed(kmh: Double): String = "%.1f km/h".format(kmh)
+    fun formatSpeed(kmh: Double): String = "%.1f km/h".format(Locale.US, kmh)
 
     fun formatPower(watts: Int): String = "$watts W"
 
@@ -58,8 +59,8 @@ object FormatUtils {
         val current = currentValue.toDouble()
         val formatted = when (unit) {
             "W" -> "${currentValue.toInt()} W"
-            "km/h" -> "%.1f km/h".format(current)
-            "km" -> "%.1f km".format(current)
+            "km/h" -> "%.1f km/h".format(Locale.US, current)
+            "km" -> "%.1f km".format(Locale.US, current)
             else -> "$currentValue $unit"
         }
         if (medianValue == null) return formatted
@@ -70,12 +71,12 @@ object FormatUtils {
         val diff = current - median
         val pct = (diff / median * 100).roundToInt()
         val diffFormatted = when (unit) {
-            "W" -> "%+d".format(diff.roundToInt())
-            "km/h" -> "%+.1f".format(diff)
-            "km" -> "%+.1f".format(diff)
-            else -> "%+.1f".format(diff)
+            "W" -> "%+d".format(Locale.US, diff.roundToInt())
+            "km/h" -> "%+.1f".format(Locale.US, diff)
+            "km" -> "%+.1f".format(Locale.US, diff)
+            else -> "%+.1f".format(Locale.US, diff)
         }
-        return "$formatted ($diffFormatted | %+d%%)".format(pct)
+        return "$formatted ($diffFormatted | %+d%%)".format(Locale.US, pct)
     }
 
     fun formatDurationComparison(currentSec: Int, medianSec: Int?): String {
@@ -88,7 +89,7 @@ object FormatUtils {
         val pct = (diff.toDouble() / medianSec * 100).roundToInt()
         val sign = if (diff >= 0) "+" else "-"
         val diffFormatted = "${sign}${formatDuration(abs(diff))}"
-        return "$currentFormatted ($diffFormatted | %+d%%)".format(pct)
+        return "$currentFormatted ($diffFormatted | %+d%%)".format(Locale.US, pct)
     }
 
     fun categoryDisplayName(category: String): String = when (category) {

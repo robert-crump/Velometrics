@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.data.repository
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -60,4 +61,10 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         sessions.filter { it.sessionStart.toEpochMilli() < epochMs }
             .sortedByDescending { it.sessionStart }
             .take(limit)
+
+    override suspend fun getAllClusterData(): List<SessionClusterData> =
+        sessions.map { SessionClusterData(it.id, it.gpsTrack, it.distanceKm) }
+
+    override suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSession> =
+        sessions.filter { it.id in ids }
 }

@@ -1,3 +1,36 @@
+## Issue #16 — RideEstimator: weighted speed/power/duration scoring module
+Completed: 2026-06-07 | Closed: 2026-06-07
+
+### What was done
+
+**`domain/service/RideEstimator.kt`**
+- Added graph-agnostic `ScoredSegment` (lengthM + per-percentile speed/power + `isEstimated`),
+  `Percentile` enum (SLOW/AVG/FAST → 25th/50th/75th), and `RideEstimate` result type — none
+  depend on `MapEdge`, the graph repository, or UI types, so the module can be reused both for
+  the "fast way home" estimate (#9/#18) and for future `.gpx` rating
+- `RideEstimator.estimateRide(segments, percentile)`:
+  - Average speed: each segment's chosen-percentile speed weighted by `lengthM`, summed and
+    divided by total length; converted to overall duration via `(totalKm / avgSpeedKmh) * 3600`
+  - Average power: each segment's own duration (`lengthM / its percentile speed`, in seconds)
+    used as the weight for that segment's percentile power; weighted sum divided by the total
+    duration of only the segments that have power data for that percentile (others skipped)
+  - `anyEstimatedSegments` is `true` if any input segment has `isEstimated = true`
+  - Empty input returns a zeroed `RideEstimate` rather than dividing by zero
+
+### Pre-existing issue fixed along the way
+- `FakeCyclingSessionRepository` (test fixture) was missing the `getAllClusterData` /
+  `getSessionsByIdsList` overrides added to `CyclingSessionRepository` during issue #2,
+  which broke compilation of the entire unit test source set
+
+### Tests
+Added `RideEstimatorTest` (6 cases): hand-computed duration/power for Slow/Avg/Fast on a
+two-segment fixture, zero-segment input, segments with no power data excluded from the power
+average, and the `anyEstimatedSegments` flag. 121/125 unit tests pass (the 4 failures are
+pre-existing `FormatUtilsTest` locale-formatting issues — `,` vs `.` decimal separator — unrelated
+to this change).
+
+---
+
 ## Navigate drawer polish + dismiss fix
 Completed: 2026-06-05
 

@@ -1,0 +1,71 @@
+package com.velometrics.app.domain.service
+
+data class ScoredSegment(
+    val lengthM: Double,
+    val speedP25: Double, val speedP50: Double, val speedP75: Double,
+    val powerP25: Double?, val powerP50: Double?, val powerP75: Double?,
+    val isEstimated: Boolean
+)
+
+enum class Percentile { SLOW, AVG, FAST }
+
+data class RideEstimate(
+    val percentile: Percentile,
+    val durationSec: Double,
+    val avgPowerW: Double,
+    val anyEstimatedSegments: Boolean
+)
+
+/**
+ * Graph-agnostic ride scoring: turns a sequence of route segments with percentile speed/power
+ * statistics into a single ride-time and power estimate for a chosen percentile band.
+ */
+object RideEstimator {
+
+    fun estimateRide(segments: List<ScoredSegment>, percentile: Percentile): RideEstimate {
+        if (segments.isEmpty()) {
+            return RideEstimate(
+                percentile = percentile,
+                durationSec = 0.0,
+                avgPowerW = 0.0,
+                anyEstimatedSegments = false
+            )
+        }
+
+        val totalLengthM = segments.sumOf { it.lengthM }
+        val weightedSpeedSum = segments.sumOf { speedFor(it, percentile) * it.lengthM }
+        val avgSpeedKmh = if (totalLengthM > 0) weightedSpeedSum / totalLengthM else 0.0
+        val durationSec = if (avgSpeedKmh > 0) (totalLengthM / 1000.0) / avgSpeedKmh * 3600.0 else 0.0
+
+        var weightedPowerSum = 0.0
+        var totalPowerDurationSec = 0.0
+        for (segment in segments) {
+            val power = powerFor(segment, percentile) ?: continue
+            val speed = speedFor(segment, percentile)
+            if (speed <= 0.0) continue
+            val segmentDurationSec = (segment.lengthM / 1000.0) / speed * 3600.0
+            weightedPowerSum += segmentDurationSec * power
+            totalPowerDurationSec += segmentDurationSec
+        }
+        val avgPowerW = if (totalPowerDurationSec > 0) weightedPowerSum / totalPowerDurationSec else 0.0
+
+        return RideEstimate(
+            percentile = percentile,
+            durationSec = durationSec,
+            avgPowerW = avgPowerW,
+            anyEstimatedSegments = segments.any { it.isEstimated }
+        )
+    }
+
+    private fun speedFor(segment: ScoredSegment, percentile: Percentile): Double = when (percentile) {
+        Percentile.SLOW -> segment.speedP25
+        Percentile.AVG -> segment.speedP50
+        Percentile.FAST -> segment.speedP75
+    }
+
+    private fun powerFor(segment: ScoredSegment, percentile: Percentile): Double? = when (percentile) {
+        Percentile.SLOW -> segment.powerP25
+        Percentile.AVG -> segment.powerP50
+        Percentile.FAST -> segment.powerP75
+    }
+}

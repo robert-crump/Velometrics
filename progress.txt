@@ -1,3 +1,43 @@
+## Issue #17 — Nearest-traversed-edge statistic estimation primitive
+Completed: 2026-06-07 | Closed: 2026-06-07
+
+### What was done
+
+**`domain/service/EdgeStatsEstimator.kt`**
+- Added `EdgeStats` (per-percentile speed + nullable per-percentile power + `isEstimated`) and
+  `EdgeStatsEstimator.estimateStatsNear(point: LatLng, bearing: Double): EdgeStats`
+- Maintains its own private `RTreeSpatialIndex` instance built lazily (mutex-guarded) from only
+  the *traversed* edges, so candidate `edgeKey`s map directly back to that traversed-only list —
+  this sidesteps the index-key ambiguity that would arise from sharing `RoutePlanner`'s index
+  (which is built over *all* edges and rebuilt/invalidated on its own schedule)
+- Candidate selection: queries the spatial index within `EDGE_STATS_SEARCH_RADIUS_M` (50 m),
+  filters out edges whose bearing differs from the query bearing by more than
+  `EDGE_STATS_MAX_BEARING_DIFF_DEG` (90°, so roughly-opposite/parallel roads don't contribute),
+  then takes the nearest `EDGE_STATS_NEAREST_K` (3)
+- Distance-weights each candidate's percentile stats by `1 / (distanceM + 1)` (closer edges
+  weigh more); power percentiles are skipped per-candidate when null and the overall power
+  estimate is `null` if no candidate contributed
+- Falls back to `EDGE_STATS_FALLBACK_SPEED_KMH` (15 km/h) with `null` power when no traversed
+  edge is found within range; `isEstimated` is always `true` (this function only fills gaps —
+  edges with real stats aren't routed through it)
+- Added `EDGE_STATS_NEAREST_K`, `EDGE_STATS_SEARCH_RADIUS_M`, `EDGE_STATS_FALLBACK_SPEED_KMH`,
+  `EDGE_STATS_MAX_BEARING_DIFF_DEG` to `CyclingConstants`
+
+### Deviation from the issue's literal `EdgeStats` signature
+- The issue sketch shows non-null `Double` power percentiles; kept them nullable (`Double?`)
+  to mirror `MapEdge`'s own nullable power stats and `RideEstimator.ScoredSegment`'s nullable
+  power fields (#16) — `RideEstimator.estimateRide` already skips segments with no power data,
+  so this is the natural fit for the eventual #18 conversion to `ScoredSegment`
+
+### Tests
+Added `EdgeStatsEstimatorTest` (3 cases): distance-weighted averaging favors the nearer of two
+same-direction traversed edges, fallback to the 15 km/h conservative estimate when nothing is
+within the search radius, and bearing filtering excludes a closer-but-opposite-direction edge
+from the average. 124/128 unit tests pass (the 4 failures are the pre-existing `FormatUtilsTest`
+locale-formatting issues — `,` vs `.` decimal separator — noted in #16, unrelated to this change).
+
+---
+
 ## Issue #16 — RideEstimator: weighted speed/power/duration scoring module
 Completed: 2026-06-07 | Closed: 2026-06-07
 

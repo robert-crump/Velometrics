@@ -162,6 +162,12 @@ object CyclingConstants {
     const val ROUTE_MIN_CONFIRMED_EDGES = 100
     const val ROUTE_DEFAULT_DISTANCE_KM = 40.0
 
+    // Edge statistic estimation (borrowing stats from nearby traversed edges)
+    const val EDGE_STATS_NEAREST_K = 3
+    const val EDGE_STATS_SEARCH_RADIUS_M = 50.0
+    const val EDGE_STATS_FALLBACK_SPEED_KMH = 15.0
+    const val EDGE_STATS_MAX_BEARING_DIFF_DEG = 90.0
+
     // Navigation / POI
     const val POI_COLOR_FUEL = "#E53935"
     const val POI_COLOR_CAFE = "#795548"

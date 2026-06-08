@@ -19,7 +19,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -27,9 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -60,34 +57,19 @@ class MapViewViewModelTest {
     private fun coarseFix(lat: Double = 0.0, lon: Double = 0.0, accuracyM: Float = 50f) =
         LocationFix(lat, lon, accuracyM, Instant.now())
 
-    private fun fineFix(lat: Double = 1.0, lon: Double = 2.0) =
-        LocationFix(lat, lon, CyclingConstants.GPS_FINE_FIX_ACCURACY_M - 1f, Instant.now())
-
     @Test
-    fun `15s timeout with no fine fix sets poorGpsSnackbar and clears isAcquiringGps`() = runTest(testDispatcher) {
+    fun `tracking keeps receiving fixes after a poor accuracy reading instead of stopping`() = runTest(testDispatcher) {
         val fakeLocation = FakeLocationSource()
         val vm = buildViewModel(fakeLocation)
 
         vm.startLocationUpdates()
-        fakeLocation.emitFix(coarseFix())
-        advanceTimeBy(CyclingConstants.GPS_ACQUISITION_TIMEOUT_MS + 1)
-        advanceUntilIdle()
+        fakeLocation.emitFix(coarseFix(accuracyM = 500f))
+        runCurrent()
+        assertEquals(500f, vm.locationAccuracy.value)
 
-        assertTrue(vm.poorGpsSnackbar.value)
-        assertFalse(vm.isAcquiringGps.value)
-    }
-
-    @Test
-    fun `fine fix arrival clears isAcquiringGps without firing snackbar`() = runTest(testDispatcher) {
-        val fakeLocation = FakeLocationSource()
-        val vm = buildViewModel(fakeLocation)
-
-        vm.startLocationUpdates()
-        fakeLocation.emitFix(fineFix())
-        advanceUntilIdle()
-
-        assertFalse(vm.isAcquiringGps.value)
-        assertFalse(vm.poorGpsSnackbar.value)
+        fakeLocation.emitFix(coarseFix(accuracyM = 50f))
+        runCurrent()
+        assertEquals(50f, vm.locationAccuracy.value)
     }
 
     @Test
@@ -124,7 +106,7 @@ class MapViewViewModelTest {
     }
 
     @Test
-    fun `LocationException NoProvider triggers snackbar without crashing`() = runTest(testDispatcher) {
+    fun `LocationException NoProvider does not crash`() = runTest(testDispatcher) {
         val fakeLocation = FakeLocationSource()
         fakeLocation.setSubscriptionException(LocationException.NoProvider)
         val vm = buildViewModel(fakeLocation)
@@ -132,12 +114,11 @@ class MapViewViewModelTest {
         vm.startLocationUpdates()
         advanceUntilIdle()
 
-        assertTrue(vm.poorGpsSnackbar.value)
-        assertFalse(vm.isAcquiringGps.value)
+        assertNull(vm.currentLocation.value)
     }
 
     @Test
-    fun `LocationException PermissionDenied does not fire snackbar`() = runTest(testDispatcher) {
+    fun `LocationException PermissionDenied does not crash`() = runTest(testDispatcher) {
         val fakeLocation = FakeLocationSource()
         fakeLocation.setSubscriptionException(LocationException.PermissionDenied)
         val vm = buildViewModel(fakeLocation)
@@ -145,8 +126,7 @@ class MapViewViewModelTest {
         vm.startLocationUpdates()
         advanceUntilIdle()
 
-        assertFalse(vm.poorGpsSnackbar.value)
-        assertFalse(vm.isAcquiringGps.value)
+        assertNull(vm.currentLocation.value)
     }
 
     @Test

@@ -88,17 +88,6 @@ fun MapViewScreen(
 
     val currentLocation by viewModel.currentLocation.collectAsState()
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
-    val isAcquiringGps by viewModel.isAcquiringGps.collectAsState()
-    val poorGpsSnackbar by viewModel.poorGpsSnackbar.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(poorGpsSnackbar) {
-        if (poorGpsSnackbar) {
-            snackbarHostState.showSnackbar("Poor gps quality.")
-            viewModel.dismissPoorGpsSnackbar()
-        }
-    }
-
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -329,28 +318,12 @@ fun MapViewScreen(
                     }
                 }
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
-                    if (isAcquiringGps) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
             }
             FloatingActionButton(onClick = { showBottomSheet = true }) {
                 Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
             }
         }
-
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 80.dp)
-        )
     }
 
     // Bottom sheet (layers)

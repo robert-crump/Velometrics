@@ -21,9 +21,7 @@ object CyclingConstants {
     const val GPS_IMPLIED_MAX_SPEED_KMH = 120.0
 
     // GPS / location acquisition
-    const val GPS_FINE_FIX_ACCURACY_M = 10f        // accuracy threshold for a "good" fix
     const val GPS_ROUGH_FIX_ACCURACY_M = 200f       // acceptable accuracy for a rough position
-    const val GPS_ACQUISITION_TIMEOUT_MS = 15_000L  // max wait for fine fix before snackbar
     const val LOCATION_UPDATE_MIN_TIME_MS = 1_000L  // min interval between location callbacks
     const val LOCATION_DISPLAY_THROTTLE_MS = 5_000L // blue-dot update throttle
 

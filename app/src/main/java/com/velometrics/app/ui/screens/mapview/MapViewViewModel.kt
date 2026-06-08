@@ -27,10 +27,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import javax.inject.Inject
@@ -193,45 +191,27 @@ class MapViewViewModel @Inject constructor(
     private val _locationAccuracy = MutableStateFlow<Float?>(null)
     val locationAccuracy: StateFlow<Float?> = _locationAccuracy.asStateFlow()
 
-    private val _poorGpsSnackbar = MutableStateFlow(false)
-    val poorGpsSnackbar: StateFlow<Boolean> = _poorGpsSnackbar.asStateFlow()
-
-    fun dismissPoorGpsSnackbar() { _poorGpsSnackbar.value = false }
-
-    private val _isAcquiringGps = MutableStateFlow(false)
-    val isAcquiringGps: StateFlow<Boolean> = _isAcquiringGps.asStateFlow()
-
     private var locationUpdateJob: Job? = null
     private var lastDotUpdateMs = 0L
 
     fun startLocationUpdates() {
         locationUpdateJob?.cancel()
-        _poorGpsSnackbar.value = false
-        _isAcquiringGps.value = true
         locationUpdateJob = viewModelScope.launch {
             try {
-                val timedOut = withTimeoutOrNull(CyclingConstants.GPS_ACQUISITION_TIMEOUT_MS) {
-                    locationSource.fixes()
-                        .onEach { fix ->
-                            _locationAccuracy.value = fix.accuracyM
-                            val nowMs = System.currentTimeMillis()
-                            if (nowMs - lastDotUpdateMs >= CyclingConstants.LOCATION_DISPLAY_THROTTLE_MS) {
-                                lastDotUpdateMs = nowMs
-                                _currentLocation.value = LatLng(fix.lat, fix.lon)
-                            }
+                locationSource.fixes()
+                    .onEach { fix ->
+                        _locationAccuracy.value = fix.accuracyM
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastDotUpdateMs >= CyclingConstants.LOCATION_DISPLAY_THROTTLE_MS) {
+                            lastDotUpdateMs = nowMs
+                            _currentLocation.value = LatLng(fix.lat, fix.lon)
                         }
-                        .takeWhile { fix -> fix.accuracyM > CyclingConstants.GPS_FINE_FIX_ACCURACY_M }
-                        .collect {}
-                }
-                if (timedOut == null) {
-                    _poorGpsSnackbar.value = true
-                }
+                    }
+                    .collect {}
             } catch (_: LocationException.NoProvider) {
-                _poorGpsSnackbar.value = true
+                // no location provider available; keep the map usable without a fix
             } catch (_: LocationException.PermissionDenied) {
                 // permission not granted; silently ignore
-            } finally {
-                _isAcquiringGps.value = false
             }
         }
     }

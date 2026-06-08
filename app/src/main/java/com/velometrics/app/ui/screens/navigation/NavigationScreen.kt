@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.PoiWithDistances
+import com.velometrics.app.domain.service.FastWayHomeResult
+import com.velometrics.app.domain.service.RideEstimate
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
@@ -71,6 +75,7 @@ import com.velometrics.app.ui.intent.GpxIntentViewModel
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
+import com.velometrics.app.util.PolylineDecoder
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -97,6 +102,10 @@ fun NavigationScreen(
     val lookAheadOption by viewModel.lookAheadOption.collectAsState()
     val pendingCameraBounds by viewModel.pendingCameraBounds.collectAsState()
     val offTrackDialogKm    by viewModel.offTrackDialogKm.collectAsState()
+    val fastWayHomeResult   by viewModel.fastWayHomeResult.collectAsState()
+    val fastWayHomeMessage  by viewModel.fastWayHomeMessage.collectAsState()
+    val isFindingFastWayHome by viewModel.isFindingFastWayHome.collectAsState()
+    val homeLocation        by viewModel.homeLocation.collectAsState()
 
     val context = LocalContext.current
     val pendingUri by intentViewModel.pendingGpxUri.collectAsState()
@@ -112,6 +121,7 @@ fun NavigationScreen(
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var trackRendered by remember { mutableStateOf(false) }
+    var fastWayHomeRendered by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
@@ -179,6 +189,33 @@ fun NavigationScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         val pos = userPosition ?: return@LaunchedEffect
         renderUserMarker(ms.second, pos)
+    }
+
+    // Render Fast Way Home overlay (route line + home marker), distinct from a loaded GPX track
+    LaunchedEffect(fastWayHomeResult, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        if (fastWayHomeRendered) {
+            try { MapTrackRenderer.removeTrack(ms.second, FAST_WAY_HOME_TRACK_ID) } catch (_: Exception) {}
+            removeHomeMarker(ms.second)
+            fastWayHomeRendered = false
+        }
+        val result = fastWayHomeResult ?: return@LaunchedEffect
+        val points = result.path.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+        if (points.size < 2) return@LaunchedEffect
+        MapTrackRenderer.addTrack(
+            ms.second, FAST_WAY_HOME_TRACK_ID, points,
+            CyclingConstants.FAST_WAY_HOME_TRACK_COLOR,
+            CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
+        )
+        homeLocation?.let { renderHomeMarker(ms.second, it) }
+        fastWayHomeRendered = true
+        val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().apply {
+            points.forEach { include(it) }
+            homeLocation?.let { include(it) }
+        }.build()
+        ms.first.easeCamera(
+            CameraUpdateFactory.newLatLngBounds(bounds, CyclingConstants.TRACK_FIT_PADDING), 600
+        )
     }
 
     // Render POIs on map; re-apply highlight afterwards
@@ -299,36 +336,42 @@ fun NavigationScreen(
                 onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
             )
 
-            // Empty-state overlay — shown before any GPX is loaded
-            if (gpxTrack == null) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Button(onClick = {
-                        gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
-                    }) {
-                        Icon(
-                            Icons.Default.Route,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add .gpx")
+            // Action FABs — Add .gpx and Fast Way Home stay visible regardless of track state;
+            // Locate-me only appears once a track is loaded. Stacked so the map stays visible underneath.
+            val fabBottomPadding = if (gpxTrack != null) peekHeight + 16.dp else 16.dp
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = fabBottomPadding)
+            ) {
+                if (gpxTrack != null) {
+                    SmallFloatingActionButton(onClick = { viewModel.refreshUserPosition() }) {
+                        Icon(Icons.Default.MyLocation, contentDescription = "Locate me on track")
                     }
+                }
+                SmallFloatingActionButton(onClick = { viewModel.findFastWayHome() }) {
+                    Icon(Icons.Default.Home, contentDescription = "Find fast way home")
+                }
+                SmallFloatingActionButton(onClick = {
+                    gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
+                }) {
+                    Icon(Icons.Default.Route, contentDescription = "Add .gpx")
                 }
             }
 
-            // Locate-me button — shown once a GPX is loaded, sits above the peek snap
-            if (gpxTrack != null) {
-                SmallFloatingActionButton(
-                    onClick = { viewModel.refreshUserPosition() },
+            // Fast Way Home result card — shown after tapping the house FAB
+            if (isFindingFastWayHome || fastWayHomeResult != null || fastWayHomeMessage != null) {
+                FastWayHomeCard(
+                    result = fastWayHomeResult,
+                    message = fastWayHomeMessage,
+                    isLoading = isFindingFastWayHome,
+                    onDismiss = { viewModel.clearFastWayHome() },
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = peekHeight + 16.dp)
-                ) {
-                    Icon(Icons.Default.MyLocation, contentDescription = "Locate me on track")
-                }
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
 
             // POI popup card
@@ -418,6 +461,81 @@ fun NavigationScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FastWayHomeCard(
+    result: FastWayHomeResult?,
+    message: String?,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Fast Way Home", style = MaterialTheme.typography.titleMedium)
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Dismiss")
+                }
+            }
+
+            when {
+                isLoading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Finding fastest way home…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                result != null -> {
+                    FastWayHomeEstimateRow("Fast", result.fast)
+                    FastWayHomeEstimateRow("Avg", result.avg)
+                    FastWayHomeEstimateRow("Slow", result.slow)
+                    if (result.anySegmentsEstimated) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Some segments use estimated speeds",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                message != null -> {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FastWayHomeEstimateRow(label: String, estimate: RideEstimate) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = "${FormatUtils.formatDuration(estimate.durationSec.toInt())} · ${FormatUtils.formatPower(estimate.avgPowerW.toInt())}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -526,4 +644,28 @@ private fun removeUserMarker(style: Style) {
     try { style.removeLayer(USER_MARKER_HALO_LAYER) } catch (_: Exception) {}
     try { style.removeLayer(USER_MARKER_LAYER) }      catch (_: Exception) {}
     try { style.removeSource(USER_MARKER_SOURCE) }    catch (_: Exception) {}
+}
+
+private const val FAST_WAY_HOME_TRACK_ID = "fast-way-home-track"
+private const val HOME_MARKER_SOURCE     = "fast-way-home-marker-source"
+private const val HOME_MARKER_LAYER      = "fast-way-home-marker-layer"
+
+private fun renderHomeMarker(style: Style, position: LatLng) {
+    removeHomeMarker(style)
+    val point  = Point.fromLngLat(position.longitude, position.latitude)
+    val source = GeoJsonSource(HOME_MARKER_SOURCE, Feature.fromGeometry(point))
+    style.addSource(source)
+
+    val marker = CircleLayer(HOME_MARKER_LAYER, HOME_MARKER_SOURCE).withProperties(
+        PropertyFactory.circleColor(CyclingConstants.FAST_WAY_HOME_TRACK_COLOR),
+        PropertyFactory.circleRadius(CyclingConstants.NAV_USER_MARKER_RADIUS),
+        PropertyFactory.circleStrokeWidth(CyclingConstants.POI_MARKER_STROKE_WIDTH),
+        PropertyFactory.circleStrokeColor("#FFFFFF")
+    )
+    style.addLayer(marker)
+}
+
+private fun removeHomeMarker(style: Style) {
+    try { style.removeLayer(HOME_MARKER_LAYER) }   catch (_: Exception) {}
+    try { style.removeSource(HOME_MARKER_SOURCE) } catch (_: Exception) {}
 }

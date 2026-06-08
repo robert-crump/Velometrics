@@ -13,12 +13,19 @@ fun BottomNavBar(navController: NavController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    // Detail screens aren't tabs themselves; highlight the tab they were opened from.
+    val highlightedRoute = when (currentRoute) {
+        Screen.SessionDetail.route -> Screen.Home.route
+        Screen.RepeatedRouteDetail.route -> Screen.RoutePlanner.route
+        else -> currentRoute
+    }
+
     NavigationBar {
         bottomNavItems.forEach { screen ->
             NavigationBarItem(
                 icon = { Icon(screen.icon, contentDescription = screen.title) },
                 label = { Text(screen.title) },
-                selected = currentRoute == screen.route,
+                selected = highlightedRoute == screen.route,
                 onClick = {
                     when {
                         screen is Screen.Home -> {

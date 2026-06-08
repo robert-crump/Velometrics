@@ -180,6 +180,8 @@ object CyclingConstants {
     const val NAV_TRACK_WIDTH = 5f
     const val NAV_USER_MARKER_COLOR = "#2196F3"
     const val NAV_USER_MARKER_RADIUS = 10f
+    const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
+    const val FAST_WAY_HOME_TRACK_WIDTH = 5f
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

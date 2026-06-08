@@ -9,9 +9,9 @@ sealed class LocationException : Exception() {
 }
 
 interface LocationSource {
-    /** Cold Flow. Each subscription registers an OS LocationListener;
-     *  cancelling unregisters it. Throws on subscribe if the GPS
-     *  provider is disabled or location permission is denied. */
+    /** Cold Flow. Each subscription registers an OS LocationListener on every
+     *  enabled provider (GPS and/or network); cancelling unregisters it.
+     *  Throws on subscribe if no provider is enabled or location permission is denied. */
     fun fixes(): Flow<LocationFix>
 
     /** Best last-known fix across GPS + NETWORK providers,

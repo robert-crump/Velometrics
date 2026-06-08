@@ -21,7 +21,9 @@ class AndroidLocationSource @Inject constructor(
     override fun fixes(): Flow<LocationFix> = callbackFlow {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+        val enabledProviders = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { locationManager.isProviderEnabled(it) }
+        if (enabledProviders.isEmpty()) {
             throw LocationException.NoProvider
         }
 
@@ -38,13 +40,15 @@ class AndroidLocationSource @Inject constructor(
 
         try {
             @Suppress("MissingPermission")
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                CyclingConstants.LOCATION_UPDATE_MIN_TIME_MS,
-                0f,
-                listener,
-                context.mainLooper,
-            )
+            enabledProviders.forEach { provider ->
+                locationManager.requestLocationUpdates(
+                    provider,
+                    CyclingConstants.LOCATION_UPDATE_MIN_TIME_MS,
+                    0f,
+                    listener,
+                    context.mainLooper,
+                )
+            }
         } catch (_: SecurityException) {
             throw LocationException.PermissionDenied
         }

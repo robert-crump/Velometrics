@@ -43,12 +43,14 @@ import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -733,12 +735,20 @@ private fun renderUserMarker(map: MapLibreMap, style: Style, location: LatLng, a
         else              -> 200.0
     }
 
-    // Convert the bin radius from metres to screen pixels at the current zoom and latitude
-    val zoom = map.cameraPosition.zoom
+    // Web Mercator tiles double in resolution with each zoom level, so the screen-pixel
+    // radius for a constant ground radius is `radiusAtZoom0 * 2^zoom`. Express that as an
+    // exponential (base 2) zoom interpolation so the circle keeps representing the same
+    // real-world accuracy radius — and visibly grows/shrinks — as the map is zoomed,
+    // mirroring the Google Maps "my location" accuracy circle.
     val latRad = Math.toRadians(location.latitude)
-    val pixelsPerMeter = 256.0 * Math.pow(2.0, zoom) /
-            (2 * Math.PI * com.velometrics.app.util.GeoUtils.EARTH_RADIUS_M * cos(latRad))
-    val outerRadius = (binRadiusM * pixelsPerMeter).toFloat().coerceAtLeast(12f)
+    val radiusAtZoom0 = (binRadiusM * 256.0 /
+            (2 * Math.PI * com.velometrics.app.util.GeoUtils.EARTH_RADIUS_M * cos(latRad))).toFloat()
+    val outerRadius = Expression.interpolate(
+        Expression.exponential(2f),
+        Expression.zoom(),
+        Expression.stop(0f, radiusAtZoom0),
+        Expression.stop(20f, radiusAtZoom0 * 2f.pow(20))
+    )
 
     val outerCircle = CircleLayer(outerLayerId, sourceId).apply {
         setProperties(

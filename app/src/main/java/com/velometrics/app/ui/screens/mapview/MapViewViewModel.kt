@@ -198,6 +198,11 @@ class MapViewViewModel @Inject constructor(
         locationUpdateJob?.cancel()
         locationUpdateJob = viewModelScope.launch {
             try {
+                locationSource.lastKnownFix(CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M)?.let { fix ->
+                    _locationAccuracy.value = fix.accuracyM
+                    lastDotUpdateMs = System.currentTimeMillis()
+                    _currentLocation.value = LatLng(fix.lat, fix.lon)
+                }
                 locationSource.fixes()
                     .onEach { fix ->
                         _locationAccuracy.value = fix.accuracyM

@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
-import com.velometrics.app.ui.components.MapHeatmapRenderer
 import com.velometrics.app.ui.components.MapIntervalRenderer
 import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
@@ -68,9 +67,6 @@ fun MapViewScreen(
     val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
     val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
     val showStopSpots by viewModel.showStopSpots.collectAsState()
-    val showHeatmap by viewModel.showHeatmap.collectAsState()
-    val heatmapLoading by viewModel.heatmapLoading.collectAsState()
-    val heatmapCells by viewModel.heatmapCells.collectAsState()
 
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
@@ -199,15 +195,6 @@ fun MapViewScreen(
         }
     }
 
-    // Heatmap overlay sync
-    LaunchedEffect(showHeatmap, heatmapCells, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        MapHeatmapRenderer.removeHeatmap(ms.second)
-        if (showHeatmap && heatmapCells.isNotEmpty()) {
-            MapHeatmapRenderer.renderHeatmap(ms.second, heatmapCells)
-        }
-    }
-
     // POI layer sync
     LaunchedEffect(showPoiLayer, visiblePois, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
@@ -229,7 +216,6 @@ fun MapViewScreen(
         MapIntervalRenderer.removeIntervalOverlay(ms.second)
         if (showIntervalOverlay) {
             MapIntervalRenderer.renderRepeatedIntervals(ms.second, intervalGroups)
-            MapIntervalRenderer.renderRepeatedIntervalLabels(ms.second, intervalGroups)
         }
     }
 
@@ -423,28 +409,6 @@ fun MapViewScreen(
                     )
                 }
 
-                // Heatmap toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Heatmap", style = MaterialTheme.typography.bodyMedium)
-                        if (heatmapLoading) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = showHeatmap,
-                        onCheckedChange = { viewModel.toggleHeatmap() }
-                    )
-                }
-
                 // Intervals toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -493,13 +457,12 @@ fun MapViewScreen(
                     }
                 }
 
-                if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showHeatmap || showIntervalOverlay) {
+                if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showIntervalOverlay) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LegendCard(
                         showAllRides = showAllRidesLayer,
                         showSpeed = showSpeedOverlay,
                         showStops = showStopSpots,
-                        showHeatmap = showHeatmap,
                         showIntervals = showIntervalOverlay,
                         selectedSpeedCategories = selectedSpeedCategories,
                         onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
@@ -618,7 +581,6 @@ private fun LegendCard(
     showAllRides: Boolean,
     showSpeed: Boolean,
     showStops: Boolean,
-    showHeatmap: Boolean = false,
     showIntervals: Boolean = false,
     selectedSpeedCategories: Set<String> = emptySet(),
     onSpeedCategoryClick: (String) -> Unit = {}
@@ -731,40 +693,7 @@ private fun LegendCard(
                 }
             }
 
-            if ((showSpeed || showStops) && (showHeatmap || showIntervals)) {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (showHeatmap) {
-                Text(
-                    text = "Heatmap — visit density",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    val heatmapColors = listOf(
-                        "#001464", "#0046C8", "#1E82FF", "#82BEFF", "#DCE8FF"
-                    )
-                    heatmapColors.forEach { hex ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(10.dp)
-                                .background(Color(android.graphics.Color.parseColor(hex)))
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Low", style = MaterialTheme.typography.labelSmall)
-                    Text("High", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-
-            if (showHeatmap && showIntervals) {
+            if ((showSpeed || showStops) && showIntervals) {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 

@@ -2,7 +2,6 @@
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.velometrics.app.data.heatmap.HeatmapCell
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.MapEdge
@@ -13,7 +12,6 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.velometrics.app.domain.service.HeatmapService
 import com.velometrics.app.domain.service.LocationException
 import com.velometrics.app.domain.service.LocationSource
 import com.velometrics.app.util.CyclingConstants
@@ -43,7 +41,6 @@ class MapViewViewModel @Inject constructor(
     private val cyclingSessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
     private val repeatedIntervalRepository: RepeatedIntervalRepository,
-    private val heatmapService: HeatmapService,
     private val locationSource: LocationSource,
 ) : ViewModel() {
 
@@ -81,29 +78,6 @@ class MapViewViewModel @Inject constructor(
     }
 
     fun toggleStopSpots() { _showStopSpots.update { !it } }
-
-    // --- Heatmap overlay ---
-
-    private val _showHeatmap = MutableStateFlow(false)
-    val showHeatmap: StateFlow<Boolean> = _showHeatmap.asStateFlow()
-
-    private val _heatmapLoading = MutableStateFlow(false)
-    val heatmapLoading: StateFlow<Boolean> = _heatmapLoading.asStateFlow()
-
-    private val _heatmapCells = MutableStateFlow<List<HeatmapCell>>(emptyList())
-    val heatmapCells: StateFlow<List<HeatmapCell>> = _heatmapCells.asStateFlow()
-
-    fun toggleHeatmap() {
-        val enabling = !_showHeatmap.value
-        _showHeatmap.value = enabling
-        if (enabling && _heatmapCells.value.isEmpty()) {
-            viewModelScope.launch {
-                _heatmapLoading.value = true
-                _heatmapCells.value = heatmapService.getOrUpdateHeatmap()
-                _heatmapLoading.value = false
-            }
-        }
-    }
 
     private val _visibleSessionIds = MutableStateFlow<Set<Long>>(emptySet())
     val visibleSessionIds: StateFlow<Set<Long>> = _visibleSessionIds.asStateFlow()

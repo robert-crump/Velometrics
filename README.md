@@ -14,7 +14,7 @@ An Android app for tracking, analyzing, and visualizing cycling sessions. Import
 - **Session analysis** — Power zones, fat/carb efficiency histogram, sprint/interval detection, normalized power, training stress score, calorie breakdown
 - **Repeated routes** — Automatically clusters similar routes using single-linkage clustering; compare performance across rides with scatter plots and averaged speed distributions
 - **Route planner** — Suggest routes matching a target distance and duration using random-walk + A* pathfinding over the bundled road graph; export results as GPX
-- **Offline map** — MapLibre-based map with speed overlay, interval segments, heatmap, stop markers, and road-graph edge visualization
+- **Offline map** — MapLibre-based map with speed overlay, interval segments, stop markers, and road-graph edge visualization
 - **Navigation** — Load a GPX track and discover POIs (fuel, cafés, bakeries, fast food) along the route via Overpass API; Google Maps handoff for turn-by-turn; handles GPX share intents
 - **GPS tracking** — Live location with accuracy circle; progressive fix acquisition with timeout feedback
 - **User settings** — Configurable FTP; home location via address search or map tap; on-demand metric recalculation

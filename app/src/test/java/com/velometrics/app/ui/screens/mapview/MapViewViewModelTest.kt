@@ -1,6 +1,5 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
-import com.velometrics.app.data.heatmap.HeatmapCell
 import com.velometrics.app.data.location.FakeLocationSource
 import com.velometrics.app.data.repository.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.GraphMetadata
@@ -13,7 +12,6 @@ import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.velometrics.app.domain.service.HeatmapService
 import com.velometrics.app.domain.service.LocationException
 import com.velometrics.app.util.CyclingConstants
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +54,6 @@ class MapViewViewModelTest {
         cyclingSessionRepository = FakeCyclingSessionRepository(),
         intervalRepository = FakeIntervalRepository(),
         repeatedIntervalRepository = FakeRepeatedIntervalRepository(),
-        heatmapService = HeatmapService { emptyList() },
         locationSource = locationSource,
     )
 
@@ -168,6 +165,8 @@ class MapViewViewModelTest {
 private class FakeMapGraphRepository : MapGraphRepository {
     override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getAllNodes(): Flow<List<MapNode>> = flowOf(emptyList())
+    override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapEdge>()
+    override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapNode>()
     override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

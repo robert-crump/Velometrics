@@ -385,3 +385,46 @@ Completed: 2026-06-05 | Closed: 2026-06-05
 
 ### Tests
 100 unit tests pass.
+
+---
+
+## Issue #24 — Map-matching: snap GPS tracks to coherent road-graph edge sequences
+Completed: 2026-06-08 | Closed: 2026-06-08
+
+### What was done
+
+**`MapMatcher` service (`domain/service/MapMatcher.kt`)**
+- New `@Singleton` service taking a raw GPS track (`List<List<Double>>`, the decoded shape of
+  `IntervalSession.gpsTrack`) and returning a connected, ordered `List<MapEdge>`, or `null` if
+  no coherent match could be produced
+- Lazily builds a node-adjacency map (`fromNode`→`toNode` successor lookup, the same
+  edge-indexing/successor-map pattern as `FastWayHomeService.buildConnectivity`) and an
+  `RTreeSpatialIndex` over all graph edges (the same index `EdgeStatsEstimator` uses), guarded
+  by a `Mutex` and cached across calls
+- **Snapping**: each GPS point is snapped to the nearest edge via `spatialIndex.queryEdgesNear`
+  within the new `INTERVAL_EDGE_SNAP_RADIUS_M` constant
+- **Outlier removal**: consecutive identical snaps are collapsed into runs; a single-point run
+  sandwiched between two runs that are themselves mutually adjacent is dropped as GPS noise
+  (bounded by the new `INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS` constant)
+- **Gap repair**: walks the deduped snapped sequence; wherever consecutive edges aren't
+  graph-adjacent, runs a bounded BFS (`findConnectingPath`, capped by the new
+  `INTERVAL_MATCH_MAX_REPAIR_DEPTH` constant) over the local adjacency graph and splices the
+  connecting edges in
+- **Rejection**: if a gap can't be bridged within the max repair depth (e.g. the track jumps
+  between disconnected graph components), `matchTrack` returns `null` rather than producing an
+  incoherent multi-segment result
+
+**New named constants** (`util/Constants.kt`): `INTERVAL_EDGE_SNAP_RADIUS_M = 30.0`,
+`INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6`, `INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS = 1`
+
+**Fixed pre-existing test breakage**
+- `NavigationViewModelTest.buildViewModel()` was missing the `fastWayHomeService` and
+  `userSettingsRepository` constructor args added to `NavigationViewModel` in #18/#19 — added
+  `mockk` fakes for both (this was blocking compilation of the entire unit-test source set)
+
+**Tests** — `MapMatcherTest` covers the three acceptance-criteria cases: a clean track snapping
+to a fully connected sequence, a noisy track with a missed middle edge repaired via local
+adjacency search, and a track jumping between disconnected graph components rejected with `null`
+
+### Tests
+133 unit tests pass.

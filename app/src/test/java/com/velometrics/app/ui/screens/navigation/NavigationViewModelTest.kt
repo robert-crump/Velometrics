@@ -1,13 +1,18 @@
 ﻿package com.velometrics.app.ui.screens.navigation
 
 import com.velometrics.app.data.location.FakeLocationSource
+import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.GpxTrack
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.domain.service.FastWayHomeService
 import com.velometrics.app.domain.service.LocationException
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +50,13 @@ class NavigationViewModelTest {
     ) = NavigationViewModel(
         mapGraphRepository = FakeMapGraphRepository(pois),
         locationSource = locationSource,
+        fastWayHomeService = mockk<FastWayHomeService>().also {
+            coEvery { it.findFastWayHome(any()) } returns null
+        },
+        userSettingsRepository = mockk<UserSettingsRepository>().also {
+            every { it.homeLat } returns flowOf(0.0)
+            every { it.homeLon } returns flowOf(0.0)
+        },
     )
 
     @Test

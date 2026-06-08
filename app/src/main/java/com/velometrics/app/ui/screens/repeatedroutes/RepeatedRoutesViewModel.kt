@@ -21,6 +21,11 @@ enum class RouteSortOrder {
     NAME_ASC, NAME_DESC
 }
 
+enum class RoutesSubTab(val label: String) {
+    ROUTES("Routes"),
+    INTERVALS("Intervals")
+}
+
 @HiltViewModel
 class RepeatedRoutesViewModel @Inject constructor(
     cache: RepeatedRoutesCache,
@@ -29,6 +34,13 @@ class RepeatedRoutesViewModel @Inject constructor(
 
     private val _sortOrder = MutableStateFlow(RouteSortOrder.FREQUENCY_DESC)
     val sortOrder: StateFlow<RouteSortOrder> = _sortOrder.asStateFlow()
+
+    private val _selectedTab = MutableStateFlow(RoutesSubTab.ROUTES)
+    val selectedTab: StateFlow<RoutesSubTab> = _selectedTab.asStateFlow()
+
+    fun selectTab(tab: RoutesSubTab) {
+        _selectedTab.value = tab
+    }
 
     val isLoading: StateFlow<Boolean> = cache.isLoading
 

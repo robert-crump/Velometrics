@@ -27,6 +27,12 @@ class MapGraphRepositoryImpl @Inject constructor(
     override fun getAllNodes(): Flow<List<MapNode>> =
         nodeDao.getAll().map { it.map { n -> n.toDomain() } }
 
+    override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapEdge> =
+        edgeDao.getNear(minLat, maxLat, minLon, maxLon).map { it.toDomain() }
+
+    override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapNode> =
+        nodeDao.getNear(minLat, maxLat, minLon, maxLon).map { it.toDomain() }
+
     override fun getTraversedEdges(): Flow<List<MapEdge>> =
         edgeDao.getTraversed().map { it.map { e -> e.toDomain() } }
 

@@ -1,11 +1,9 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.MapEdge
+import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.CyclingConstants
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,9 +23,6 @@ class MapMatcher @Inject constructor(
     private val repository: MapGraphRepository
 ) {
     private val spatialIndex = RTreeSpatialIndex()
-    private val mutex = Mutex()
-    private var edgeByIndex: Map<Int, MapEdge>? = null
-    private var adjacency: Map<Int, List<Int>>? = null
 
     private data class Run(val edgeIdx: Int, val pointCount: Int)
 
@@ -36,12 +31,19 @@ class MapMatcher @Inject constructor(
      * coherent match could be produced (too few usable snaps, or a gap too large to repair).
      */
     suspend fun matchTrack(gpsTrack: List<List<Double>>): List<MapEdge>? {
-        ensureIndex()
-        val edges = edgeByIndex ?: return null
-        val adj = adjacency ?: return null
-
         val points = gpsTrack.mapNotNull { coords -> if (coords.size >= 2) LatLng(coords[0], coords[1]) else null }
         if (points.size < 2) return null
+
+        // The full road graph is 500K+ edges — far too large to load and spatially index in
+        // one go (decoding every polyline and parsing its metadata blows the heap, #29).
+        // Query only the slice of the graph near this track's bounding box.
+        val bbox = TrackGeometryUtils.computeBoundingBox(points, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M)
+        val edges = repository.getEdgesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
+        if (edges.size < 2) return null
+        val nodes = repository.getNodesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon).associateBy { it.id }
+        val adj = buildAdjacency(edges)
+
+        spatialIndex.rebuildIndex(edges, nodes)
 
         val snapped = snapPoints(points)
         val runs = dropIsolatedOutliers(collapseConsecutive(snapped), adj)
@@ -50,7 +52,20 @@ class MapMatcher @Inject constructor(
         val sequence = dedupeConsecutive(runs.map { it.edgeIdx })
         val repaired = repairGaps(sequence, adj)?.let(::dedupeConsecutive) ?: return null
 
-        return repaired.mapNotNull { edges[it] }.takeIf { it.size > 1 }
+        return repaired.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
+    }
+
+    private fun buildAdjacency(edges: List<MapEdge>): Map<Int, List<Int>> {
+        val edgesByFromNode = mutableMapOf<Long, MutableList<Int>>()
+        edges.forEachIndexed { idx, edge ->
+            edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
+        }
+        val adj = mutableMapOf<Int, List<Int>>()
+        edges.forEachIndexed { idx, edge ->
+            val successors = edgesByFromNode[edge.toNode]?.filter { it != idx } ?: emptyList()
+            if (successors.isNotEmpty()) adj[idx] = successors
+        }
+        return adj
     }
 
     private suspend fun snapPoints(points: List<LatLng>): List<Int?> = points.map { point ->
@@ -165,30 +180,5 @@ class MapMatcher @Inject constructor(
             node = cameFrom[node]
         }
         return path
-    }
-
-    private suspend fun ensureIndex() {
-        mutex.withLock {
-            if (edgeByIndex != null && adjacency != null) return
-
-            val edges = repository.getAllEdges().first()
-            val nodes = repository.getAllNodes().first().associateBy { it.id }
-
-            val byIndex = edges.withIndex().associate { (idx, edge) -> idx to edge }
-
-            val edgesByFromNode = mutableMapOf<Long, MutableList<Int>>()
-            edges.forEachIndexed { idx, edge ->
-                edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
-            }
-            val adj = mutableMapOf<Int, List<Int>>()
-            edges.forEachIndexed { idx, edge ->
-                val successors = edgesByFromNode[edge.toNode]?.filter { it != idx } ?: emptyList()
-                if (successors.isNotEmpty()) adj[idx] = successors
-            }
-
-            spatialIndex.rebuildIndex(edges, nodes)
-            edgeByIndex = byIndex
-            adjacency = adj
-        }
     }
 }

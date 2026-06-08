@@ -16,7 +16,6 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -29,8 +28,6 @@ object MapIntervalRenderer {
     private const val UNGROUPED_LAYER = "interval-ungrouped-layer"
     private const val GROUPED_SOURCE = "interval-grouped-source"
     private const val GROUPED_LAYER = "interval-grouped-layer"
-    private const val LABELS_SOURCE = "interval-labels-source"
-    private const val LABELS_LAYER = "interval-labels-layer"
     private const val HIGHLIGHT_SOURCE = "interval-highlight-source"
     private const val HIGHLIGHT_LAYER = "interval-highlight-layer"
 
@@ -110,35 +107,6 @@ object MapIntervalRenderer {
         addLayerBelowUserMarker(style, layer)
     }
 
-    fun renderRepeatedIntervalLabels(style: Style, repeatedIntervals: List<RepeatedInterval>) {
-        val features = repeatedIntervals.mapNotNull { repeatedInterval ->
-            val geoPoints = archetypeGeometry(repeatedInterval)
-            if (geoPoints.isEmpty()) return@mapNotNull null
-
-            val mid = geoPoints[geoPoints.size / 2]
-            val feature = Feature.fromGeometry(mid)
-
-            val avgDuration = MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(repeatedInterval))
-            feature.addStringProperty("label", "${repeatedInterval.name} (${repeatedInterval.intervals.size}x, $avgDuration)")
-
-            feature
-        }
-
-        val collection = FeatureCollection.fromFeatures(features)
-        val source = GeoJsonSource(LABELS_SOURCE, collection)
-        style.addSource(source)
-
-        val layer = SymbolLayer(LABELS_LAYER, LABELS_SOURCE).withProperties(
-            PropertyFactory.textField(Expression.get("label")),
-            PropertyFactory.textSize(11f),
-            PropertyFactory.textColor("#FFFFFF"),
-            PropertyFactory.textHaloColor("#000000"),
-            PropertyFactory.textHaloWidth(1.5f),
-            PropertyFactory.textAllowOverlap(true)
-        )
-        addLayerBelowUserMarker(style, layer)
-    }
-
     fun renderHighlight(style: Style, interval: IntervalSession) {
         val points = GpsTrackParser.parse(interval.gpsTrack)
         if (points.size < 2) return
@@ -167,8 +135,6 @@ object MapIntervalRenderer {
     fun removeIntervalOverlay(style: Style) {
         style.removeLayer(HIGHLIGHT_LAYER)
         style.removeSource(HIGHLIGHT_SOURCE)
-        style.removeLayer(LABELS_LAYER)
-        style.removeSource(LABELS_SOURCE)
         style.removeLayer(GROUPED_LAYER)
         style.removeSource(GROUPED_SOURCE)
         style.removeLayer(UNGROUPED_LAYER)

@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.PolylineDecoder
+import com.github.davidmoten.rtree2.Entries
 import com.github.davidmoten.rtree2.RTree
 import com.github.davidmoten.rtree2.geometry.Geometries
 import com.github.davidmoten.rtree2.geometry.Rectangle
@@ -28,12 +29,12 @@ class RTreeSpatialIndex @Inject constructor() {
 
     suspend fun rebuildIndex(edges: List<MapEdge>, nodes: Map<Long, MapNode>) {
         mutex.withLock {
-            var newTree = RTree.create<Long, Rectangle>()
-            edges.forEachIndexed { index, edge ->
-                val bbox = createBoundingBox(edge, nodes)
-                newTree = newTree.add(index.toLong(), bbox)
+            // Bulk-load via STR rather than sequential .add() calls: the latter clones and
+            // re-splits the immutable tree on every insert, which OOMs on large road graphs.
+            val entries = edges.mapIndexed { index, edge ->
+                Entries.entry(index.toLong(), createBoundingBox(edge, nodes))
             }
-            tree = newTree
+            tree = RTree.create(entries)
         }
     }
 

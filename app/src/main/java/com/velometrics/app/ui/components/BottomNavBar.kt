@@ -17,6 +17,7 @@ fun BottomNavBar(navController: NavController) {
     val highlightedRoute = when (currentRoute) {
         Screen.SessionDetail.route -> Screen.Home.route
         Screen.RepeatedRouteDetail.route -> Screen.RoutePlanner.route
+        Screen.RepeatedIntervalDetail.route -> Screen.RoutePlanner.route
         else -> currentRoute
     }
 

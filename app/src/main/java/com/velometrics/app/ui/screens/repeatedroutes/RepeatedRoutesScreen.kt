@@ -20,11 +20,6 @@ import com.velometrics.app.ui.screens.repeatedintervals.RepeatedIntervalSortOrde
 import com.velometrics.app.ui.screens.repeatedintervals.RepeatedIntervalsViewModel
 import com.velometrics.app.util.FormatUtils
 
-private enum class RoutesSubTab(val label: String) {
-    ROUTES("Routes"),
-    INTERVALS("Intervals")
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RepeatedRoutesScreen(
@@ -34,7 +29,7 @@ fun RepeatedRoutesScreen(
     viewModel: RepeatedRoutesViewModel = hiltViewModel(),
     intervalsViewModel: RepeatedIntervalsViewModel = hiltViewModel()
 ) {
-    var selectedTab by remember { mutableStateOf(RoutesSubTab.ROUTES) }
+    val selectedTab by viewModel.selectedTab.collectAsState()
     var filterMenuExpanded by remember { mutableStateOf(false) }
 
     val routeSortOrder by viewModel.sortOrder.collectAsState()
@@ -120,7 +115,7 @@ fun RepeatedRoutesScreen(
                 RoutesSubTab.entries.forEachIndexed { index, tab ->
                     SegmentedButton(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
+                        onClick = { viewModel.selectTab(tab) },
                         shape = SegmentedButtonDefaults.itemShape(index, RoutesSubTab.entries.size),
                         label = { Text(tab.label) }
                     )

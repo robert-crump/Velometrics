@@ -33,6 +33,8 @@ class MapMatcherTest {
         object : MapGraphRepository {
             override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(edges)
             override fun getAllNodes(): Flow<List<MapNode>> = flowOf(nodes)
+            override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = edges
+            override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = nodes
             override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filter { it.isTraversed })
             override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filterNot { it.isTraversed })
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

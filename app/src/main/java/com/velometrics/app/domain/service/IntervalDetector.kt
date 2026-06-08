@@ -170,8 +170,7 @@ class IntervalDetector @Inject constructor() {
             startLon = first.lon,
             endLat = last.lat,
             endLon = last.lon,
-            gpsTrack = gpsTrack,
-            prototypeRouteId = null
+            gpsTrack = gpsTrack
         )
     }
 }

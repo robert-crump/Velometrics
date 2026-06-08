@@ -13,15 +13,9 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["cyclingSessionId"],
             onDelete = ForeignKey.CASCADE
-        ),
-        ForeignKey(
-            entity = IntervalPrototypeRouteEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["prototypeRouteId"],
-            onDelete = ForeignKey.SET_NULL
         )
     ],
-    indices = [Index("cyclingSessionId"), Index("prototypeRouteId")]
+    indices = [Index("cyclingSessionId")]
 )
 data class IntervalSessionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -38,6 +32,5 @@ data class IntervalSessionEntity(
     val startLon: Double,
     val endLat: Double,
     val endLon: Double,
-    val gpsTrack: String,                // JSON: [[lat,lon],[lat,lon],...]
-    val prototypeRouteId: Long? = null
+    val gpsTrack: String                 // JSON: [[lat,lon],[lat,lon],...]
 )

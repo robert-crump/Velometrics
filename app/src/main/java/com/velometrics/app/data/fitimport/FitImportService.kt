@@ -119,11 +119,12 @@ class FitImportService @Inject constructor(
             var sprintHistogram: Map<String, Int>? = null
             if (hasPower) {
                 val intervals = intervalDetector.detect(datapoints, id, ftp)
-                val matched = intervalMatcher.matchToPrototypes(intervals)
-                if (matched.isNotEmpty()) {
-                    intervalRepository.insertIntervals(matched)
-                    intervalCount = matched.size
-                    intervalTotalSec = matched.sumOf { it.durationSec }
+                if (intervals.isNotEmpty()) {
+                    val insertedIds = intervalRepository.insertIntervals(intervals)
+                    val persisted = intervals.zip(insertedIds) { interval, insertedId -> interval.copy(id = insertedId) }
+                    intervalMatcher.matchToRepeatedIntervals(persisted)
+                    intervalCount = intervals.size
+                    intervalTotalSec = intervals.sumOf { it.durationSec }
                     sessionRepository.updateIntervalStats(id, intervalCount, intervalTotalSec)
                 }
                 Log.d(TAG, "$fileName: detected $intervalCount intervals (${intervalTotalSec}s total)")

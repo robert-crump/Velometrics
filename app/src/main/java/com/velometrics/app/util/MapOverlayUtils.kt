@@ -1,7 +1,7 @@
 ﻿package com.velometrics.app.util
 
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MAX_DURATION_SEC
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MIN_DURATION_SEC
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
@@ -17,13 +17,6 @@ fun addLayerBelowUserMarker(style: Style, layer: Layer) {
         try { style.addLayer(layer) } catch (_: Exception) {}
     }
 }
-
-data class IntervalGroup(
-    val prototypeRoute: IntervalPrototypeRoute,
-    val intervals: List<IntervalSession>,
-    val avgDurationNormalizedSec: Int,
-    val avgPower: Int
-)
 
 object MapOverlayUtils {
 
@@ -74,21 +67,25 @@ object MapOverlayUtils {
         return Triple(r, g, b)
     }
 
+    /**
+     * Partitions raw intervals into the [RepeatedInterval] archetypes they're assigned to
+     * (those with at least one matched raw interval) vs. those not (yet) assigned to any.
+     */
     fun groupIntervals(
         intervals: List<IntervalSession>,
-        prototypes: List<IntervalPrototypeRoute>
-    ): Pair<List<IntervalGroup>, List<IntervalSession>> {
-        val prototypeMap = prototypes.associateBy { it.id }
-        val (matched, ungrouped) = intervals.partition { it.prototypeRouteId != null }
-        val groups = matched.groupBy { it.prototypeRouteId!! }
-            .mapNotNull { (protoId, groupIntervals) ->
-                val proto = prototypeMap[protoId] ?: return@mapNotNull null
-                val avgDuration = groupIntervals.map { it.durationNormalizedSec }.average().toInt()
-                val avgPower = groupIntervals.map { it.avgPower }.average().toInt()
-                IntervalGroup(proto, groupIntervals, avgDuration, avgPower)
-            }
+        repeatedIntervals: List<RepeatedInterval>
+    ): Pair<List<RepeatedInterval>, List<IntervalSession>> {
+        val groups = repeatedIntervals.filter { it.intervals.isNotEmpty() }
+        val groupedIds = groups.flatMapTo(mutableSetOf()) { group -> group.intervals.map { it.id } }
+        val ungrouped = intervals.filter { it.id !in groupedIds }
         return Pair(groups, ungrouped)
     }
+
+    fun avgDurationNormalizedSec(repeatedInterval: RepeatedInterval): Int =
+        repeatedInterval.intervals.map { it.durationNormalizedSec }.average().toInt()
+
+    fun avgPower(repeatedInterval: RepeatedInterval): Int =
+        repeatedInterval.intervals.map { it.avgPower }.average().toInt()
 
     fun formatDurationMinSec(totalSec: Int): String {
         val minutes = totalSec / 60

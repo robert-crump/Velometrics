@@ -4,14 +4,15 @@ import com.velometrics.app.data.heatmap.HeatmapCell
 import com.velometrics.app.data.location.FakeLocationSource
 import com.velometrics.app.data.repository.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.GraphMetadata
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.LocationFix
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
+import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.service.HeatmapService
 import com.velometrics.app.domain.service.LocationException
 import com.velometrics.app.util.CyclingConstants
@@ -54,6 +55,7 @@ class MapViewViewModelTest {
         mapGraphRepository = FakeMapGraphRepository(),
         cyclingSessionRepository = FakeCyclingSessionRepository(),
         intervalRepository = FakeIntervalRepository(),
+        repeatedIntervalRepository = FakeRepeatedIntervalRepository(),
         heatmapService = HeatmapService { emptyList() },
         locationSource = locationSource,
     )
@@ -177,13 +179,18 @@ private class FakeMapGraphRepository : MapGraphRepository {
 
 private class FakeIntervalRepository : IntervalRepository {
     override suspend fun insertInterval(interval: IntervalSession): Long = 0L
-    override suspend fun insertIntervals(intervals: List<IntervalSession>) {}
+    override suspend fun insertIntervals(intervals: List<IntervalSession>): List<Long> = emptyList()
     override suspend fun updateInterval(interval: IntervalSession) {}
     override fun getIntervalsForSession(sessionId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
     override fun getAllIntervals(): Flow<List<IntervalSession>> = flowOf(emptyList())
-    override fun getIntervalsForPrototype(prototypeId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
-    override suspend fun insertPrototypeRoute(route: IntervalPrototypeRoute): Long = 0L
-    override suspend fun updatePrototypeRoute(route: IntervalPrototypeRoute) {}
-    override fun getAllPrototypeRoutes(): Flow<List<IntervalPrototypeRoute>> = flowOf(emptyList())
-    override suspend fun getPrototypeRouteById(id: Long): IntervalPrototypeRoute? = null
+}
+
+private class FakeRepeatedIntervalRepository : RepeatedIntervalRepository {
+    override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> = flowOf(emptyList())
+    override fun getRepeatedIntervalById(id: Long): Flow<RepeatedInterval?> = flowOf(null)
+    override suspend fun getAllRepeatedIntervalsList(): List<RepeatedInterval> = emptyList()
+    override suspend fun saveRepeatedInterval(interval: RepeatedInterval): Long = 0L
+    override suspend fun renameRepeatedInterval(id: Long, newName: String) {}
+    override suspend fun deleteRepeatedIntervalsByIds(ids: List<Long>) {}
+    override suspend fun deleteAll() {}
 }

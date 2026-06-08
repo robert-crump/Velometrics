@@ -42,7 +42,7 @@ import com.velometrics.app.util.CyclingConstants.STOP_COLOR_MEDIUM
 import com.velometrics.app.util.CyclingConstants.STOP_COLOR_SHORT
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.GpsTrackParser
-import com.velometrics.app.util.IntervalGroup
+import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
 import kotlin.math.cos
 import kotlinx.coroutines.withContext
@@ -76,14 +76,14 @@ fun MapViewScreen(
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
     val allIntervals by viewModel.allIntervals.collectAsState()
-    val allPrototypeRoutes by viewModel.allPrototypeRoutes.collectAsState()
+    val allRepeatedIntervals by viewModel.allRepeatedIntervals.collectAsState()
     val selectedInterval by viewModel.selectedInterval.collectAsState()
     val selectedGroup by viewModel.selectedGroup.collectAsState()
     val highlightedIntervalId by viewModel.highlightedIntervalId.collectAsState()
 
     // Derived interval grouping
-    val intervalData = remember(allIntervals, allPrototypeRoutes) {
-        MapOverlayUtils.groupIntervals(allIntervals, allPrototypeRoutes)
+    val intervalData = remember(allIntervals, allRepeatedIntervals) {
+        MapOverlayUtils.groupIntervals(allIntervals, allRepeatedIntervals)
     }
     val intervalGroups = intervalData.first
     val ungroupedIntervals = intervalData.second
@@ -292,8 +292,8 @@ fun MapViewScreen(
             // Query grouped layer first (higher priority)
             val groupedFeatures = ms.first.queryRenderedFeatures(screenPoint, "interval-grouped-layer")
             if (groupedFeatures.isNotEmpty()) {
-                val protoIdStr = groupedFeatures[0].getStringProperty("prototypeId")
-                val group = currentGroups.find { it.prototypeRoute.id.toString() == protoIdStr }
+                val repeatedIntervalIdStr = groupedFeatures[0].getStringProperty("repeatedIntervalId")
+                val group = currentGroups.find { it.id.toString() == repeatedIntervalIdStr }
                 if (group != null) { viewModel.selectGroup(group) }
                 return@addOnMapClickListener true
             }
@@ -606,7 +606,7 @@ private fun IntervalDetailCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PrototypeGroupSheet(
-    group: IntervalGroup,
+    group: RepeatedInterval,
     highlightedIntervalId: Long?,
     onIntervalTap: (IntervalSession) -> Unit,
     onDismiss: () -> Unit
@@ -622,14 +622,14 @@ private fun PrototypeGroupSheet(
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
-                text = "${group.prototypeRoute.name} — ${group.intervals.size} intervals",
+                text = "${group.name} — ${group.intervals.size} intervals",
                 style = MaterialTheme.typography.titleMedium
             )
 
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Avg: ${MapOverlayUtils.formatDurationMinSec(group.avgDurationNormalizedSec)} min / ${FormatUtils.formatPower(group.avgPower)}",
+                text = "Avg: ${MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(group))} min / ${FormatUtils.formatPower(MapOverlayUtils.avgPower(group))}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

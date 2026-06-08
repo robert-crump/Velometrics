@@ -1,171 +1,135 @@
-﻿package com.velometrics.app.domain.service
+package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.local.dao.IntervalPrototypeRouteDao
-import com.velometrics.app.data.local.entity.IntervalPrototypeRouteEntity
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.MapEdge
+import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.google.gson.Gson
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Before
 import org.junit.Test
 import java.time.Instant
 
 class IntervalMatcherTest {
 
-    private lateinit var matcher: IntervalMatcher
     private val gson = Gson()
+    private val matcher = IntervalMatcher(mockk<RepeatedIntervalRepository>(relaxed = true))
 
-    /** Fake DAO that returns an empty list — we only use the pure matchIntervals function. */
-    private val fakeDao = object : IntervalPrototypeRouteDao {
-        override suspend fun insert(route: IntervalPrototypeRouteEntity): Long = 0
-        override suspend fun update(route: IntervalPrototypeRouteEntity) {}
-        override suspend fun delete(route: IntervalPrototypeRouteEntity) {}
-        override fun getAll(): Flow<List<IntervalPrototypeRouteEntity>> = flowOf(emptyList())
-        override suspend fun getById(id: Long): IntervalPrototypeRouteEntity? = null
-    }
+    // ─── Polyline encoding (inverse of PolylineDecoder.decode) — for building MapEdge.geometryEncoded ───
 
-    @Before
-    fun setUp() {
-        matcher = IntervalMatcher(fakeDao)
-    }
-
-    /**
-     * Build a GPS track JSON from a list of [lat, lon] pairs.
-     * Points increment lat by 0.00001 (~1.11m) per index, fixed lon 6.07.
-     */
-    private fun buildGpsTrack(pointCount: Int, startLat: Double = 50.78, lon: Double = 6.07): String {
-        val points = (0 until pointCount).map { i ->
-            listOf(startLat + i * 0.00001, lon)
+    private fun encodePolyline(points: List<Pair<Double, Double>>): String {
+        val sb = StringBuilder()
+        var prevLat = 0
+        var prevLng = 0
+        for ((lat, lng) in points) {
+            val latI = Math.round(lat * 1e5).toInt()
+            val lngI = Math.round(lng * 1e5).toInt()
+            encodeValue(latI - prevLat, sb)
+            encodeValue(lngI - prevLng, sb)
+            prevLat = latI
+            prevLng = lngI
         }
+        return sb.toString()
+    }
+
+    private fun encodeValue(value: Int, sb: StringBuilder) {
+        var v = if (value < 0) (value shl 1).inv() else value shl 1
+        while (v >= 0x20) {
+            sb.append(((0x20 or (v and 0x1f)) + 63).toChar())
+            v = v shr 5
+        }
+        sb.append((v + 63).toChar())
+    }
+
+    private fun edge(from: Pair<Double, Double>, to: Pair<Double, Double>, lengthM: Double): MapEdge {
+        return MapEdge(
+            fromNode = 0L, toNode = 1L,
+            lengthM = lengthM, highway = "residential", name = null,
+            isTraversed = false, geometryEncoded = encodePolyline(listOf(from, to)),
+            speedMedian = null, speedMean = null, speedCount = null,
+            speedP25 = null, speedP75 = null, speedP90 = null,
+            powerMedian = null, powerMean = null, powerCount = null,
+            powerP25 = null, powerP75 = null, powerP90 = null,
+            slopePercent = 0.0, traversalCount = 0, lastTraversal = null, timeOfDayDist = null,
+            stopCount = null, avgStopDurationS = null, stopProbability = null, estimatedStopTimeS = null
+        )
+    }
+
+    /** Builds a GPS track JSON from [lat, lon] pairs at fixed longitude, increasing latitude. */
+    private fun trackJson(startLat: Double, pointCount: Int, lon: Double = 6.0800, step: Double = 0.0003): String {
+        val points = (0 until pointCount).map { i -> listOf(startLat + i * step, lon) }
         return gson.toJson(points)
     }
 
-    private fun makeInterval(
-        startLat: Double = 50.78,
-        startLon: Double = 6.07,
-        endLat: Double = 50.785,
-        endLon: Double = 6.07,
-        gpsTrack: String = "[]"
-    ): IntervalSession {
+    private fun makeInterval(id: Long, distanceM: Double, gpsTrack: String): IntervalSession {
         return IntervalSession(
-            id = 0,
-            cyclingSessionId = 1L,
-            startTimestamp = Instant.parse("2025-01-01T10:00:00Z"),
+            id = id,
+            cyclingSessionId = id,
+            startTimestamp = Instant.parse("2025-0${(id % 9) + 1}-01T10:00:00Z"),
             durationSec = 200,
             durationNormalizedSec = 200,
-            distanceM = 500.0,
-            avgPower = 310,
-            avgSpeedKmh = 30.0,
-            avgSpeedNormalizedKmh = 30.0,
-            direction = "north",
-            startLat = startLat,
-            startLon = startLon,
-            endLat = endLat,
-            endLon = endLon,
-            gpsTrack = gpsTrack,
-            prototypeRouteId = null
+            distanceM = distanceM,
+            avgPower = 300,
+            avgSpeedKmh = 25.0,
+            avgSpeedNormalizedKmh = 25.0,
+            direction = "out",
+            startLat = 50.78, startLon = 6.08, endLat = 50.79, endLon = 6.08,
+            gpsTrack = gpsTrack
+        )
+    }
+
+    private fun makeArchetype(id: Long, name: String, distanceM: Double, edges: List<MapEdge>): RepeatedInterval {
+        return RepeatedInterval(
+            id = id, name = name, intervals = emptyList(), edges = edges,
+            startLat = 50.7800, startLon = 6.0800, endLat = 50.7813, endLon = 6.0800,
+            distanceM = distanceM
         )
     }
 
     @Test
-    fun `empty prototypes leaves prototypeRouteId null`() {
-        val track = buildGpsTrack(250)
-        val interval = makeInterval(gpsTrack = track)
-        val result = matcher.matchIntervals(listOf(interval), emptyList())
-        assertEquals(1, result.size)
-        assertNull("prototypeRouteId should be null", result[0].prototypeRouteId)
+    fun `unambiguous match assigns interval to its sole qualifying archetype`() {
+        // Track and archetype edges trace the same northbound line — should qualify.
+        val track = trackJson(startLat = 50.7800, pointCount = 8)
+        val interval = makeInterval(id = 1, distanceM = 200.0, gpsTrack = track)
+
+        val archetypeEdge = edge(50.7800 to 6.0800, 50.7821 to 6.0800, lengthM = 205.0)
+        val archetype = makeArchetype(id = 10, name = "Climb", distanceM = 205.0, edges = listOf(archetypeEdge))
+
+        val result = matcher.matchIntervals(listOf(interval), listOf(archetype))
+
+        assertEquals(archetype, result[interval])
     }
 
     @Test
-    fun `start and end within 50m matches prototype`() {
-        val startLat = 50.78
-        val lon = 6.07
-        val pointCount = 250
-        val track = buildGpsTrack(pointCount, startLat, lon)
-        // End point of track: startLat + 249 * 0.00001 = 50.78249
-        val endLat = startLat + 249 * 0.00001
-        val interval = makeInterval(
-            startLat = startLat,
-            startLon = lon,
-            endLat = endLat,
-            endLon = lon,
-            gpsTrack = track
-        )
-        val proto = IntervalPrototypeRoute(
-            id = 10,
-            name = "Test Proto",
-            startLat = startLat,      // exact match at start
-            startLon = lon,
-            endLat = endLat,          // exact match at track point i=249
-            endLon = lon,
-            distanceM = 500.0,
-            avgGpsTrack = null
-        )
-        val result = matcher.matchIntervals(listOf(interval), listOf(proto))
-        assertEquals(10L, result[0].prototypeRouteId)
+    fun `dissimilar interval matches no archetype`() {
+        val track = trackJson(startLat = 50.7800, pointCount = 8)
+        val interval = makeInterval(id = 1, distanceM = 200.0, gpsTrack = track)
+
+        // Archetype is far away and a very different length — neither length nor overlap qualifies.
+        val archetypeEdge = edge(50.9000 to 6.2000, 50.9300 to 6.2000, lengthM = 2000.0)
+        val archetype = makeArchetype(id = 20, name = "Far Climb", distanceM = 2000.0, edges = listOf(archetypeEdge))
+
+        val result = matcher.matchIntervals(listOf(interval), listOf(archetype))
+
+        assertNull(result[interval])
     }
 
     @Test
-    fun `start too far does not match`() {
-        val startLat = 50.78
-        val lon = 6.07
-        val track = buildGpsTrack(250, startLat, lon)
-        val interval = makeInterval(
-            startLat = startLat,
-            startLon = lon,
-            gpsTrack = track
-        )
-        // Prototype start is ~111m away (0.001 deg lat ≈ 111m, well outside 50m)
-        val proto = IntervalPrototypeRoute(
-            id = 20,
-            name = "Far Proto",
-            startLat = startLat + 0.001,
-            startLon = lon,
-            endLat = startLat + 249 * 0.00001,
-            endLon = lon,
-            distanceM = 500.0,
-            avgGpsTrack = null
-        )
-        val result = matcher.matchIntervals(listOf(interval), listOf(proto))
-        assertNull("Should not match when start is too far", result[0].prototypeRouteId)
-    }
+    fun `interval qualifying for multiple archetypes is assigned to the longer one`() {
+        val track = trackJson(startLat = 50.7800, pointCount = 8)
+        val interval = makeInterval(id = 1, distanceM = 200.0, gpsTrack = track)
 
-    @Test
-    fun `two prototypes picks higher score`() {
-        val startLat = 50.78
-        val lon = 6.07
-        val track = buildGpsTrack(250, startLat, lon)
-        val interval = makeInterval(
-            startLat = startLat,
-            startLon = lon,
-            gpsTrack = track
-        )
-        // Proto A: end at track point i=100 → score ~101
-        val protoA = IntervalPrototypeRoute(
-            id = 30,
-            name = "Proto A",
-            startLat = startLat,
-            startLon = lon,
-            endLat = startLat + 100 * 0.00001,
-            endLon = lon,
-            distanceM = 200.0,
-            avgGpsTrack = null
-        )
-        // Proto B: end at track point i=200 → score ~201
-        val protoB = IntervalPrototypeRoute(
-            id = 40,
-            name = "Proto B",
-            startLat = startLat,
-            startLon = lon,
-            endLat = startLat + 200 * 0.00001,
-            endLon = lon,
-            distanceM = 400.0,
-            avgGpsTrack = null
-        )
-        val result = matcher.matchIntervals(listOf(interval), listOf(protoA, protoB))
-        assertEquals("Should pick Proto B (higher score)", 40L, result[0].prototypeRouteId)
+        // Both archetypes trace the same line and overlap the track within tolerance/threshold —
+        // the longer one (by distanceM) should win the tie-break.
+        val shorterEdge = edge(50.7800 to 6.0800, 50.7821 to 6.0800, lengthM = 205.0)
+        val shorter = makeArchetype(id = 30, name = "Shorter", distanceM = 205.0, edges = listOf(shorterEdge))
+
+        val longerEdge = edge(50.7800 to 6.0800, 50.7821 to 6.0800, lengthM = 290.0)
+        val longer = makeArchetype(id = 40, name = "Longer", distanceM = 290.0, edges = listOf(longerEdge))
+
+        val result = matcher.matchIntervals(listOf(interval), listOf(shorter, longer))
+
+        assertEquals(longer, result[interval])
     }
 }

@@ -92,8 +92,7 @@ fun IntervalSessionEntity.toDomain(): IntervalSession {
         startLon = startLon,
         endLat = endLat,
         endLon = endLon,
-        gpsTrack = gpsTrack,
-        prototypeRouteId = prototypeRouteId
+        gpsTrack = gpsTrack
     )
 }
 
@@ -113,34 +112,6 @@ fun IntervalSession.toEntity(): IntervalSessionEntity {
         startLon = startLon,
         endLat = endLat,
         endLon = endLon,
-        gpsTrack = gpsTrack,
-        prototypeRouteId = prototypeRouteId
-    )
-}
-
-// IntervalPrototypeRoute mappers
-fun IntervalPrototypeRouteEntity.toDomain(): IntervalPrototypeRoute {
-    return IntervalPrototypeRoute(
-        id = id,
-        name = name,
-        startLat = startLat,
-        startLon = startLon,
-        endLat = endLat,
-        endLon = endLon,
-        distanceM = distanceM,
-        avgGpsTrack = avgGpsTrack
-    )
-}
-
-fun IntervalPrototypeRoute.toEntity(): IntervalPrototypeRouteEntity {
-    return IntervalPrototypeRouteEntity(
-        id = id,
-        name = name,
-        startLat = startLat,
-        startLon = startLon,
-        endLat = endLat,
-        endLon = endLon,
-        distanceM = distanceM,
-        avgGpsTrack = avgGpsTrack
+        gpsTrack = gpsTrack
     )
 }

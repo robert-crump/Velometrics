@@ -10,7 +10,7 @@ interface IntervalSessionDao {
     suspend fun insert(interval: IntervalSessionEntity): Long
 
     @Insert
-    suspend fun insertAll(intervals: List<IntervalSessionEntity>)
+    suspend fun insertAll(intervals: List<IntervalSessionEntity>): List<Long>
 
     @Update
     suspend fun update(interval: IntervalSessionEntity)
@@ -20,9 +20,6 @@ interface IntervalSessionDao {
 
     @Query("SELECT * FROM interval_sessions")
     fun getAll(): Flow<List<IntervalSessionEntity>>
-
-    @Query("SELECT * FROM interval_sessions WHERE prototypeRouteId = :protoId")
-    fun getByPrototypeId(protoId: Long): Flow<List<IntervalSessionEntity>>
 
     @Query("SELECT * FROM interval_sessions WHERE id = :id")
     suspend fun getById(id: Long): IntervalSessionEntity?

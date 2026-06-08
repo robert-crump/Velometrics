@@ -1,95 +1,97 @@
-﻿package com.velometrics.app.domain.service
+package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.local.dao.IntervalPrototypeRouteDao
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
-import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.util.GeoUtils
-import com.velometrics.app.util.toDomain
 import android.util.Log
+import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.domain.repository.RepeatedIntervalRepository
+import com.velometrics.app.util.PolylineDecoder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Assigns newly-detected raw [IntervalSession]s to existing [RepeatedInterval] archetypes (#26),
+ * using the same length + GPS-point-overlap similarity test [IntervalClusteringService] uses to
+ * cluster intervals in the first place — via [IntervalSimilarity] — so "matches" means one
+ * consistent thing across grouping and assignment. When an interval qualifies against more than
+ * one archetype, it is assigned only to the longest one ([RepeatedInterval.distanceM]).
+ */
 @Singleton
 class IntervalMatcher @Inject constructor(
-    private val prototypeRouteDao: IntervalPrototypeRouteDao
+    private val repeatedIntervalRepository: RepeatedIntervalRepository
 ) {
 
     companion object {
         private const val TAG = "IntervalMatcher"
-        private const val MATCH_RADIUS_M = 50.0
     }
 
     private val gson = Gson()
+    private val trackType = object : TypeToken<List<List<Double>>>() {}.type
 
-    suspend fun matchToPrototypes(intervals: List<IntervalSession>): List<IntervalSession> {
+    /**
+     * Matches [intervals] against the persisted archetypes and appends each match to its
+     * archetype's [RepeatedInterval.intervals], persisting the updated archetypes. Returns
+     * [intervals] unchanged — the assignment lives on the archetype, not the raw interval.
+     */
+    suspend fun matchToRepeatedIntervals(intervals: List<IntervalSession>): List<IntervalSession> {
         if (intervals.isEmpty()) return intervals
 
-        val prototypes = prototypeRouteDao.getAll().first().map { it.toDomain() }
-        return matchIntervals(intervals, prototypes)
+        val archetypes = repeatedIntervalRepository.getAllRepeatedIntervalsList()
+        if (archetypes.isEmpty()) return intervals
+
+        matchIntervals(intervals, archetypes).entries
+            .mapNotNull { (interval, archetype) -> archetype?.let { it to interval } }
+            .groupBy({ (archetype, _) -> archetype }, { (_, interval) -> interval })
+            .forEach { (archetype, matched) ->
+                repeatedIntervalRepository.saveRepeatedInterval(
+                    archetype.copy(intervals = archetype.intervals + matched)
+                )
+            }
+
+        return intervals
     }
 
+    /**
+     * Pure matching function: each interval maps to the [RepeatedInterval] it qualifies against
+     * with the greatest [RepeatedInterval.distanceM] (the "longer one" tie-break rule), or `null`
+     * if it qualifies against none. Qualification mirrors [IntervalClusteringService.runClustering]'s
+     * pairing test: length delta within tolerance AND sufficient GPS-point overlap.
+     */
     fun matchIntervals(
         intervals: List<IntervalSession>,
-        prototypes: List<IntervalPrototypeRoute>
-    ): List<IntervalSession> {
-        if (prototypes.isEmpty()) return intervals
+        archetypes: List<RepeatedInterval>
+    ): Map<IntervalSession, RepeatedInterval?> {
+        if (archetypes.isEmpty()) return intervals.associateWith { null }
 
-        return intervals.map { interval ->
-            val matchedId = findBestPrototype(interval, prototypes)
-            if (matchedId != null) interval.copy(prototypeRouteId = matchedId) else interval
+        val preparedArchetypes = archetypes.mapNotNull { archetype ->
+            val points = archetypeTrack(archetype)
+            if (points.size < 2) null
+            else archetype to IntervalSimilarity.PreparedTrack(points, archetype.distanceM)
+        }
+
+        return intervals.associateWith { interval ->
+            val points = parseGpsTrack(interval.gpsTrack)
+            if (points.size < 2) return@associateWith null
+
+            val prepared = IntervalSimilarity.PreparedTrack(points, interval.distanceM)
+            preparedArchetypes
+                .filter { (_, archetypeTrack) -> IntervalSimilarity.qualifies(prepared, archetypeTrack) }
+                .maxByOrNull { (archetype, _) -> archetype.distanceM }
+                ?.first
         }
     }
 
-    private fun findBestPrototype(
-        interval: IntervalSession,
-        prototypes: List<IntervalPrototypeRoute>
-    ): Long? {
-        val trackPoints = parseGpsTrack(interval.gpsTrack)
-        if (trackPoints.isEmpty()) return null
-
-        var bestProtoId: Long? = null
-        var bestScore = -1
-
-        for (proto in prototypes) {
-            // a. Check if interval start is within 50 m of prototype start
-            val startDist = GeoUtils.haversineDistance(
-                interval.startLat, interval.startLon,
-                proto.startLat, proto.startLon
-            )
-            if (startDist > MATCH_RADIUS_M) continue
-
-            // b. Walk through GPS track points, find if any comes within 50 m of prototype end
-            var score = 0
-            var matched = false
-            for (point in trackPoints) {
-                score++
-                val endDist = GeoUtils.haversineDistance(
-                    point[0], point[1],
-                    proto.endLat, proto.endLon
-                )
-                if (endDist <= MATCH_RADIUS_M) {
-                    matched = true
-                    break
-                }
-            }
-
-            // c/d. Among candidates, pick the one with highest score
-            if (matched && score > bestScore) {
-                bestScore = score
-                bestProtoId = proto.id
-            }
+    /** Decodes an archetype's matched road-graph edges into a single `[lat, lon]` point sequence. */
+    private fun archetypeTrack(archetype: RepeatedInterval): List<List<Double>> {
+        return archetype.edges.flatMap { edge ->
+            PolylineDecoder.decode(edge.geometryEncoded).map { listOf(it.latitude, it.longitude) }
         }
-
-        return bestProtoId
     }
 
     private fun parseGpsTrack(gpsTrackJson: String): List<List<Double>> {
         return try {
-            val type = object : TypeToken<List<List<Double>>>() {}.type
-            gson.fromJson(gpsTrackJson, type) ?: emptyList()
+            gson.fromJson(gpsTrackJson, trackType) ?: emptyList()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse GPS track JSON", e)
             emptyList()

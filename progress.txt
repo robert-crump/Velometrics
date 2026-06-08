@@ -98,3 +98,48 @@ adjacency search, and a track jumping between disconnected graph components reje
 
 ### Tests
 133 unit tests pass.
+
+## Issue #26 — Replace prototype-matching with RepeatedInterval-based assignment
+Completed: 2026-06-08 | Closed: 2026-06-08
+
+### What was done
+
+**`IntervalMatcher` rewrite (`domain/service/IntervalMatcher.kt`)**
+- Replaced prototype-route matching (50m start/end proximity against `IntervalPrototypeRoute`)
+  with `RepeatedInterval`-archetype matching using the same length + GPS-point-overlap
+  similarity test the clustering step uses (length delta ≤ `INTERVAL_LENGTH_TOLERANCE_M`,
+  ≥ `INTERVAL_POINT_SIMILARITY_THRESHOLD` of points within `INTERVAL_POINT_MATCH_RADIUS_M`)
+- Extracted that shared similarity test into a new `IntervalSimilarity` object (`PreparedTrack`,
+  `SpatialGrid`, `qualifies`) so `IntervalClusteringService` and `IntervalMatcher` use one
+  consistent definition of "matches" — `IntervalClusteringService` now delegates to it
+- An archetype's comparison track is built by decoding+concatenating its matched road-graph
+  edges' polylines (`PolylineDecoder.decode(edge.geometryEncoded)`)
+- When a raw interval qualifies against multiple archetypes, it's assigned to the one with the
+  greatest `distanceM` ("the longer one", per the issue's tie-break rule)
+- `matchToRepeatedIntervals` persists assignments by appending matched intervals directly onto
+  `RepeatedInterval.intervals` and saving via `RepeatedIntervalRepository` — `intervalIds` on
+  the entity remains the single source of truth (no redundant per-interval FK column)
+
+**Removed `prototypeRouteId` and `IntervalPrototypeRoute`/`IntervalGroup`**
+- Dropped `IntervalSession.prototypeRouteId`; Room migration `MIGRATION_7_8` (DB v7→v8) recreates
+  `interval_sessions` without the column/FK and drops `interval_prototype_routes`
+- Deleted `IntervalPrototypeRoute`, `IntervalPrototypeRouteEntity`, `IntervalPrototypeRouteDao`
+  and all repository/mapper/DI references
+- Removed `IntervalGroup`; `MapOverlayUtils.groupIntervals` now partitions raw intervals against
+  `RepeatedInterval` archetypes directly (an archetype "groups" iff `intervals.isNotEmpty()`),
+  with `avgDurationNormalizedSec`/`avgPower` as plain functions over `RepeatedInterval`
+- Updated all call sites: `MapIntervalRenderer` (renders `RepeatedInterval` groups, GeoJSON
+  property renamed `prototypeId` → `repeatedIntervalId`), `MapViewViewModel`
+  (`allRepeatedIntervals` replaces `allPrototypeRoutes`), `MapViewScreen` (click-handler lookup
+  by `RepeatedInterval.id`, `PrototypeGroupSheet` now takes a `RepeatedInterval`)
+- `IntervalRepository.insertIntervals` now returns the inserted `List<Long>` so
+  `FitImportService` can pass DB-assigned ids into the matcher (raw `IntervalDetector` output
+  has `id = 0`, but the matcher needs real ids to record into `RepeatedIntervalEntity.intervalIds`)
+
+**Tests** — rewrote `IntervalMatcherTest` (unambiguous match, no match, multi-match
+tie-break-by-longer-archetype), `MapOverlayUtilsIntervalTest` (grouping/averaging against
+`RepeatedInterval`), and `MapViewViewModelTest` (`FakeRepeatedIntervalRepository` replaces the
+removed prototype-route fakes)
+
+### Tests
+All unit tests pass.

@@ -17,6 +17,5 @@ data class IntervalSession(
     val startLon: Double,
     val endLat: Double,
     val endLon: Double,
-    val gpsTrack: String,
-    val prototypeRouteId: Long? = null
+    val gpsTrack: String
 )

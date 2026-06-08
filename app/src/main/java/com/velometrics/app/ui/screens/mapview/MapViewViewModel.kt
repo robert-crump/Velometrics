@@ -4,20 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.heatmap.HeatmapCell
 import com.velometrics.app.domain.model.CyclingSession
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.model.PoiWithDistances
+import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.service.HeatmapService
 import com.velometrics.app.domain.service.LocationException
 import com.velometrics.app.domain.service.LocationSource
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
-import com.velometrics.app.util.IntervalGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +42,7 @@ class MapViewViewModel @Inject constructor(
     private val mapGraphRepository: MapGraphRepository,
     private val cyclingSessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
+    private val repeatedIntervalRepository: RepeatedIntervalRepository,
     private val heatmapService: HeatmapService,
     private val locationSource: LocationSource,
 ) : ViewModel() {
@@ -131,7 +132,7 @@ class MapViewViewModel @Inject constructor(
     val allIntervals: StateFlow<List<IntervalSession>> = intervalRepository.getAllIntervals()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allPrototypeRoutes: StateFlow<List<IntervalPrototypeRoute>> = intervalRepository.getAllPrototypeRoutes()
+    val allRepeatedIntervals: StateFlow<List<RepeatedInterval>> = repeatedIntervalRepository.getAllRepeatedIntervals()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun toggleIntervalOverlay() { _showIntervalOverlay.update { !it } }
@@ -139,14 +140,14 @@ class MapViewViewModel @Inject constructor(
     private val _selectedInterval = MutableStateFlow<IntervalSession?>(null)
     val selectedInterval: StateFlow<IntervalSession?> = _selectedInterval.asStateFlow()
 
-    private val _selectedGroup = MutableStateFlow<IntervalGroup?>(null)
-    val selectedGroup: StateFlow<IntervalGroup?> = _selectedGroup.asStateFlow()
+    private val _selectedGroup = MutableStateFlow<RepeatedInterval?>(null)
+    val selectedGroup: StateFlow<RepeatedInterval?> = _selectedGroup.asStateFlow()
 
     private val _highlightedIntervalId = MutableStateFlow<Long?>(null)
     val highlightedIntervalId: StateFlow<Long?> = _highlightedIntervalId.asStateFlow()
 
     fun selectInterval(interval: IntervalSession?) { _selectedInterval.value = interval }
-    fun selectGroup(group: IntervalGroup?) { _selectedGroup.value = group }
+    fun selectGroup(group: RepeatedInterval?) { _selectedGroup.value = group }
     fun highlightInterval(id: Long?) { _highlightedIntervalId.value = id }
     fun clearSelection() {
         _selectedInterval.value = null

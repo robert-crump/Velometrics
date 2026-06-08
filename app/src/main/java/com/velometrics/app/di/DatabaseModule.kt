@@ -78,6 +78,44 @@ object DatabaseModule {
         }
     }
 
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Drop the prototypeRouteId column/FK from interval_sessions (#26: matching now
+            // assigns intervals to RepeatedInterval archetypes, tracked via RepeatedIntervalEntity.intervalIds)
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS interval_sessions_new (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`cyclingSessionId` INTEGER NOT NULL, " +
+                    "`startTimestamp` INTEGER NOT NULL, " +
+                    "`durationSec` INTEGER NOT NULL, " +
+                    "`durationNormalizedSec` INTEGER NOT NULL, " +
+                    "`distanceM` REAL NOT NULL, " +
+                    "`avgPower` INTEGER NOT NULL, " +
+                    "`avgSpeedKmh` REAL NOT NULL, " +
+                    "`avgSpeedNormalizedKmh` REAL NOT NULL, " +
+                    "`direction` TEXT NOT NULL, " +
+                    "`startLat` REAL NOT NULL, " +
+                    "`startLon` REAL NOT NULL, " +
+                    "`endLat` REAL NOT NULL, " +
+                    "`endLon` REAL NOT NULL, " +
+                    "`gpsTrack` TEXT NOT NULL, " +
+                    "FOREIGN KEY(`cyclingSessionId`) REFERENCES `cycling_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+            )
+            database.execSQL(
+                "INSERT INTO interval_sessions_new (id, cyclingSessionId, startTimestamp, durationSec, " +
+                    "durationNormalizedSec, distanceM, avgPower, avgSpeedKmh, avgSpeedNormalizedKmh, direction, " +
+                    "startLat, startLon, endLat, endLon, gpsTrack) " +
+                    "SELECT id, cyclingSessionId, startTimestamp, durationSec, durationNormalizedSec, distanceM, " +
+                    "avgPower, avgSpeedKmh, avgSpeedNormalizedKmh, direction, startLat, startLon, endLat, endLon, gpsTrack " +
+                    "FROM interval_sessions"
+            )
+            database.execSQL("DROP TABLE interval_sessions")
+            database.execSQL("ALTER TABLE interval_sessions_new RENAME TO interval_sessions")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_interval_sessions_cyclingSessionId ON interval_sessions(cyclingSessionId)")
+            database.execSQL("DROP TABLE IF EXISTS interval_prototype_routes")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -86,7 +124,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -99,11 +137,6 @@ object DatabaseModule {
     @Provides
     fun provideIntervalSessionDao(database: VelometricsDatabase): IntervalSessionDao {
         return database.intervalSessionDao()
-    }
-
-    @Provides
-    fun provideIntervalPrototypeRouteDao(database: VelometricsDatabase): IntervalPrototypeRouteDao {
-        return database.intervalPrototypeRouteDao()
     }
 
     @Provides

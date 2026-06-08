@@ -1,7 +1,7 @@
-﻿package com.velometrics.app.util
+package com.velometrics.app.util
 
-import com.velometrics.app.domain.model.IntervalPrototypeRoute
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.RepeatedInterval
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -65,8 +65,8 @@ class MapOverlayUtilsIntervalTest {
     @Test
     fun `groupIntervals - ungrouped intervals returned in second`() {
         val intervals = listOf(
-            makeInterval(id = 1, prototypeRouteId = null),
-            makeInterval(id = 2, prototypeRouteId = null)
+            makeInterval(id = 1),
+            makeInterval(id = 2)
         )
         val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, emptyList())
         assertTrue(groups.isEmpty())
@@ -74,41 +74,45 @@ class MapOverlayUtilsIntervalTest {
     }
 
     @Test
-    fun `groupIntervals - grouped intervals create IntervalGroup`() {
-        val proto = makePrototype(id = 10, name = "Hill Climb")
-        val intervals = listOf(
-            makeInterval(id = 1, prototypeRouteId = 10, durationNormalizedSec = 300, avgPower = 250),
-            makeInterval(id = 2, prototypeRouteId = 10, durationNormalizedSec = 320, avgPower = 260)
+    fun `groupIntervals - grouped intervals create archetype with assigned intervals`() {
+        val matched = listOf(
+            makeInterval(id = 1, durationNormalizedSec = 300, avgPower = 250),
+            makeInterval(id = 2, durationNormalizedSec = 320, avgPower = 260)
         )
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, listOf(proto))
+        val archetype = makeRepeatedInterval(id = 10, name = "Hill Climb", intervals = matched)
+        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(matched, listOf(archetype))
         assertEquals(1, groups.size)
-        assertEquals("Hill Climb", groups[0].prototypeRoute.name)
+        assertEquals("Hill Climb", groups[0].name)
         assertEquals(2, groups[0].intervals.size)
         assertTrue(ungrouped.isEmpty())
     }
 
     @Test
-    fun `groupIntervals - computes correct average duration and power`() {
-        val proto = makePrototype(id = 10)
-        val intervals = listOf(
-            makeInterval(id = 1, prototypeRouteId = 10, durationNormalizedSec = 300, avgPower = 200),
-            makeInterval(id = 2, prototypeRouteId = 10, durationNormalizedSec = 400, avgPower = 300)
+    fun `groupIntervals - archetype with no assigned intervals is excluded from groups`() {
+        val intervals = listOf(makeInterval(id = 1), makeInterval(id = 2))
+        val emptyArchetype = makeRepeatedInterval(id = 10, name = "Unmatched", intervals = emptyList())
+        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, listOf(emptyArchetype))
+        assertTrue(groups.isEmpty())
+        assertEquals(2, ungrouped.size)
+    }
+
+    @Test
+    fun `avgDurationNormalizedSec and avgPower compute correct averages`() {
+        val matched = listOf(
+            makeInterval(id = 1, durationNormalizedSec = 300, avgPower = 200),
+            makeInterval(id = 2, durationNormalizedSec = 400, avgPower = 300)
         )
-        val (groups, _) = MapOverlayUtils.groupIntervals(intervals, listOf(proto))
-        assertEquals(350, groups[0].avgDurationNormalizedSec)
-        assertEquals(250, groups[0].avgPower)
+        val archetype = makeRepeatedInterval(id = 10, intervals = matched)
+        assertEquals(350, MapOverlayUtils.avgDurationNormalizedSec(archetype))
+        assertEquals(250, MapOverlayUtils.avgPower(archetype))
     }
 
     @Test
     fun `groupIntervals - mixed grouped and ungrouped partitioned correctly`() {
-        val proto = makePrototype(id = 10)
-        val intervals = listOf(
-            makeInterval(id = 1, prototypeRouteId = 10),
-            makeInterval(id = 2, prototypeRouteId = null),
-            makeInterval(id = 3, prototypeRouteId = 10),
-            makeInterval(id = 4, prototypeRouteId = null)
-        )
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, listOf(proto))
+        val grouped = listOf(makeInterval(id = 1), makeInterval(id = 3))
+        val ungroupedSource = listOf(makeInterval(id = 2), makeInterval(id = 4))
+        val archetype = makeRepeatedInterval(id = 10, intervals = grouped)
+        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(grouped + ungroupedSource, listOf(archetype))
         assertEquals(1, groups.size)
         assertEquals(2, groups[0].intervals.size)
         assertEquals(2, ungrouped.size)
@@ -135,7 +139,6 @@ class MapOverlayUtilsIntervalTest {
 
     private fun makeInterval(
         id: Long = 0,
-        prototypeRouteId: Long? = null,
         durationNormalizedSec: Int = 300,
         avgPower: Int = 250
     ) = IntervalSession(
@@ -153,21 +156,22 @@ class MapOverlayUtilsIntervalTest {
         startLon = 6.07,
         endLat = 50.79,
         endLon = 6.08,
-        gpsTrack = "[[50.78,6.07],[50.79,6.08]]",
-        prototypeRouteId = prototypeRouteId
+        gpsTrack = "[[50.78,6.07],[50.79,6.08]]"
     )
 
-    private fun makePrototype(
+    private fun makeRepeatedInterval(
         id: Long = 0,
-        name: String = "Test Route"
-    ) = IntervalPrototypeRoute(
+        name: String = "Test Route",
+        intervals: List<IntervalSession> = emptyList()
+    ) = RepeatedInterval(
         id = id,
         name = name,
+        intervals = intervals,
+        edges = emptyList(),
         startLat = 50.78,
         startLon = 6.07,
         endLat = 50.79,
         endLon = 6.08,
-        distanceM = 1500.0,
-        avgGpsTrack = "[[50.78,6.07],[50.785,6.075],[50.79,6.08]]"
+        distanceM = 1500.0
     )
 }

@@ -1,13 +1,13 @@
 ﻿package com.velometrics.app.ui.components
 
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.CyclingConstants.INTERVAL_GROUPED_LINE_WIDTH
 import com.velometrics.app.util.CyclingConstants.INTERVAL_HIGHLIGHT_COLOR
 import com.velometrics.app.util.CyclingConstants.INTERVAL_HIGHLIGHT_LINE_WIDTH
 import com.velometrics.app.util.CyclingConstants.INTERVAL_OVERLAY_LINE_WIDTH
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
-import com.velometrics.app.util.IntervalGroup
 import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.addLayerBelowUserMarker
 import org.maplibre.android.maps.Style
@@ -68,10 +68,9 @@ object MapIntervalRenderer {
         addLayerBelowUserMarker(style, layer)
     }
 
-    fun renderGroupedIntervals(style: Style, groups: List<IntervalGroup>) {
+    fun renderGroupedIntervals(style: Style, groups: List<RepeatedInterval>) {
         val features = groups.mapNotNull { group ->
-            val trackJson = group.prototypeRoute.avgGpsTrack
-                ?: group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
+            val trackJson = group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
             val points = GpsTrackParser.parse(trackJson)
             if (points.size < 2) return@mapNotNull null
 
@@ -79,12 +78,15 @@ object MapIntervalRenderer {
             val lineString = LineString.fromLngLats(geoPoints)
             val feature = Feature.fromGeometry(lineString)
 
-            feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(group.avgDurationNormalizedSec))
-            feature.addStringProperty("prototypeId", group.prototypeRoute.id.toString())
-            feature.addStringProperty("name", group.prototypeRoute.name)
+            val avgDuration = MapOverlayUtils.avgDurationNormalizedSec(group)
+            val avgPower = MapOverlayUtils.avgPower(group)
+
+            feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(avgDuration))
+            feature.addStringProperty("repeatedIntervalId", group.id.toString())
+            feature.addStringProperty("name", group.name)
             feature.addNumberProperty("count", group.intervals.size)
-            feature.addStringProperty("avgDuration", MapOverlayUtils.formatDurationMinSec(group.avgDurationNormalizedSec))
-            feature.addStringProperty("avgPower", FormatUtils.formatPower(group.avgPower))
+            feature.addStringProperty("avgDuration", MapOverlayUtils.formatDurationMinSec(avgDuration))
+            feature.addStringProperty("avgPower", FormatUtils.formatPower(avgPower))
 
             feature
         }
@@ -102,10 +104,9 @@ object MapIntervalRenderer {
         addLayerBelowUserMarker(style, layer)
     }
 
-    fun renderGroupLabels(style: Style, groups: List<IntervalGroup>) {
+    fun renderGroupLabels(style: Style, groups: List<RepeatedInterval>) {
         val features = groups.mapNotNull { group ->
-            val trackJson = group.prototypeRoute.avgGpsTrack
-                ?: group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
+            val trackJson = group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
             val points = GpsTrackParser.parse(trackJson)
             if (points.isEmpty()) return@mapNotNull null
 
@@ -114,8 +115,8 @@ object MapIntervalRenderer {
             val point = Point.fromLngLat(mid.longitude, mid.latitude)
             val feature = Feature.fromGeometry(point)
 
-            val avgDuration = MapOverlayUtils.formatDurationMinSec(group.avgDurationNormalizedSec)
-            feature.addStringProperty("label", "${group.prototypeRoute.name} (${group.intervals.size}x, $avgDuration)")
+            val avgDuration = MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(group))
+            feature.addStringProperty("label", "${group.name} (${group.intervals.size}x, $avgDuration)")
 
             feature
         }

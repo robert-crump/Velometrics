@@ -6,11 +6,7 @@ import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.velometrics.app.util.CyclingConstants.INTERVAL_LENGTH_TOLERANCE_M
-import com.velometrics.app.util.CyclingConstants.INTERVAL_POINT_MATCH_RADIUS_M
-import com.velometrics.app.util.CyclingConstants.INTERVAL_POINT_SIMILARITY_THRESHOLD
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
-import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.PolylineDecoder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -19,10 +15,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.floor
-import kotlin.math.max
 
 /**
  * Condenses raw [IntervalSession]s into deduped [RepeatedInterval] archetypes (#10/#25):
@@ -47,9 +39,7 @@ class IntervalClusteringService @Inject constructor(
 
     private data class PreparedInterval(
         val intervalId: Long,
-        val points: List<List<Double>>,
-        val grid: SpatialGrid,
-        val distanceM: Double
+        val track: IntervalSimilarity.PreparedTrack
     )
 
     private data class CandidateArchetype(
@@ -67,26 +57,8 @@ class IntervalClusteringService @Inject constructor(
         if (points.size < 2) return null
         return PreparedInterval(
             intervalId = interval.id,
-            points = points,
-            grid = SpatialGrid(points),
-            distanceM = interval.distanceM
+            track = IntervalSimilarity.PreparedTrack(points, interval.distanceM)
         )
-    }
-
-    /** Length within tolerance AND ≥ threshold share of GPS points have a neighbor (bidirectional max). */
-    private fun pairQualifies(a: PreparedInterval, b: PreparedInterval): Boolean {
-        if (abs(a.distanceM - b.distanceM) > INTERVAL_LENGTH_TOLERANCE_M) return false
-        val sim = max(coverageScore(a.points, b.grid), coverageScore(b.points, a.grid))
-        return sim >= INTERVAL_POINT_SIMILARITY_THRESHOLD
-    }
-
-    private fun coverageScore(pointsA: List<List<Double>>, gridB: SpatialGrid): Double {
-        if (pointsA.isEmpty()) return 0.0
-        var matched = 0
-        for (pt in pointsA) {
-            if (gridB.hasPointWithin(pt[0], pt[1])) matched++
-        }
-        return matched.toDouble() / pointsA.size
     }
 
     // ─── Full clustering (single-linkage / connected components) ───
@@ -106,7 +78,7 @@ class IntervalClusteringService @Inject constructor(
         val adjacency = Array(n) { mutableListOf<Int>() }
         for (i in 0 until n) {
             for (j in i + 1 until n) {
-                if (pairQualifies(prepared[i], prepared[j])) {
+                if (IntervalSimilarity.qualifies(prepared[i].track, prepared[j].track)) {
                     adjacency[i].add(j)
                     adjacency[j].add(i)
                 }
@@ -222,44 +194,6 @@ class IntervalClusteringService @Inject constructor(
             if (!isSubset) kept.add(candidate)
         }
         return kept
-    }
-
-    // ─── Spatial grid (point-to-point neighbor lookup within INTERVAL_POINT_MATCH_RADIUS_M) ───
-
-    private inner class SpatialGrid(points: List<List<Double>>) {
-        private val latCellSize: Double
-        private val lonCellSize: Double
-        private val cells = HashMap<Long, MutableList<List<Double>>>()
-
-        init {
-            val avgLat = points.sumOf { it[0] } / points.size
-            latCellSize = INTERVAL_POINT_MATCH_RADIUS_M / 111_320.0
-            lonCellSize = INTERVAL_POINT_MATCH_RADIUS_M / (111_320.0 * cos(Math.toRadians(avgLat)))
-            for (pt in points) {
-                cells.getOrPut(cellKey(pt[0], pt[1])) { mutableListOf() }.add(pt)
-            }
-        }
-
-        private fun cellKey(lat: Double, lon: Double): Long {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            return row * 2_000_000L + col + 1_000_000L
-        }
-
-        fun hasPointWithin(lat: Double, lon: Double): Boolean {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            for (dr in -1L..1L) {
-                for (dc in -1L..1L) {
-                    val bucket = cells[(row + dr) * 2_000_000L + (col + dc) + 1_000_000L]
-                        ?: continue
-                    for (pt in bucket) {
-                        if (GeoUtils.haversineDistance(lat, lon, pt[0], pt[1]) <= INTERVAL_POINT_MATCH_RADIUS_M) return true
-                    }
-                }
-            }
-            return false
-        }
     }
 
     private fun parseGpsTrack(json: String): List<List<Double>> {

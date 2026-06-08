@@ -16,6 +16,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     data object RepeatedRouteDetail : Screen("repeated_route/{routeId}", "Route Detail", Icons.Default.Route) {
         fun createRoute(routeId: Long) = "repeated_route/$routeId"
     }
+    data object RepeatedIntervalDetail : Screen("repeated_interval/{intervalId}", "Interval Detail", Icons.Default.Route) {
+        fun createRoute(intervalId: Long) = "repeated_interval/$intervalId"
+    }
     data object Info : Screen("info", "Info", Icons.Default.Info)
     data object HomeAddress : Screen("home_address", "Home Location", Icons.Default.Home)
 }

@@ -173,6 +173,12 @@ object CyclingConstants {
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
     const val INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS = 1
 
+    // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
+    const val INTERVAL_LENGTH_TOLERANCE_M = 100.0
+    const val INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8
+    const val INTERVAL_POINT_MATCH_RADIUS_M = 20.0
+    const val INTERVAL_SUBSET_OVERLAP_THRESHOLD = 0.8
+
     // Navigation / POI
     const val POI_COLOR_FUEL = "#E53935"
     const val POI_COLOR_CAFE = "#795548"

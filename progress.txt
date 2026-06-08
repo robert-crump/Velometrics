@@ -1,392 +1,62 @@
-## Issue #18 — FastWayHomeService: time-optimized A* pathfinding to home
-Completed: 2026-06-07 | Closed: 2026-06-07
+## Issue #25 — RepeatedInterval: clustering, persistence, and management screen
+Completed: 2026-06-08 | Closed: 2026-06-08
 
 ### What was done
 
-**`FastWayHomeService.kt` (new, `domain/service/`)**
-- `@Singleton` service injecting `MapGraphRepository`, `EdgeStatsEstimator` (#17), and
-  `UserSettingsRepository` (for `homeLat`/`homeLon`)
-- `findFastWayHome(start: LatLng): FastWayHomeResult?` — locates the nearest graph edge to
-  `start`, runs `aStarToHome()` toward the configured home location, converts the resulting
-  edge sequence into `ScoredSegment`s, and scores it via `RideEstimator.estimateRide()` (#16)
-  once per percentile band
-- `FastWayHomeResult(path, slow, avg, fast, anySegmentsEstimated)` aggregates the three
-  `RideEstimate`s plus whether any segment along the path used estimated (non-real) stats
-- `aStarToHome()` is a brand-new, independent A* — `RoutePlanner.aStarReturn()` is untouched.
-  Skeleton (priority queue `Node(idx, gCost, fCost)`, `gCosts`/`cameFrom`/`closedSet`,
-  goal-radius check, path reconstruction) mirrors `aStarReturn`, but:
-  - cost is **time-based**: `lengthM / speedP50` (converted to m/s), not distance-based
-  - heuristic converts remaining haversine distance to a lower-bound time using
-    `CyclingConstants.GPS_IMPLIED_MAX_SPEED_KMH` (120 km/h), keeping it admissible
-  - target is the configured home location, not the route's start point
-- Connectivity cache (`edgeByIndex`/`adjacency`/`edgeStartPoints`/`edgeEndPoints`) is built
-  the same way as `RoutePlanner`'s (decode `geometryEncoded` via `PolylineDecoder`, fall back
-  to node lat/lon, adjacency from `fromNode`/`toNode` topology), plus a precomputed
-  `edgeStatsByIndex: Map<Int, EdgeStats>`: real stats for traversed edges with percentile
-  data, `EdgeStatsEstimator.estimateStatsNear()` (with its 15 km/h fallback) for
-  untraversed/data-sparse edges — precomputed once so the A* loop stays synchronous and fast
-- No edges are excluded from the search graph; all are routable via the fallback-cost estimate
+**`RepeatedInterval` domain model + persistence**
+- New `domain/model/RepeatedInterval` (`id`, `name`, `intervals: List<IntervalSession>`,
+  `edges: List<MapEdge>`, `startLat/startLon/endLat/endLon`, `distanceM`)
+- New `repeated_intervals` Room table (`RepeatedIntervalEntity`/`RepeatedIntervalDao`,
+  `MIGRATION_6_7`, DB version 6→7) storing `intervalIds` and `edges` as JSON — the latter as
+  `[fromNode, toNode]` reference pairs resolved against `MapGraphRepository.getAllEdges()` at
+  read time (mirrors how `RepeatedRouteEntity.sessionIds` resolves against `CyclingSessionRepository`)
+- `RepeatedIntervalRepository`/`RepeatedIntervalRepositoryImpl` mirroring
+  `RepeatedRouteRepository`'s flow-combining read paths and rename/delete/save operations;
+  bound in `RepositoryModule` and `DatabaseModule`
+- `RepeatedIntervalsCache` (singleton hot `StateFlow`) mirroring `RepeatedRoutesCache`
 
-**`FastWayHomeServiceTest.kt` (new)**
-- Small fixture chain graph (`N0 -> N1 -> N2 -> N3`/home, 2 traversed + 1 untraversed edge)
-  confirms a concrete path is found end-to-end, `anySegmentsEstimated` is true (the untraversed
-  edge falls back to 15 km/h since no nearby traversed edge shares its bearing), and
-  Slow >= Avg >= Fast ride durations
-- A disconnected two-component fixture confirms `findFastWayHome` returns `null` gracefully
-- Added `io.mockk:mockk` as a test dependency to fake `UserSettingsRepository` (a concrete,
-  `Context`-backed `DataStore` wrapper with no existing test-double pattern in the codebase)
+**`IntervalClusteringService` (`domain/service/IntervalClusteringService.kt`)**
+- Adapts `RouteClusteringService`'s single-linkage/connected-components structure to raw
+  `IntervalSession`s: pairs qualify when length delta ≤ `INTERVAL_LENGTH_TOLERANCE_M` (100 m)
+  AND the bidirectional max GPS-point coverage (neighbor within `INTERVAL_POINT_MATCH_RADIUS_M`
+  = 20 m) is ≥ `INTERVAL_POINT_SIMILARITY_THRESHOLD` (0.8) — using its own `SpatialGrid`
+  (same cell-bucket pattern as `RouteClusteringService`'s)
+- No minimum group size — every distinct shape becomes an archetype, even singletons
+- Picks each cluster's median-`distanceM` interval, map-matches its track via `MapMatcher` for
+  `List<MapEdge>` geometry, and derives `distanceM`/start-end lat-lon by decoding the first/last
+  edge's `geometryEncoded` via `PolylineDecoder`; clusters whose representative can't be
+  map-matched are dropped
+- **Subset discarding**: processes archetypes longest-first, discarding any whose edges overlap
+  an already-kept (longer) archetype's edges by ≥ `INTERVAL_SUBSET_OVERLAP_THRESHOLD` (0.8) of
+  its own `distanceM`
+- Preserves existing names/IDs across re-runs by matching new clusters to existing entries via
+  overlapping raw-interval-ID subsets (same precedent as `RouteClusteringService.kt:171-186`)
 
-### Tests
-132 unit tests pass (the 4 pre-existing `FormatUtilsTest` locale-formatting failures are
-unrelated — they fail identically on a clean `main`).
+**New named constants** (`util/Constants.kt`): `INTERVAL_LENGTH_TOLERANCE_M = 100.0`,
+`INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8`, `INTERVAL_POINT_MATCH_RADIUS_M = 20.0`,
+`INTERVAL_SUBSET_OVERLAP_THRESHOLD = 0.8`
 
----
+**UI**
+- `RepeatedIntervalsScreen`/`-ViewModel` (list, sort, manual pull-to-refresh → `runClustering()`)
+  and `RepeatedIntervalDetailScreen`/`-ViewModel` (stats, matched-edge map preview via
+  `PolylineDecoder` + `MapTrackRenderer`, occurrence list, rename) mirroring
+  `RepeatedRoutesScreen`/`RepeatedRouteDetailScreen`
+- `RepeatedRoutesScreen` now hosts a `SingleChoiceSegmentedButtonRow` ("Routes"/"Intervals")
+  switching between the existing route list and the new interval list, each backed by its own
+  ViewModel/cache; sort-menu options switch with the selected tab
+- Wired `repeated_interval/{intervalId}` into `Screen`/`VelometricsNavHost`
 
-## Issue #17 — Nearest-traversed-edge statistic estimation primitive
-Completed: 2026-06-07 | Closed: 2026-06-07
-
-### What was done
-
-**`domain/service/EdgeStatsEstimator.kt`**
-- Added `EdgeStats` (per-percentile speed + nullable per-percentile power + `isEstimated`) and
-  `EdgeStatsEstimator.estimateStatsNear(point: LatLng, bearing: Double): EdgeStats`
-- Maintains its own private `RTreeSpatialIndex` instance built lazily (mutex-guarded) from only
-  the *traversed* edges, so candidate `edgeKey`s map directly back to that traversed-only list —
-  this sidesteps the index-key ambiguity that would arise from sharing `RoutePlanner`'s index
-  (which is built over *all* edges and rebuilt/invalidated on its own schedule)
-- Candidate selection: queries the spatial index within `EDGE_STATS_SEARCH_RADIUS_M` (50 m),
-  filters out edges whose bearing differs from the query bearing by more than
-  `EDGE_STATS_MAX_BEARING_DIFF_DEG` (90°, so roughly-opposite/parallel roads don't contribute),
-  then takes the nearest `EDGE_STATS_NEAREST_K` (3)
-- Distance-weights each candidate's percentile stats by `1 / (distanceM + 1)` (closer edges
-  weigh more); power percentiles are skipped per-candidate when null and the overall power
-  estimate is `null` if no candidate contributed
-- Falls back to `EDGE_STATS_FALLBACK_SPEED_KMH` (15 km/h) with `null` power when no traversed
-  edge is found within range; `isEstimated` is always `true` (this function only fills gaps —
-  edges with real stats aren't routed through it)
-- Added `EDGE_STATS_NEAREST_K`, `EDGE_STATS_SEARCH_RADIUS_M`, `EDGE_STATS_FALLBACK_SPEED_KMH`,
-  `EDGE_STATS_MAX_BEARING_DIFF_DEG` to `CyclingConstants`
-
-### Deviation from the issue's literal `EdgeStats` signature
-- The issue sketch shows non-null `Double` power percentiles; kept them nullable (`Double?`)
-  to mirror `MapEdge`'s own nullable power stats and `RideEstimator.ScoredSegment`'s nullable
-  power fields (#16) — `RideEstimator.estimateRide` already skips segments with no power data,
-  so this is the natural fit for the eventual #18 conversion to `ScoredSegment`
+### Note on `IntervalPrototypeRoute` removal
+Left `IntervalPrototypeRoute`/`IntervalMatcher`/`IntervalGroup` in place — they're still actively
+wired into `FitImportService`/`MapViewViewModel`, and rewriting `IntervalMatcher` to assign
+against `RepeatedInterval` archetypes (instead of removing its dependency out from under it) is
+explicitly issue #26's job ("blocked by #25"). Removing them here would have meant doing #26's
+work prematurely and leaving it half-finished.
 
 ### Tests
-Added `EdgeStatsEstimatorTest` (3 cases): distance-weighted averaging favors the nearer of two
-same-direction traversed edges, fallback to the 15 km/h conservative estimate when nothing is
-within the search radius, and bearing filtering excludes a closer-but-opposite-direction edge
-from the average. 124/128 unit tests pass (the 4 failures are the pre-existing `FormatUtilsTest`
-locale-formatting issues — `,` vs `.` decimal separator — noted in #16, unrelated to this change).
-
----
-
-## Issue #16 — RideEstimator: weighted speed/power/duration scoring module
-Completed: 2026-06-07 | Closed: 2026-06-07
-
-### What was done
-
-**`domain/service/RideEstimator.kt`**
-- Added graph-agnostic `ScoredSegment` (lengthM + per-percentile speed/power + `isEstimated`),
-  `Percentile` enum (SLOW/AVG/FAST → 25th/50th/75th), and `RideEstimate` result type — none
-  depend on `MapEdge`, the graph repository, or UI types, so the module can be reused both for
-  the "fast way home" estimate (#9/#18) and for future `.gpx` rating
-- `RideEstimator.estimateRide(segments, percentile)`:
-  - Average speed: each segment's chosen-percentile speed weighted by `lengthM`, summed and
-    divided by total length; converted to overall duration via `(totalKm / avgSpeedKmh) * 3600`
-  - Average power: each segment's own duration (`lengthM / its percentile speed`, in seconds)
-    used as the weight for that segment's percentile power; weighted sum divided by the total
-    duration of only the segments that have power data for that percentile (others skipped)
-  - `anyEstimatedSegments` is `true` if any input segment has `isEstimated = true`
-  - Empty input returns a zeroed `RideEstimate` rather than dividing by zero
-
-### Pre-existing issue fixed along the way
-- `FakeCyclingSessionRepository` (test fixture) was missing the `getAllClusterData` /
-  `getSessionsByIdsList` overrides added to `CyclingSessionRepository` during issue #2,
-  which broke compilation of the entire unit test source set
-
-### Tests
-Added `RideEstimatorTest` (6 cases): hand-computed duration/power for Slow/Avg/Fast on a
-two-segment fixture, zero-segment input, segments with no power data excluded from the power
-average, and the `anyEstimatedSegments` flag. 121/125 unit tests pass (the 4 failures are
-pre-existing `FormatUtilsTest` locale-formatting issues — `,` vs `.` decimal separator — unrelated
-to this change).
-
----
-
-## Navigate drawer polish + dismiss fix
-Completed: 2026-06-05
-
-### What was done
-
-**Off-track dialog dismiss was sluggish**
-- `doFetchAllTrackPois` was running per-POI geometric projections (`projectPoiOntoTrack`,
-  `computeDistanceAlongTrack`) on `Dispatchers.Main`; the loop blocked the UI thread long enough
-  that Compose could not recompose to hide the dialog after `dismissOffTrackDialog()` set the state
-- Wrapped the computation body in `withContext(Dispatchers.Default)` so the main thread stays free
-
-**Navigate drawer: replaced BottomSheetScaffold with PullUpDrawer**
-- `BottomSheetScaffold` computed `sheetExpansionPadding` as a discrete binary (0 dp vs top-bar
-  height) conditioned on `currentValue == SheetValue.Expanded`; the switch caused a visible
-  layout jump each time the drawer crossed the fully-expanded threshold
-- Extracted the `PullUpDrawer` composable from `SessionDetailScreen` into the shared
-  `ui/components/PullUpDrawer.kt`, adding a `snapFractions: List<Float>` parameter so both
-  screens can configure their own snap stops
-- `SessionDetailScreen` now imports `PullUpDrawer` from the shared location; all
-  PullUpDrawer-only imports removed from that file
-- `NavigationScreen` replaced `BottomSheetScaffold` with `PullUpDrawer(snapFractions =
-  listOf(0.25f, 0.50f, 1.00f), initialFraction = 0.25f)`; the `sheetExpansionPadding` logic
-  and all Material3 bottom-sheet imports were removed; the POI `LazyColumn` was replaced with a
-  plain `Column + forEach` (required because `PullUpDrawer` already provides a `verticalScroll`)
-- Drawer state resets on new GPX load via `key(gpxTrack)` wrapper
-
-### Tests
-`compileDebugKotlin` clean (only pre-existing deprecation warnings).
-
----
-
-## Issue #2 — File import slow when existing database is large (>100 rides)
-Completed: 2026-06-05 | Closed: 2026-06-05
-
-### What was done
-
-**Remove dead post-import recalculation (`HomeViewModel.kt`)**
-- Deleted `recalculateAllStats()` and its `sessionComparator` injection; the method called
-  `computeComparison()` for every session and discarded all results — `SessionComparison` is
-  computed on-demand in `SessionDetailViewModel` — adding ~100 sequential DB queries to the
-  critical path while the progress bar was shown
-
-**Lightweight session loading for clustering (`RouteClusteringService.kt`)**
-- Added `SessionClusterData(id, gpsTrack, distanceKm)` domain model
-- Added `getAllClusterData()` DAO query (`SELECT id, gpsTrack, distanceKm`) and
-  `getSessionsByIdsList()` suspend batch query; plumbed both through repository interface and impl
-- `RouteClusteringService.runClustering()` now loads the lightweight projection for the O(n²)
-  pairwise step and fetches full `CyclingSession` objects only for the sessions that form valid
-  repeated-route groups
-
-**Fix N+1 query in route list loading (`RepeatedRouteRepositoryImpl.kt`)**
-- `getAllRoutesList()` previously called `getSessionById()` in a per-ID loop (one DB query per
-  session across all route entities) plus had a dead `getAllSessions()` call that was never
-  consumed; replaced with a single `getSessionsByIdsList()` batch query
-
-### Tests
-`compileDebugKotlin` and `kspDebugKotlin` clean (only pre-existing warnings).
-
----
-
-## Issue #1 — Repeated Routes: too few clusters + perceived recalculation on tab open
-Completed: 2026-06-05 | Closed: 2026-06-05
-
-### What was done
-
-**Clustering algorithm (`domain/service/RouteClusteringService.kt`)**
-- Replaced complete-linkage agglomerative clustering with **single-linkage / connected
-  components** (BFS over the qualifying-pair graph). Complete-linkage required every pair
-  in a cluster to independently meet 85% similarity, which shattered clusters on the first
-  GPS-noise outlier
-- Relaxed length-delta filter to accommodate ±10% per-ride length variation:
-  `LENGTH_DELTA_FRACTION` 0.10 → 0.15, `MAX_LENGTH_DELTA_KM` 5 → 7
-- Kept `SIMILARITY_THRESHOLD` (0.85), `MATCH_THRESHOLD_M` (25), `MIN_GROUP_SIZE` (3) unchanged
-- Deleted `runIncrementalClustering` (~95 LOC); single code path now — full clustering runs
-  after each import (in background) and on pull-to-refresh
-- Added `DEBUG_LOGGING` compile-time const: when enabled, logs per-pair accept/reject reasons
-  with actual length-Δ / centroid-Δ / similarity values, plus a summary
-  `N sessions → M edges → K components → L ≥ MIN_GROUP_SIZE`
-
-**Background execution + caching for Routes tab**
-- Created `di/CoroutineScopeModule.kt`: `@ApplicationScope` qualifier + `@Singleton` provider
-  for `CoroutineScope(SupervisorJob + Dispatchers.Default)`
-- Created `data/cache/RepeatedRoutesCache.kt` (`@Singleton`) hoisting
-  `repository.getAllRoutes()` into a hot `StateFlow` collected on the app scope; survives
-  ViewModel recreation, so tab switches no longer trigger Room re-query + GPS track JSON
-  re-parsing, and the loading spinner only ever shows on cold app start
-- `RepeatedRoutesViewModel`: now reads `routes` and `isLoading` from the cache instead of
-  collecting the repository Flow directly
-- `HomeViewModel.importFromUris`: per-file `runIncrementalClustering` call deleted; after
-  the batch loop completes, `appScope.launch { runClustering() }` re-clusters on a scope
-  that survives the user navigating away from the dashboard
-
-### Known accepted limitation
-If the new algorithm splits an existing custom-named cluster into multiple, the name only
-carries to a child that's an exact subset of the old cluster (existing name-preservation
-logic in `RouteClusteringService.kt`). Newly-split routes may need to be re-named once.
-
-### Tests
-Pre-existing unit tests pass; `compileDebugKotlin` clean (only pre-existing warnings remain).
-
----
-
-## Issue #13 — Navigate: Receiver of .gpx share intents
-Completed: 2026-06-05 | Closed: 2026-06-05
-
-### What was done
-- Added `android:launchMode="singleTop"` to `MainActivity` so that an incoming share intent
-  reuses the existing activity instance (via `onNewIntent`) rather than creating a new one
-- Added two `<intent-filter>` blocks to `AndroidManifest.xml`: one for `ACTION_VIEW`, one for
-  `ACTION_SEND`, each declaring `application/gpx+xml` and `application/xml` MIME types
-- Created `ui/intent/GpxIntentViewModel.kt`: a tiny `@HiltViewModel` scoped to the activity,
-  holding `pendingGpxUri: StateFlow<Uri?>` with `setPendingUri()` / `consumePendingUri()`
-- `MainActivity`: injects `GpxIntentViewModel` via `viewModels()`; extracts the GPX URI from
-  the intent in both `onCreate` and `onNewIntent` via `extractGpxUri(intent)` (handles both
-  `ACTION_VIEW` → `intent.data` and `ACTION_SEND` → `EXTRA_STREAM`); a `LaunchedEffect` in
-  `setContent` auto-navigates to the Navigate tab (`launchSingleTop = true`) when the URI is set
-- `NavigationScreen`: receives the activity-scoped `GpxIntentViewModel` via
-  `hiltViewModel(LocalContext.current as ComponentActivity)`; a `LaunchedEffect(pendingUri)`
-  calls `viewModel.loadGpxFromUri()` on arrival and then clears the pending URI — existing
-  GPX is silently replaced with no confirmation dialog
-
-### Tests
-100 unit tests pass.
-
----
-
-## Issue #4 — Introduce LocationSource seam and migrate MapView GPS acquisition
-Completed: 2026-05-23
-
-### What was done
-- Created `LocationFix` data class in `domain/model/LocationFix.kt`
-- Created `LocationSource` interface and `LocationException` sealed class in `domain/service/LocationSource.kt`
-- Created `AndroidLocationSource` implementation in `data/location/AndroidLocationSource.kt`
-  using `callbackFlow` with per-subscriber listener registration/deregistration
-- Created Hilt `@Binds` module in `di/LocationModule.kt`
-- Extracted `HeatmapService` to a `fun interface` (in `domain/service/HeatmapService.kt`)
-  and moved the implementation to `data/heatmap/HeatmapServiceImpl.kt` with a
-  `di/HeatmapModule.kt` binding — prerequisite for MapViewViewModel to be unit-testable
-- Rewrote `MapViewViewModel.startLocationUpdates()` to use `LocationSource.fixes()`:
-  - `onEach` updates `_locationAccuracy` on every emission
-  - 5 s display throttle on `_currentLocation` via `System.currentTimeMillis()`
-  - `takeWhile` stops collection when `accuracyM <= GPS_FINE_FIX_ACCURACY_M`
-  - `withTimeoutOrNull(15_000)` → `poorGpsSnackbar` after timeout
-  - Catches `LocationException.NoProvider` → snackbar; `PermissionDenied` → silent
-  - Removed `@ApplicationContext Context`, `LocationManager`, and `LocationListener` from VM
-  - Removed `onCleared()` override (cancellation handled by `viewModelScope` + `awaitClose`)
-- Created `FakeLocationSource` in test sources (scripted fixes + scripted exceptions)
-- Created `MapViewViewModelTest` with 7 tests covering all acceptance criteria
-- Added `kotlinx-coroutines-test:1.10.2` to test dependencies in `build.gradle.kts`
-
-### Pre-existing issues fixed along the way
-- `FakeCyclingSessionRepository` was missing `getSessionsByIds` and `getSessionsBeforeDate`
-- `GpxExporterTest` used old `MapEdge` constructor fields (`avgStopCount` instead of
-  `stopCount`, `avgStopDurationS`, `stopProbability`, `estimatedStopTimeS`)
-- `MapOverlayUtils.speedToColor` capped all speeds ≥ 40 km/h at the same color;
-  expanded to use the full SPEED_COLOR_MAP range
-
-### Tests
-99 unit tests pass (including 7 new `MapViewViewModelTest` cases).
-
----
-
-## Issue #5 — Migrate Navigation GPS acquisition onto LocationSource
-Completed: 2026-05-23
-
-### What was done
-- Replaced `@ApplicationContext Context` constructor parameter in `NavigationViewModel` with
-  `LocationSource` injection
-- Changed `loadGpxFromUri(uri)` to `loadGpxFromUri(uri, contentResolver)` to eliminate the
-  last `Context` reference; updated the call site in `NavigationScreen.kt` to pass
-  `context.contentResolver`
-- Rewrote `fetchRoughGpsPosition()`: calls `locationSource.lastKnownFix(threshold)` first;
-  falls back to `locationSource.fixes().first { accuracyM <= threshold }` if null; catches
-  `LocationException` and returns null
-- Rewrote `startContinuousLocationTracking()`: collects `locationSource.fixes()` and updates
-  `_userPosition`; catches `LocationException` silently
-- Removed all `LocationManager`, `LocationListener`, `suspendCancellableCoroutine`, and
-  `@ApplicationContext` imports from `NavigationViewModel`
-- Removed `onCleared()` override (viewModelScope cancellation handles locationTrackingJob)
-- Created `NavigationViewModelTest` with 5 tests covering all acceptance criteria cases
-
-### Tests
-104 unit tests pass (including 5 new `NavigationViewModelTest` cases).
-
----
-
-## Issue #6 — Move "POIs nearby" from "Navigate" to "Map"
-Completed: 2026-06-04
-
-### What was done
-
-**Shared component extraction**
-- Added `categoryDisplayName()` and `formatPoiDistance()` to `FormatUtils.kt` (promoted from
-  private functions in `NavigationScreen`)
-- Created `ui/components/PoiPopupCard.kt`: shared composable displaying POI name, category,
-  opening hours (conditional), air distance (conditional on GPS), and "Open in Maps" button;
-  `openPoiInGoogleMaps()` top-level function alongside it
-
-**POI layer on Map tab (`MapViewScreen` / `MapViewViewModel`)**
-- `MapViewViewModel`: lazy-loads all POIs from repository on first toggle of the POI layer;
-  derives `visiblePois` by combining `_allPois`, `_viewportBounds`, and `_selectedPoiCategories`
-  via `combine`; `selectPoiFromMap()` computes air distance from current GPS fix (null if
-  unavailable); `updateViewportBounds()` called by the screen's camera idle listener
-- `MapViewScreen`: registers `addOnCameraIdleListener` in `onMapReady` to keep viewport bounds
-  in sync; `LaunchedEffect` for POI rendering and highlight; extended map click listener handles
-  cluster zoom-in, individual POI popup, then falls through to existing interval tap logic;
-  `PoiPopupCard` shown at bottom center when a POI is selected
-- Layers bottom sheet: POI toggle row; indented `Checkbox` sub-rows per category, only visible
-  when the POI layer is on; all categories activated by default when layer first enabled;
-  relies on MapLibre clustering (radius 50, maxZoom 14) instead of a zoom floor
-
-**Remove NEARBY mode from Navigate**
-- `NavigationViewModel`: removed `PoiMode` enum, `selectedMode`, `fetchPoisNearbyByRadius()`,
-  `nearbyRadiusM`/`setNearbyRadius()`; Navigate is now always in ALONG_TRACK mode;
-  `setUserPositionFromPermission()` and `refreshDistances()` simplified accordingly
-- `NavigationScreen`: removed `ModeSelectionScreen` composable and mode-selection flow;
-  screen opens directly to LIST/MAP tabs; GPX file picker moved to a Route icon in the
-  TopAppBar actions; permission request triggered on GPX load via `LaunchedEffect(gpxTrack)`
-- `NavigationViewModelTest`: removed 4 NEARBY-specific tests; updated the ALONG_TRACK
-  permission-fallback test (no longer requires `setMode()`)
-
-### Tests
-100 unit tests pass.
-
----
-
-## Issue #14 — Navigate: Bugfixes
-Completed: 2026-06-05 | Closed: 2026-06-05
-
-### What was done
-
-**Remove "cuisine" from POI row**
-- Removed `poi.cuisine?.let { append(" ($it)") }` from `PoiRow` in `NavigationScreen`; category
-  label is now shown without the cuisine qualifier
-
-**Bottom drawer handle always visible**
-- Replaced the fixed `rememberStandardBottomSheetState(skipHiddenState = false)` with a `key(gpxLoaded)`
-  block that recreates the state when GPX load state changes
-- Pre-GPX: `skipHiddenState = false`, `initialValue = Hidden` (no handle shown)
-- Post-GPX: `skipHiddenState = true`, `initialValue = PartiallyExpanded` (handle always visible,
-  user cannot drag sheet fully hidden)
-- `LaunchedEffect(gpxTrack)` simplified to only launch the location permission request; sheet
-  expansion is now handled by `initialValue`
-
-**Full-screen mode overlap fix**
-- Added `sheetExpansionPadding` (= `outerPadding.calculateTopPadding()` when expanded, 0 otherwise)
-  applied to both `sheetDragHandle` and `sheetContent` Column, keeping handle and buttons clear
-  of the top app bar when the sheet is fully expanded
-
-**No look-ahead active by default; look-ahead buttons control camera + list**
-- `_lookAheadOption` changed from `StateFlow<LookAheadOption>` (defaulting KM5) to
-  `StateFlow<LookAheadOption?>` (defaulting null)
-- Added `allTrackPois: List<PoiWithDistances>` internal cache; full track POIs are fetched once
-  on GPS fix and stored here
-- `setLookAheadOption(option)` now toggles: clicking the active button deselects (→ null);
-  POI list is filtered in-memory from `allTrackPois` (no repo re-fetch); `pendingCameraBounds`
-  is set to the appropriate `LatLngBounds` (look-ahead sub-track bounds or full-track bounds)
-- `LaunchedEffect(pendingCameraBounds, mapAndStyle)` in screen animates via `easeCamera` at 600ms
-  then calls `consumeCameraFit()`
-- Behind-user POIs get a signed negative `trackDistanceM`; the distance label in `PoiRow` is
-  suppressed for negative values (`takeIf { it >= 0.0 }`)
-
-**Off-track dialog**
-- `checkOffTrack()` fires once per GPX load (guarded by `hasCheckedOffTrack` flag) after the
-  first GPS fix; uses `TrackGeometryUtils.projectPointOntoTrack` to measure perpendicular distance
-- If distance > 1000 m, `_offTrackDialogKm` is set → `AlertDialog` shown with exact km distance
-  and a single Dismiss button; `dismissOffTrackDialog()` clears the state
-
-### Tests
-100 unit tests pass.
-
----
+137 unit tests pass (133 existing + 4 new `IntervalClusteringServiceTest` cases: grouping with
+map-matched edges, dissimilar intervals forming separate singleton archetypes, subset discarding,
+and name/ID preservation across re-runs).
 
 ## Issue #24 — Map-matching: snap GPS tracks to coherent road-graph edge sequences
 Completed: 2026-06-08 | Closed: 2026-06-08

@@ -14,6 +14,7 @@ import com.velometrics.app.ui.screens.homeaddress.HomeAddressScreen
 import com.velometrics.app.ui.screens.info.InfoScreen
 import com.velometrics.app.ui.screens.mapview.MapViewScreen
 import com.velometrics.app.ui.screens.navigation.NavigationScreen
+import com.velometrics.app.ui.screens.repeatedintervaldetail.RepeatedIntervalDetailScreen
 import com.velometrics.app.ui.screens.repeatedroutedetail.RepeatedRouteDetailScreen
 import com.velometrics.app.ui.screens.repeatedroutes.RepeatedRoutesScreen
 import com.velometrics.app.ui.screens.sessiondetail.SessionDetailScreen
@@ -57,6 +58,9 @@ fun VelometricsNavHost(
                 onNavigateToRouteDetail = { routeId ->
                     navController.navigate(Screen.RepeatedRouteDetail.createRoute(routeId))
                 },
+                onNavigateToIntervalDetail = { intervalId ->
+                    navController.navigate(Screen.RepeatedIntervalDetail.createRoute(intervalId))
+                },
                 onNavigateToNavigation = {
                     navController.navigate(Screen.Navigation.route)
                 }
@@ -68,6 +72,18 @@ fun VelometricsNavHost(
             arguments = listOf(navArgument("routeId") { type = NavType.LongType })
         ) {
             RepeatedRouteDetailScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToSession = { sessionId ->
+                    navController.navigate(Screen.SessionDetail.createRoute(sessionId))
+                }
+            )
+        }
+
+        composable(
+            route = Screen.RepeatedIntervalDetail.route,
+            arguments = listOf(navArgument("intervalId") { type = NavType.LongType })
+        ) {
+            RepeatedIntervalDetailScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSession = { sessionId ->
                     navController.navigate(Screen.SessionDetail.createRoute(sessionId))

@@ -59,6 +59,25 @@ object DatabaseModule {
         }
     }
 
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS repeated_intervals (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "name TEXT NOT NULL, " +
+                    "intervalIds TEXT NOT NULL, " +
+                    "edges TEXT NOT NULL, " +
+                    "startLat REAL NOT NULL, " +
+                    "startLon REAL NOT NULL, " +
+                    "endLat REAL NOT NULL, " +
+                    "endLon REAL NOT NULL, " +
+                    "distanceM REAL NOT NULL, " +
+                    "createdAt INTEGER NOT NULL" +
+                ")"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -67,7 +86,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -90,6 +109,11 @@ object DatabaseModule {
     @Provides
     fun provideRepeatedRouteDao(database: VelometricsDatabase): RepeatedRouteDao {
         return database.repeatedRouteDao()
+    }
+
+    @Provides
+    fun provideRepeatedIntervalDao(database: VelometricsDatabase): RepeatedIntervalDao {
+        return database.repeatedIntervalDao()
     }
 
     @Provides

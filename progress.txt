@@ -143,3 +143,34 @@ removed prototype-route fakes)
 
 ### Tests
 All unit tests pass.
+
+## Issue #27 — Map tab: Intervals layer renders deduped RepeatedInterval geometry
+Completed: 2026-06-08 | Closed: 2026-06-08
+
+### What was done
+
+**`MapIntervalRenderer` rendering pipeline rewrite** (`ui/components/MapIntervalRenderer.kt`)
+- Replaced `renderGroupedIntervals`/`renderGroupLabels` (which drew a `RepeatedInterval`'s
+  *longest matched raw track*) with `renderRepeatedIntervals`/`renderRepeatedIntervalLabels`,
+  which decode and concatenate the archetype's matched road-graph edges
+  (`PolylineDecoder.decode(edge.geometryEncoded)`) into a single line — the actual deduped
+  geometry the issue asks for, drawn exactly once per archetype regardless of repeat count
+- `renderUngroupedIntervals` is kept (it's also used by `SessionDetailScreen`'s per-ride map)
+  but is no longer wired into the Map tab's "Intervals" toggle — raw intervals not yet part of
+  any `RepeatedInterval` simply don't appear on that layer per the issue's acceptance criteria
+
+**`MapViewScreen`/`MapViewViewModel` cleanup**
+- `MapOverlayUtils.groupIntervals` simplified from a partition (`Pair<groups, ungrouped>`) to
+  a plain filter (`List<RepeatedInterval>` with non-empty `intervals`) — the "ungrouped" half
+  has no remaining caller now that the raw-overlay rendering path is removed
+- Removed the now-unreachable "ungrouped interval tap" path: `MapViewViewModel.selectInterval`/
+  `selectedInterval`, the `interval-ungrouped-layer` click-query branch, and the
+  `IntervalDetailCard` composable (all dead code once the ungrouped layer stopped rendering
+  on the Map tab)
+
+**Tests** — rewrote `MapOverlayUtilsIntervalTest`'s `groupIntervals` cases for the simplified
+filter signature; `MapViewViewModelTest` needed no changes (it didn't reference the removed
+selection state)
+
+### Tests
+All unit tests pass.

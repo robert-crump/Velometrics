@@ -1,6 +1,5 @@
 ﻿package com.velometrics.app.util
 
-import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MAX_DURATION_SEC
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MIN_DURATION_SEC
@@ -67,19 +66,9 @@ object MapOverlayUtils {
         return Triple(r, g, b)
     }
 
-    /**
-     * Partitions raw intervals into the [RepeatedInterval] archetypes they're assigned to
-     * (those with at least one matched raw interval) vs. those not (yet) assigned to any.
-     */
-    fun groupIntervals(
-        intervals: List<IntervalSession>,
-        repeatedIntervals: List<RepeatedInterval>
-    ): Pair<List<RepeatedInterval>, List<IntervalSession>> {
-        val groups = repeatedIntervals.filter { it.intervals.isNotEmpty() }
-        val groupedIds = groups.flatMapTo(mutableSetOf()) { group -> group.intervals.map { it.id } }
-        val ungrouped = intervals.filter { it.id !in groupedIds }
-        return Pair(groups, ungrouped)
-    }
+    /** [RepeatedInterval] archetypes that have at least one matched raw interval assigned. */
+    fun groupIntervals(repeatedIntervals: List<RepeatedInterval>): List<RepeatedInterval> =
+        repeatedIntervals.filter { it.intervals.isNotEmpty() }
 
     fun avgDurationNormalizedSec(repeatedInterval: RepeatedInterval): Int =
         repeatedInterval.intervals.map { it.durationNormalizedSec }.average().toInt()

@@ -137,20 +137,15 @@ class MapViewViewModel @Inject constructor(
 
     fun toggleIntervalOverlay() { _showIntervalOverlay.update { !it } }
 
-    private val _selectedInterval = MutableStateFlow<IntervalSession?>(null)
-    val selectedInterval: StateFlow<IntervalSession?> = _selectedInterval.asStateFlow()
-
     private val _selectedGroup = MutableStateFlow<RepeatedInterval?>(null)
     val selectedGroup: StateFlow<RepeatedInterval?> = _selectedGroup.asStateFlow()
 
     private val _highlightedIntervalId = MutableStateFlow<Long?>(null)
     val highlightedIntervalId: StateFlow<Long?> = _highlightedIntervalId.asStateFlow()
 
-    fun selectInterval(interval: IntervalSession?) { _selectedInterval.value = interval }
     fun selectGroup(group: RepeatedInterval?) { _selectedGroup.value = group }
     fun highlightInterval(id: Long?) { _highlightedIntervalId.value = id }
     fun clearSelection() {
-        _selectedInterval.value = null
         _selectedGroup.value = null
         _highlightedIntervalId.value = null
     }

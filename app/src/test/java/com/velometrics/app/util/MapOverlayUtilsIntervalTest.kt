@@ -56,44 +56,29 @@ class MapOverlayUtilsIntervalTest {
     // --- groupIntervals ---
 
     @Test
-    fun `groupIntervals - empty list returns empty pair`() {
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(emptyList(), emptyList())
+    fun `groupIntervals - empty list returns empty list`() {
+        val groups = MapOverlayUtils.groupIntervals(emptyList())
         assertTrue(groups.isEmpty())
-        assertTrue(ungrouped.isEmpty())
     }
 
     @Test
-    fun `groupIntervals - ungrouped intervals returned in second`() {
-        val intervals = listOf(
-            makeInterval(id = 1),
-            makeInterval(id = 2)
-        )
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, emptyList())
-        assertTrue(groups.isEmpty())
-        assertEquals(2, ungrouped.size)
-    }
-
-    @Test
-    fun `groupIntervals - grouped intervals create archetype with assigned intervals`() {
+    fun `groupIntervals - archetype with assigned intervals is included`() {
         val matched = listOf(
             makeInterval(id = 1, durationNormalizedSec = 300, avgPower = 250),
             makeInterval(id = 2, durationNormalizedSec = 320, avgPower = 260)
         )
         val archetype = makeRepeatedInterval(id = 10, name = "Hill Climb", intervals = matched)
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(matched, listOf(archetype))
+        val groups = MapOverlayUtils.groupIntervals(listOf(archetype))
         assertEquals(1, groups.size)
         assertEquals("Hill Climb", groups[0].name)
         assertEquals(2, groups[0].intervals.size)
-        assertTrue(ungrouped.isEmpty())
     }
 
     @Test
-    fun `groupIntervals - archetype with no assigned intervals is excluded from groups`() {
-        val intervals = listOf(makeInterval(id = 1), makeInterval(id = 2))
+    fun `groupIntervals - archetype with no assigned intervals is excluded`() {
         val emptyArchetype = makeRepeatedInterval(id = 10, name = "Unmatched", intervals = emptyList())
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(intervals, listOf(emptyArchetype))
+        val groups = MapOverlayUtils.groupIntervals(listOf(emptyArchetype))
         assertTrue(groups.isEmpty())
-        assertEquals(2, ungrouped.size)
     }
 
     @Test
@@ -108,14 +93,12 @@ class MapOverlayUtilsIntervalTest {
     }
 
     @Test
-    fun `groupIntervals - mixed grouped and ungrouped partitioned correctly`() {
-        val grouped = listOf(makeInterval(id = 1), makeInterval(id = 3))
-        val ungroupedSource = listOf(makeInterval(id = 2), makeInterval(id = 4))
-        val archetype = makeRepeatedInterval(id = 10, intervals = grouped)
-        val (groups, ungrouped) = MapOverlayUtils.groupIntervals(grouped + ungroupedSource, listOf(archetype))
+    fun `groupIntervals - mixed populated and empty archetypes filtered correctly`() {
+        val populated = makeRepeatedInterval(id = 10, name = "Populated", intervals = listOf(makeInterval(id = 1)))
+        val empty = makeRepeatedInterval(id = 11, name = "Empty", intervals = emptyList())
+        val groups = MapOverlayUtils.groupIntervals(listOf(populated, empty))
         assertEquals(1, groups.size)
-        assertEquals(2, groups[0].intervals.size)
-        assertEquals(2, ungrouped.size)
+        assertEquals("Populated", groups[0].name)
     }
 
     // --- formatDurationMinSec ---

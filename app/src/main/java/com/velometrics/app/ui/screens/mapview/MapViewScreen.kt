@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.Checkbox
@@ -77,16 +76,13 @@ fun MapViewScreen(
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
     val allIntervals by viewModel.allIntervals.collectAsState()
     val allRepeatedIntervals by viewModel.allRepeatedIntervals.collectAsState()
-    val selectedInterval by viewModel.selectedInterval.collectAsState()
     val selectedGroup by viewModel.selectedGroup.collectAsState()
     val highlightedIntervalId by viewModel.highlightedIntervalId.collectAsState()
 
-    // Derived interval grouping
-    val intervalData = remember(allIntervals, allRepeatedIntervals) {
-        MapOverlayUtils.groupIntervals(allIntervals, allRepeatedIntervals)
+    // Repeated intervals with at least one matched raw interval — drawn once per archetype
+    val intervalGroups = remember(allRepeatedIntervals) {
+        MapOverlayUtils.groupIntervals(allRepeatedIntervals)
     }
-    val intervalGroups = intervalData.first
-    val ungroupedIntervals = intervalData.second
 
     val showPoiLayer by viewModel.showPoiLayer.collectAsState()
     val visiblePois by viewModel.visiblePois.collectAsState()
@@ -141,7 +137,6 @@ fun MapViewScreen(
     // rememberUpdatedState for click listener (avoids stale captures)
     val currentShowInterval by rememberUpdatedState(showIntervalOverlay)
     val currentGroups by rememberUpdatedState(intervalGroups)
-    val currentAllIntervals by rememberUpdatedState(allIntervals)
     val currentShowPoi by rememberUpdatedState(showPoiLayer)
     val currentVisiblePois by rememberUpdatedState(visiblePois)
 
@@ -229,13 +224,12 @@ fun MapViewScreen(
     }
 
     // Interval overlay sync
-    LaunchedEffect(showIntervalOverlay, ungroupedIntervals, intervalGroups, mapAndStyle) {
+    LaunchedEffect(showIntervalOverlay, intervalGroups, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapIntervalRenderer.removeIntervalOverlay(ms.second)
         if (showIntervalOverlay) {
-            MapIntervalRenderer.renderUngroupedIntervals(ms.second, ungroupedIntervals)
-            MapIntervalRenderer.renderGroupedIntervals(ms.second, intervalGroups)
-            MapIntervalRenderer.renderGroupLabels(ms.second, intervalGroups)
+            MapIntervalRenderer.renderRepeatedIntervals(ms.second, intervalGroups)
+            MapIntervalRenderer.renderRepeatedIntervalLabels(ms.second, intervalGroups)
         }
     }
 
@@ -289,21 +283,12 @@ fun MapViewScreen(
                 return@addOnMapClickListener false
             }
 
-            // Query grouped layer first (higher priority)
+            // Query repeated-interval layer
             val groupedFeatures = ms.first.queryRenderedFeatures(screenPoint, "interval-grouped-layer")
             if (groupedFeatures.isNotEmpty()) {
                 val repeatedIntervalIdStr = groupedFeatures[0].getStringProperty("repeatedIntervalId")
                 val group = currentGroups.find { it.id.toString() == repeatedIntervalIdStr }
                 if (group != null) { viewModel.selectGroup(group) }
-                return@addOnMapClickListener true
-            }
-
-            // Then ungrouped layer
-            val ungroupedFeatures = ms.first.queryRenderedFeatures(screenPoint, "interval-ungrouped-layer")
-            if (ungroupedFeatures.isNotEmpty()) {
-                val idStr = ungroupedFeatures[0].getStringProperty("intervalId")
-                val interval = currentAllIntervals.find { it.id.toString() == idStr }
-                if (interval != null) { viewModel.selectInterval(interval) }
                 return@addOnMapClickListener true
             }
 
@@ -326,17 +311,6 @@ fun MapViewScreen(
                 }
             }
         )
-
-        // Interval detail card (ungrouped interval tap)
-        if (selectedInterval != null) {
-            IntervalDetailCard(
-                interval = selectedInterval!!,
-                onDismiss = { viewModel.clearSelection() },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
-            )
-        }
 
         // POI popup card
         selectedPoi?.let { poiWD ->
@@ -545,61 +519,6 @@ fun MapViewScreen(
             onIntervalTap = { interval -> viewModel.highlightInterval(interval.id) },
             onDismiss = { viewModel.clearSelection() }
         )
-    }
-}
-
-@Composable
-private fun IntervalDetailCard(
-    interval: IntervalSession,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = FormatUtils.formatDate(interval.startTimestamp),
-                    style = MaterialTheme.typography.titleSmall
-                )
-                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "Duration: ${FormatUtils.formatDuration(interval.durationSec)} (norm: ${FormatUtils.formatDuration(interval.durationNormalizedSec)})",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Distance: ${FormatUtils.formatDistance(interval.distanceM / 1000.0)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Avg Power: ${FormatUtils.formatPower(interval.avgPower)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Avg Speed: ${FormatUtils.formatSpeed(interval.avgSpeedKmh)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Direction: ${interval.direction}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
     }
 }
 

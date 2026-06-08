@@ -9,6 +9,7 @@ import com.velometrics.app.util.CyclingConstants.INTERVAL_OVERLAY_LINE_WIDTH
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
+import com.velometrics.app.util.PolylineDecoder
 import com.velometrics.app.util.addLayerBelowUserMarker
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -33,6 +34,7 @@ object MapIntervalRenderer {
     private const val HIGHLIGHT_SOURCE = "interval-highlight-source"
     private const val HIGHLIGHT_LAYER = "interval-highlight-layer"
 
+    /** Renders raw, per-session interval tracks (e.g. on a single ride's detail map) — no archetype grouping. */
     fun renderUngroupedIntervals(style: Style, intervals: List<IntervalSession>) {
         val features = intervals.mapNotNull { interval ->
             val points = GpsTrackParser.parse(interval.gpsTrack)
@@ -68,23 +70,27 @@ object MapIntervalRenderer {
         addLayerBelowUserMarker(style, layer)
     }
 
-    fun renderGroupedIntervals(style: Style, groups: List<RepeatedInterval>) {
-        val features = groups.mapNotNull { group ->
-            val trackJson = group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
-            val points = GpsTrackParser.parse(trackJson)
-            if (points.size < 2) return@mapNotNull null
+    /** Decodes a [RepeatedInterval]'s matched road-graph edges into a single lng/lat point sequence. */
+    private fun archetypeGeometry(repeatedInterval: RepeatedInterval): List<Point> =
+        repeatedInterval.edges
+            .flatMap { edge -> PolylineDecoder.decode(edge.geometryEncoded) }
+            .map { Point.fromLngLat(it.longitude, it.latitude) }
 
-            val geoPoints = points.map { Point.fromLngLat(it.longitude, it.latitude) }
+    fun renderRepeatedIntervals(style: Style, repeatedIntervals: List<RepeatedInterval>) {
+        val features = repeatedIntervals.mapNotNull { repeatedInterval ->
+            val geoPoints = archetypeGeometry(repeatedInterval)
+            if (geoPoints.size < 2) return@mapNotNull null
+
             val lineString = LineString.fromLngLats(geoPoints)
             val feature = Feature.fromGeometry(lineString)
 
-            val avgDuration = MapOverlayUtils.avgDurationNormalizedSec(group)
-            val avgPower = MapOverlayUtils.avgPower(group)
+            val avgDuration = MapOverlayUtils.avgDurationNormalizedSec(repeatedInterval)
+            val avgPower = MapOverlayUtils.avgPower(repeatedInterval)
 
             feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(avgDuration))
-            feature.addStringProperty("repeatedIntervalId", group.id.toString())
-            feature.addStringProperty("name", group.name)
-            feature.addNumberProperty("count", group.intervals.size)
+            feature.addStringProperty("repeatedIntervalId", repeatedInterval.id.toString())
+            feature.addStringProperty("name", repeatedInterval.name)
+            feature.addNumberProperty("count", repeatedInterval.intervals.size)
             feature.addStringProperty("avgDuration", MapOverlayUtils.formatDurationMinSec(avgDuration))
             feature.addStringProperty("avgPower", FormatUtils.formatPower(avgPower))
 
@@ -104,19 +110,16 @@ object MapIntervalRenderer {
         addLayerBelowUserMarker(style, layer)
     }
 
-    fun renderGroupLabels(style: Style, groups: List<RepeatedInterval>) {
-        val features = groups.mapNotNull { group ->
-            val trackJson = group.intervals.maxByOrNull { GpsTrackParser.parse(it.gpsTrack).size }?.gpsTrack
-            val points = GpsTrackParser.parse(trackJson)
-            if (points.isEmpty()) return@mapNotNull null
+    fun renderRepeatedIntervalLabels(style: Style, repeatedIntervals: List<RepeatedInterval>) {
+        val features = repeatedIntervals.mapNotNull { repeatedInterval ->
+            val geoPoints = archetypeGeometry(repeatedInterval)
+            if (geoPoints.isEmpty()) return@mapNotNull null
 
-            val midIndex = points.size / 2
-            val mid = points[midIndex]
-            val point = Point.fromLngLat(mid.longitude, mid.latitude)
-            val feature = Feature.fromGeometry(point)
+            val mid = geoPoints[geoPoints.size / 2]
+            val feature = Feature.fromGeometry(mid)
 
-            val avgDuration = MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(group))
-            feature.addStringProperty("label", "${group.name} (${group.intervals.size}x, $avgDuration)")
+            val avgDuration = MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(repeatedInterval))
+            feature.addStringProperty("label", "${repeatedInterval.name} (${repeatedInterval.intervals.size}x, $avgDuration)")
 
             feature
         }

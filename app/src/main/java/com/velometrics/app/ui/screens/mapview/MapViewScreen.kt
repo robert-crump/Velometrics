@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
 import android.Manifest
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -31,14 +32,18 @@ import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
+import com.velometrics.app.ui.shared.GpxSharedViewModel
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
+import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
+import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
 import com.velometrics.app.util.CyclingConstants.STOP_COLOR_LONG
 import com.velometrics.app.util.CyclingConstants.STOP_COLOR_MEDIUM
 import com.velometrics.app.util.CyclingConstants.STOP_COLOR_SHORT
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
+import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
@@ -48,6 +53,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -57,10 +63,13 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
 
+private const val GPX_TRACK_LAYER_ID = "gpx-shared-track"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapViewScreen(
-    viewModel: MapViewViewModel = hiltViewModel()
+    viewModel: MapViewViewModel = hiltViewModel(),
+    gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
 ) {
     val edges by viewModel.allEdges.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
@@ -96,15 +105,25 @@ fun MapViewScreen(
         if (granted) viewModel.startLocationUpdates()
     }
 
+    val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
+
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
     val context = LocalContext.current
 
+    var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
+    val gpxLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
+    }
+
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var gpxTrackRendered by remember { mutableStateOf(false) }
     var fineLocationZoomedIn by remember { mutableStateOf(false) }
 
     // Render user location marker; re-center once a fine fix (accuracy ≤ 50 m) is obtained
@@ -184,6 +203,21 @@ fun MapViewScreen(
         if (showStopSpots) {
             MapOverlayRenderer.renderStopSpots(ms.second, edges)
         }
+    }
+
+    // GPX shared track sync
+    LaunchedEffect(gpxTrack, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        if (gpxTrackRendered) {
+            try { MapTrackRenderer.removeTrack(ms.second, GPX_TRACK_LAYER_ID) } catch (_: Exception) {}
+            gpxTrackRendered = false
+        }
+        val track = gpxTrack ?: return@LaunchedEffect
+        if (track.points.size < 2) return@LaunchedEffect
+        MapTrackRenderer.addTrack(ms.second, GPX_TRACK_LAYER_ID, track.points, NAV_TRACK_COLOR, NAV_TRACK_WIDTH)
+        gpxTrackRendered = true
+        val bounds = LatLngBounds.Builder().apply { track.points.forEach { include(it) } }.build()
+        ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 500)
     }
 
     // POI layer sync
@@ -397,39 +431,23 @@ fun MapViewScreen(
                     )
                 }
 
-                // POIs toggle
+                // .gpx track toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("POIs", style = MaterialTheme.typography.bodyMedium)
+                    Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
                     Switch(
-                        checked = showPoiLayer,
-                        onCheckedChange = { viewModel.togglePoiLayer() }
-                    )
-                }
-
-                // Category sub-layers (only when POI layer is on)
-                if (showPoiLayer) {
-                    availablePoiCategories.forEach { category ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                FormatUtils.categoryDisplayName(category),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Checkbox(
-                                checked = category in selectedPoiCategories,
-                                onCheckedChange = { viewModel.togglePoiCategory(category) }
-                            )
+                        checked = gpxTrack != null,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                showLoadGpxConfirmDialog = true
+                            } else {
+                                gpxSharedViewModel.clearGpx()
+                            }
                         }
-                    }
+                    )
                 }
 
                 if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showIntervalOverlay) {
@@ -447,6 +465,23 @@ fun MapViewScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+
+    if (showLoadGpxConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLoadGpxConfirmDialog = false },
+            title = { Text("Load .gpx file?") },
+            text = { Text("Browse for a .gpx file to load onto the map.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLoadGpxConfirmDialog = false
+                    gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
+                }) { Text("Yes") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLoadGpxConfirmDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // Grouped prototype detail bottom sheet

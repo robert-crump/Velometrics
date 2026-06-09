@@ -233,3 +233,31 @@ Completed: 2026-06-09 | Closed: pending
 
 ### Tests
 All unit tests pass (unchanged count — only deleted tests for removed functionality).
+
+## Issue #36 — Map tab: simplify Layers sheet to GPX-only and render loaded track
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**`MapViewScreen`**
+- Added Activity-scoped `GpxSharedViewModel` via
+  `hiltViewModel(LocalContext.current as ComponentActivity)` — survives tab switches
+- Collects `gpxTrack` from `GpxSharedViewModel`
+- `rememberLauncherForActivityResult(OpenDocument)` for GPX file picking; calls
+  `gpxSharedViewModel.loadGpxFromUri()` on selection
+- `var showLoadGpxConfirmDialog` state drives the "Load .gpx file?" `AlertDialog`
+- `var gpxTrackRendered` tracks whether the layer is on the current `Style`
+- New `LaunchedEffect(gpxTrack, mapAndStyle)`: removes any previous track layer, then (if
+  `gpxTrack != null`) calls `MapTrackRenderer.addTrack` with `NAV_TRACK_COLOR`/`NAV_TRACK_WIDTH`
+  and camera-fits the loaded track via `LatLngBounds.Builder`
+- `GPX_TRACK_LAYER_ID = "gpx-shared-track"` private constant for stable layer identity
+
+**Layers sheet changes**
+- Removed: "POIs" toggle row + category checkboxes sub-list (POI category chips are a
+  subsequent slice — dormant POI ViewModel state/popup/click handler are left in place)
+- Added: ".gpx track" toggle row
+  - Toggle ON: opens `AlertDialog` ("Load .gpx file?" / Yes → file picker / Cancel → reverts)
+  - Toggle OFF: calls `gpxSharedViewModel.clearGpx()` immediately
+  - Toggle `checked` state is derived from `gpxTrack != null` (source of truth in ViewModel)
+
+**No changes to `MapViewViewModel`** — POI state kept dormant for next slice.

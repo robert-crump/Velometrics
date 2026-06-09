@@ -262,6 +262,29 @@ Completed: 2026-06-09 | Closed: pending
 
 **No changes to `MapViewViewModel`** — POI state kept dormant for next slice.
 
+## Issue #38 — Map tab: show 'Show POIs along .gpx' chip when track is loaded
+Completed: 2026-06-09 | Closed: 2026-06-09
+
+### What was done
+
+**`MapViewScreen` GPX POI chip + bottom sheet**
+- Wrapped both chip rows in a `Column(Alignment.TopStart, statusBarsPadding)` so the new GPX chip
+  sits directly below the POI category row without layout conflicts
+- "Show POIs along .gpx" `FilterChip` is rendered inside the `Column` only when
+  `gpxSharedViewModel.gpxTrack != null`; disappears when track is cleared
+- Tapping the chip sets `showGpxPoisSheet = true`; clearing the GPX track (via Layers sheet toggle)
+  resets the state and hides the chip
+
+**`GpxPoisSheet` composable** (`MapViewScreen.kt`)
+- `ModalBottomSheet` titled "POIs along .gpx"
+- `isLoading = true` → centred `CircularProgressIndicator`
+- `pois.isEmpty()` → "No POIs found along this track" message
+- Otherwise → `LazyColumn` of `PoiWithDistances` rows: name (bold), category, distance along track
+  (`FormatUtils.formatPoiDistance`), open-in-Google-Maps `IconButton`
+
+### Tests
+All unit tests pass (138 total — no new logic to unit-test; behaviour is pure UI/state wiring).
+
 ## Issue #37 — Map tab: add horizontal POI category chips row
 Completed: 2026-06-09 | Closed: 2026-06-09
 

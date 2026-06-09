@@ -10,6 +10,7 @@ import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHO
 import com.velometrics.app.util.PolylineDecoder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -153,25 +154,29 @@ class IntervalClusteringService @Inject constructor(
     }
 
     private suspend fun buildArchetype(intervals: List<IntervalSession>): CandidateArchetype? {
-        val representative = intervals.sortedBy { it.distanceM }[intervals.size / 2]
-        val track = parseGpsTrack(representative.gpsTrack)
-        val edges = mapMatcher.matchTrack(track) ?: run {
-            Log.w(TAG, "Could not map-match representative interval ${representative.id}; dropping cluster of ${intervals.size}")
-            return null
+        val sorted = intervals.sortedBy { it.distanceM }
+        val medianIndex = sorted.size / 2
+        val candidateOrder = sorted.indices.sortedBy { abs(it - medianIndex) }
+
+        for (idx in candidateOrder) {
+            val representative = sorted[idx]
+            val track = parseGpsTrack(representative.gpsTrack)
+            val edges = mapMatcher.matchTrack(track) ?: continue
+            val start = PolylineDecoder.decode(edges.first().geometryEncoded).firstOrNull() ?: continue
+            val end = PolylineDecoder.decode(edges.last().geometryEncoded).lastOrNull() ?: continue
+            return CandidateArchetype(
+                intervals = intervals,
+                edges = edges,
+                distanceM = edges.sumOf { it.lengthM },
+                startLat = start.latitude,
+                startLon = start.longitude,
+                endLat = end.latitude,
+                endLon = end.longitude
+            )
         }
 
-        val start = PolylineDecoder.decode(edges.first().geometryEncoded).firstOrNull() ?: return null
-        val end = PolylineDecoder.decode(edges.last().geometryEncoded).lastOrNull() ?: return null
-
-        return CandidateArchetype(
-            intervals = intervals,
-            edges = edges,
-            distanceM = edges.sumOf { it.lengthM },
-            startLat = start.latitude,
-            startLon = start.longitude,
-            endLat = end.latitude,
-            endLon = end.longitude
-        )
+        Log.w(TAG, "Could not map-match any representative for cluster of ${intervals.size}; dropping")
+        return null
     }
 
     /**

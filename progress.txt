@@ -195,3 +195,41 @@ Completed: 2026-06-09 | Closed: pending
   geometry, and sorts by `trackDistanceM` from track start. Computes distances from the track's
   first point (eager load, no GPS fix required).
 - No UI changes — purely ViewModel/domain layer per the issue scope.
+
+## Issue #35 — Navigate tab: strip GPX/POI code
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**`NavigationViewModel` stripped to Fast Way Home + off-track stub**
+- Removed: `gpxTrack`, `pois`, `allTrackPois`, `isLoadingGpx`, `isLoadingPois`, `poiSelection`,
+  `lookAheadOption`, `pendingCameraBounds`, `errorMessage` state flows
+- Removed: `loadGpxFromUri()`, `loadGpxFromTrack()`, `clearGpx()`, `refreshUserPosition()`,
+  `doFetchAllTrackPois()`, `pickPoiFromList()`, `pickPoiFromMap()`, `dismissPoi()`,
+  `consumePoiCameraMove()`, `consumeCameraFit()`, `setLookAheadOption()`,
+  `filterPoisForLookAhead()`, `computeLookAheadBounds()`, `computeFullTrackBounds()`,
+  `checkOffTrack()`, `hasCheckedOffTrack`
+- Removed `mapGraphRepository` constructor dependency (was only used for POI fetching)
+- Kept: `offTrackDialogKm`/`dismissOffTrackDialog()` as dormant stub per issue spec;
+  `findFastWayHome()`, `clearFastWayHome()`, `homeLocation`, `isFindingFastWayHome`,
+  `fastWayHomeResult`, `fastWayHomeMessage`, `fetchRoughGpsPosition()`
+
+**`NavigationScreen` stripped to pure map + Fast Way Home**
+- Removed: GPX FAB (Route icon), Locate-me FAB, load/clear dropdown menu, `menuExpanded` state
+- Removed: `PullUpDrawer` with look-ahead segmented buttons and POI list
+- Removed: `PoiPopupCard`, map click handler (POI tap / cluster expand), all POI `LaunchedEffect`s
+- Removed: user position marker rendering (`renderUserMarker`/`removeUserMarker`, USER_MARKER_*)
+- Removed: GPX track rendering, camera-fit and look-ahead camera LaunchedEffects
+- Removed: `GpxIntentViewModel` wiring and pending-URI LaunchedEffect
+- Removed: `permissionLauncher` and `gpxLauncher`
+- Kept: `ComposableMapView`, Fast Way Home FAB + card, `FastWayHomeEstimateRow`,
+  home-marker helpers, off-track dialog
+
+**Deleted orphaned files**
+- `PoiSelectionState.kt` — no longer used now that POI selection was removed from Navigate
+- `PoiSelectionStateTest.kt` — tests for the deleted class
+- `NavigationViewModelTest.kt` — its single test (`refreshUserPosition` GPS fallback) targeted
+  the removed GPX/position logic
+
+### Tests
+All unit tests pass (unchanged count — only deleted tests for removed functionality).

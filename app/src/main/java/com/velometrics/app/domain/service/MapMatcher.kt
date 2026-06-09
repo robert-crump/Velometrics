@@ -46,17 +46,16 @@ class MapMatcher @Inject constructor(
 
         spatialIndex.rebuildIndex(edges, nodes)
 
-        val headings = computeGpsHeadings(points)
-        val snapped = snapPoints(points, headings, edges, nodes)
+        val snapped = snapPoints(points)
         val runs = dropIsolatedOutliers(collapseConsecutive(snapped), adj)
         if (runs.isEmpty()) return null
 
         val sequence = dedupeConsecutive(runs.map { it.edgeIdx })
-        val repaired = repairGaps(sequence, adj)?.let(::dedupeConsecutive) ?: return null
+        val repaired = repairGaps(sequence, adj, edges)?.let(::dedupeConsecutive) ?: return null
 
         val pruned = pruneLeafEdges(repaired, edges, nodes, points.first(), points.last())
         if (pruned.isEmpty()) return null
-        val finalSequence = repairGaps(pruned, adj)?.let(::dedupeConsecutive) ?: return null
+        val finalSequence = repairGaps(pruned, adj, edges)?.let(::dedupeConsecutive) ?: return null
 
         return finalSequence.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
     }
@@ -74,38 +73,10 @@ class MapMatcher @Inject constructor(
         return adj
     }
 
-    private fun computeGpsHeadings(points: List<LatLng>): List<Double?> =
-        points.mapIndexed { i, _ ->
-            val from = points[maxOf(0, i - 1)]
-            val to = points[minOf(points.lastIndex, i + 1)]
-            val dist = GeoUtils.haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude)
-            if (dist < 3.0) null
-            else GeoUtils.computeBearing(from.latitude, from.longitude, to.latitude, to.longitude)
-        }
-
-    private suspend fun snapPoints(
-        points: List<LatLng>,
-        headings: List<Double?>,
-        edges: List<MapEdge>,
-        nodes: Map<Long, MapNode>
-    ): List<Int?> = points.mapIndexed { i, point ->
-        val candidates = spatialIndex.queryEdgesNear(
+    private suspend fun snapPoints(points: List<LatLng>): List<Int?> = points.map { point ->
+        spatialIndex.queryEdgesNear(
             point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
-        )
-        val heading = headings[i]
-        if (heading == null) {
-            candidates.firstOrNull()?.edgeKey?.toInt()
-        } else {
-            candidates.firstOrNull { candidate ->
-                val edge = edges.getOrNull(candidate.edgeKey.toInt()) ?: return@firstOrNull false
-                val fromNode = nodes[edge.fromNode] ?: return@firstOrNull false
-                val toNode = nodes[edge.toNode] ?: return@firstOrNull false
-                val edgeBearing = GeoUtils.computeBearing(
-                    fromNode.lat, fromNode.lon, toNode.lat, toNode.lon
-                )
-                GeoUtils.angleDifference(heading, edgeBearing) <= CyclingConstants.INTERVAL_SNAP_BEARING_MAX_DIFF_DEG
-            }?.edgeKey?.toInt()
-        }
+        ).firstOrNull()?.edgeKey?.toInt()
     }
 
     private fun collapseConsecutive(snapped: List<Int?>): List<Run> {
@@ -162,8 +133,12 @@ class MapMatcher @Inject constructor(
      * Walks the snapped sequence, splicing in a short connecting path (via [findConnectingPath])
      * wherever consecutive edges aren't graph-adjacent. Returns null if any gap can't be
      * bridged within [CyclingConstants.INTERVAL_MATCH_MAX_REPAIR_DEPTH] hops.
+     *
+     * If the only connecting path starts by reversing the preceding edge — a side-street snap
+     * that would create a U-turn loop — that snap is removed and the gap is re-bridged from
+     * its predecessor. If the retry also fails, the track is rejected.
      */
-    private fun repairGaps(sequence: List<Int>, adj: Map<Int, List<Int>>): List<Int>? {
+    private fun repairGaps(sequence: List<Int>, adj: Map<Int, List<Int>>, edges: List<MapEdge>): List<Int>? {
         if (sequence.size <= 1) return sequence
 
         val result = mutableListOf(sequence.first())
@@ -172,8 +147,23 @@ class MapMatcher @Inject constructor(
             val curr = sequence[i]
             if (prev == curr || adj[prev]?.contains(curr) == true) {
                 result.add(curr)
+                continue
+            }
+            val connector = findConnectingPath(prev, curr, adj) ?: return null
+            val firstStep = connector.firstOrNull()
+            val isUTurn = firstStep != null &&
+                edges.getOrNull(firstStep)?.toNode == edges.getOrNull(prev)?.fromNode
+            if (isUTurn) {
+                result.removeLastOrNull() ?: return null
+                val newPrev = result.lastOrNull() ?: return null
+                if (newPrev == curr || adj[newPrev]?.contains(curr) == true) {
+                    result.add(curr)
+                } else {
+                    val retryConnector = findConnectingPath(newPrev, curr, adj) ?: return null
+                    result.addAll(retryConnector)
+                    result.add(curr)
+                }
             } else {
-                val connector = findConnectingPath(prev, curr, adj) ?: return null
                 result.addAll(connector)
                 result.add(curr)
             }

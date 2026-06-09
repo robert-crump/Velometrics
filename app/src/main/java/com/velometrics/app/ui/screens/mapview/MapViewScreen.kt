@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,7 +95,7 @@ fun MapViewScreen(
     val showPoiLayer by viewModel.showPoiLayer.collectAsState()
     val visiblePois by viewModel.visiblePois.collectAsState()
     val availablePoiCategories by viewModel.availablePoiCategories.collectAsState()
-    val selectedPoiCategories by viewModel.selectedPoiCategories.collectAsState()
+    val activePoiChip by viewModel.activePoiChip.collectAsState()
     val selectedPoi by viewModel.selectedPoi.collectAsState()
 
     val currentLocation by viewModel.currentLocation.collectAsState()
@@ -322,6 +323,31 @@ fun MapViewScreen(
                 }
             }
         )
+
+        // POI category chip row — horizontally scrollable, single-select
+        LazyRow(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
+                    onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
+                    label = { Text(MapViewViewModel.ALL_POIS_CHIP) }
+                )
+            }
+            items(availablePoiCategories) { category ->
+                FilterChip(
+                    selected = activePoiChip == category,
+                    onClick = { viewModel.selectPoiChip(category) },
+                    label = { Text(category) }
+                )
+            }
+        }
 
         // POI popup card
         selectedPoi?.let { poiWD ->

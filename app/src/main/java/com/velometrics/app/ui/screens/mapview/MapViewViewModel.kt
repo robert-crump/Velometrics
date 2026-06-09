@@ -42,6 +42,10 @@ class MapViewViewModel @Inject constructor(
     private val locationSource: LocationSource,
 ) : ViewModel() {
 
+    companion object {
+        const val ALL_POIS_CHIP = "All POIs"
+    }
+
     val allEdges: StateFlow<List<MapEdge>> = mapGraphRepository.getAllEdges()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -126,11 +130,8 @@ class MapViewViewModel @Inject constructor(
 
     private val _allPois = MutableStateFlow<List<Poi>>(emptyList())
 
-    private val _showPoiLayer = MutableStateFlow(false)
-    val showPoiLayer: StateFlow<Boolean> = _showPoiLayer.asStateFlow()
-
-    private val _selectedPoiCategories = MutableStateFlow<Set<String>>(emptySet())
-    val selectedPoiCategories: StateFlow<Set<String>> = _selectedPoiCategories.asStateFlow()
+    private val _activePoiChip = MutableStateFlow<String?>(null)
+    val activePoiChip: StateFlow<String?> = _activePoiChip.asStateFlow()
 
     private val _viewportBounds = MutableStateFlow<LatLngBounds?>(null)
 
@@ -142,30 +143,24 @@ class MapViewViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val visiblePois: StateFlow<List<Poi>> = combine(
-        _allPois, _viewportBounds, _selectedPoiCategories
-    ) { pois, bounds, categories ->
-        if (bounds == null || categories.isEmpty()) emptyList()
-        else pois.filter { poi ->
-            poi.category in categories && bounds.contains(LatLng(poi.lat, poi.lon))
-        }
+        _allPois, _viewportBounds, _activePoiChip
+    ) { pois, bounds, activeChip ->
+        if (bounds == null || activeChip == null) return@combine emptyList()
+        val filtered = if (activeChip == ALL_POIS_CHIP) pois else pois.filter { it.category == activeChip }
+        filtered.filter { bounds.contains(LatLng(it.lat, it.lon)) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun togglePoiLayer() {
-        val enabling = !_showPoiLayer.value
-        _showPoiLayer.value = enabling
-        if (enabling) {
-            viewModelScope.launch {
-                if (_allPois.value.isEmpty()) {
-                    _allPois.value = mapGraphRepository.getAllPois().first()
-                }
-                _selectedPoiCategories.value = _allPois.value.map { it.category }.toSet()
-            }
-        }
+    val showPoiLayer: StateFlow<Boolean> = _activePoiChip
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun selectPoiChip(chipLabel: String) {
+        _activePoiChip.value = if (_activePoiChip.value == chipLabel) null else chipLabel
     }
 
-    fun togglePoiCategory(category: String) {
-        _selectedPoiCategories.update { current ->
-            if (category in current) current - category else current + category
+    init {
+        viewModelScope.launch {
+            _allPois.value = mapGraphRepository.getAllPois().first()
         }
     }
 

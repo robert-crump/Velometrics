@@ -136,6 +136,26 @@ class MapViewViewModelTest {
 
         assertNull(vm.currentLocation.value)
     }
+
+    @Test
+    fun `selectPoiChip activates, switches, and deactivates on re-tap`() = runTest(testDispatcher) {
+        val vm = buildViewModel(FakeLocationSource())
+
+        assertNull(vm.activePoiChip.value)
+
+        vm.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
+        assertEquals(MapViewViewModel.ALL_POIS_CHIP, vm.activePoiChip.value)
+
+        // Re-tapping the active chip deactivates
+        vm.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
+        assertNull(vm.activePoiChip.value)
+
+        // Activating a category then switching to another
+        vm.selectPoiChip("Cafe")
+        assertEquals("Cafe", vm.activePoiChip.value)
+        vm.selectPoiChip("Park")
+        assertEquals("Park", vm.activePoiChip.value)
+    }
 }
 
 // ---------------------------------------------------------------------------

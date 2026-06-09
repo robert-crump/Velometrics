@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.GeoUtils
 import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -52,7 +53,11 @@ class MapMatcher @Inject constructor(
         val sequence = dedupeConsecutive(runs.map { it.edgeIdx })
         val repaired = repairGaps(sequence, adj)?.let(::dedupeConsecutive) ?: return null
 
-        return repaired.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
+        val pruned = pruneLeafEdges(repaired, edges, nodes, points.first(), points.last())
+        if (pruned.isEmpty()) return null
+        val finalSequence = repairGaps(pruned, adj)?.let(::dedupeConsecutive) ?: return null
+
+        return finalSequence.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
     }
 
     private fun buildAdjacency(edges: List<MapEdge>): Map<Int, List<Int>> {
@@ -171,6 +176,63 @@ class MapMatcher @Inject constructor(
         }
         return null
     }
+
+    /**
+     * Removes edges that are topological "leaves" — one endpoint connects to no other edge in the
+     * matched set, forming a dead-end branch. The nodes nearest to the GPS track's first and last
+     * points are protected so the interval's true start/end is never pruned. Runs iteratively
+     * until stable, then hands back to the caller for a BFS safety-net pass.
+     */
+    private fun pruneLeafEdges(
+        sequence: List<Int>,
+        edges: List<MapEdge>,
+        nodes: Map<Long, MapNode>,
+        startPoint: LatLng,
+        endPoint: LatLng
+    ): List<Int> {
+        if (sequence.size <= 1) return sequence
+
+        val degree = mutableMapOf<Long, Int>()
+        for (idx in sequence) {
+            val edge = edges[idx]
+            degree[edge.fromNode] = (degree[edge.fromNode] ?: 0) + 1
+            degree[edge.toNode] = (degree[edge.toNode] ?: 0) + 1
+        }
+
+        val matchedNodeIds = sequence.flatMapTo(mutableSetOf()) { idx ->
+            listOf(edges[idx].fromNode, edges[idx].toNode)
+        }
+        val protectedNodes = setOfNotNull(
+            nearestNodeId(startPoint, matchedNodeIds, nodes),
+            nearestNodeId(endPoint, matchedNodeIds, nodes)
+        )
+
+        val kept = sequence.toMutableList()
+        var changed = true
+        while (changed) {
+            changed = false
+            val iter = kept.iterator()
+            while (iter.hasNext()) {
+                val idx = iter.next()
+                val edge = edges[idx]
+                val fromLeaf = (degree[edge.fromNode] ?: 0) == 1 && edge.fromNode !in protectedNodes
+                val toLeaf = (degree[edge.toNode] ?: 0) == 1 && edge.toNode !in protectedNodes
+                if (fromLeaf || toLeaf) {
+                    iter.remove()
+                    degree[edge.fromNode] = maxOf(0, (degree[edge.fromNode] ?: 0) - 1)
+                    degree[edge.toNode] = maxOf(0, (degree[edge.toNode] ?: 0) - 1)
+                    changed = true
+                }
+            }
+        }
+        return kept
+    }
+
+    private fun nearestNodeId(point: LatLng, nodeIds: Set<Long>, nodes: Map<Long, MapNode>): Long? =
+        nodeIds
+            .mapNotNull { id -> nodes[id]?.let { node -> id to GeoUtils.haversineDistance(point.latitude, point.longitude, node.lat, node.lon) } }
+            .minByOrNull { it.second }
+            ?.first
 
     private fun reconstructIntermediates(to: Int, from: Int, cameFrom: Map<Int, Int>): List<Int> {
         val path = mutableListOf<Int>()

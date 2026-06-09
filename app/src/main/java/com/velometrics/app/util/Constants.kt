@@ -167,7 +167,7 @@ object CyclingConstants {
     const val EDGE_STATS_MAX_BEARING_DIFF_DEG = 90.0
 
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
-    const val INTERVAL_EDGE_SNAP_RADIUS_M = 30.0
+    const val INTERVAL_EDGE_SNAP_RADIUS_M = 15.0
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
     const val INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS = 1
 

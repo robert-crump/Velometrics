@@ -261,3 +261,28 @@ Completed: 2026-06-09 | Closed: pending
   - Toggle `checked` state is derived from `gpxTrack != null` (source of truth in ViewModel)
 
 **No changes to `MapViewViewModel`** — POI state kept dormant for next slice.
+
+## Issue #37 — Map tab: add horizontal POI category chips row
+Completed: 2026-06-09 | Closed: 2026-06-09
+
+### What was done
+
+**`MapViewViewModel` POI state refactor**
+- Replaced `_showPoiLayer`/`_selectedPoiCategories`/`togglePoiLayer()`/`togglePoiCategory()` with a
+  single `_activePoiChip: MutableStateFlow<String?>`
+- `activePoiChip` is null (no POIs), `ALL_POIS_CHIP = "All POIs"` (all categories), or a specific
+  category string; `showPoiLayer` is a derived `StateFlow<Boolean>` from `activePoiChip != null`
+- `visiblePois` now combines with `_activePoiChip` instead of `_selectedPoiCategories`; when
+  `ALL_POIS_CHIP` is active all categories pass, otherwise only the matching category
+- `selectPoiChip(chipLabel)`: tapping active chip → null (deactivate); tapping other chip → switch
+- `init` block loads all POIs eagerly via `mapGraphRepository.getAllPois().first()` so
+  `availablePoiCategories` is populated before the user taps any chip
+
+**`MapViewScreen` chip row**
+- Added `LazyRow` of `FilterChip`s overlaid at `Alignment.TopStart` with `statusBarsPadding()` —
+  sits below the status bar, does not overlap FABs at bottom-right
+- "All POIs" chip always first; remaining chips sorted alphabetically from `availablePoiCategories`
+- POI tap → popup card, viewport-filtered rendering, and cluster expand behaviour unchanged
+
+### Tests
+All unit tests pass (138 total; +1 `selectPoiChip activates, switches, and deactivates on re-tap`).

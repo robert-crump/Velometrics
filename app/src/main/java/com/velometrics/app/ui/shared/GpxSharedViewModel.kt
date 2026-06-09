@@ -47,6 +47,9 @@ class GpxSharedViewModel @Inject constructor(
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    private val _selectedPoiItem = MutableStateFlow<GpxPoiItem?>(null)
+    val selectedPoiItem: StateFlow<GpxPoiItem?> = _selectedPoiItem.asStateFlow()
+
     private var cachedTrack: List<LatLng> = emptyList()
     private var poiPerpDistances: Map<String, Double> = emptyMap()
 
@@ -54,8 +57,16 @@ class GpxSharedViewModel @Inject constructor(
         computePoiItems(pois, userLoc)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val gpxSegmentPoints: StateFlow<List<LatLng>> = combine(_selectedPoiItem, _userLocation) { item, userLoc ->
+        computeSegmentPoints(item, userLoc)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     fun updateUserLocation(location: LatLng?) {
         _userLocation.value = location
+    }
+
+    fun selectPoi(item: GpxPoiItem?) {
+        _selectedPoiItem.value = item
     }
 
     fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver) {
@@ -74,6 +85,7 @@ class GpxSharedViewModel @Inject constructor(
     fun clearGpx() {
         _gpxTrack.value = null
         _gpxPois.value = emptyList()
+        _selectedPoiItem.value = null
         cachedTrack = emptyList()
         poiPerpDistances = emptyMap()
     }
@@ -130,6 +142,26 @@ class GpxSharedViewModel @Inject constructor(
             }
         }
     }
+
+    private fun computeSegmentPoints(item: GpxPoiItem?, userLoc: LatLng?): List<LatLng> {
+        if (item == null) return emptyList()
+        val track = cachedTrack
+        if (track.size < 2) return emptyList()
+        val refPoint = userLoc ?: track.first()
+        val userIdx = nearestPointIndex(track, refPoint)
+        val poiIdx = nearestPointIndex(track, LatLng(item.poiWD.poi.lat, item.poiWD.poi.lon))
+        val from = minOf(userIdx, poiIdx)
+        val to = maxOf(userIdx, poiIdx)
+        return if (from == to) listOf(track[from]) else track.subList(from, to + 1)
+    }
+
+    private fun nearestPointIndex(track: List<LatLng>, point: LatLng): Int =
+        track.indices.minByOrNull {
+            GeoUtils.haversineDistance(
+                track[it].latitude, track[it].longitude,
+                point.latitude, point.longitude
+            )
+        } ?: 0
 
     companion object {
         private const val CORRIDOR_M = 200.0

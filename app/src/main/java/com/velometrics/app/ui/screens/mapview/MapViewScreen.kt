@@ -8,18 +8,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -41,6 +46,7 @@ import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
+import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
@@ -69,6 +75,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
 
 private const val GPX_TRACK_LAYER_ID = "gpx-shared-track"
+private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,6 +122,8 @@ fun MapViewScreen(
     val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
     val gpxPoiItems by gpxSharedViewModel.gpxPoiItems.collectAsState()
     val locationAvailable by gpxSharedViewModel.locationAvailable.collectAsState()
+    val selectedPoiItem by gpxSharedViewModel.selectedPoiItem.collectAsState()
+    val gpxSegmentPoints by gpxSharedViewModel.gpxSegmentPoints.collectAsState()
 
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -138,7 +147,17 @@ fun MapViewScreen(
     var showBottomSheet by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
+    var gpxSegmentRendered by remember { mutableStateOf(false) }
     var fineLocationZoomedIn by remember { mutableStateOf(false) }
+
+    val gpxPoisListState = rememberLazyListState()
+
+    val peekHeightDp = (LocalConfiguration.current.screenHeightDp * 0.10f).dp
+    val gpxBottomSheetState = rememberStandardBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        skipHiddenState = false
+    )
+    val gpxScaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = gpxBottomSheetState)
 
     // Render user location marker; re-center once a fine fix (accuracy ≤ 50 m) is obtained
     LaunchedEffect(currentLocation, locationAccuracy, mapAndStyle) {
@@ -234,6 +253,51 @@ fun MapViewScreen(
         ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 500)
     }
 
+    // Orange segment highlight sync
+    LaunchedEffect(gpxSegmentPoints, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        if (gpxSegmentRendered) {
+            try { MapTrackRenderer.removeTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID) } catch (_: Exception) {}
+            gpxSegmentRendered = false
+        }
+        if (gpxSegmentPoints.size >= 2) {
+            MapTrackRenderer.addTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID, gpxSegmentPoints, FAST_WAY_HOME_TRACK_COLOR, NAV_TRACK_WIDTH)
+            gpxSegmentRendered = true
+        }
+    }
+
+    // Camera fit when a POI is selected
+    LaunchedEffect(selectedPoiItem, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val item = selectedPoiItem ?: return@LaunchedEffect
+        val refLoc = currentLocation ?: gpxTrack?.points?.firstOrNull() ?: return@LaunchedEffect
+        val poiLoc = LatLng(item.poiWD.poi.lat, item.poiWD.poi.lon)
+        val bounds = LatLngBounds.Builder().include(refLoc).include(poiLoc).build()
+        ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 800)
+    }
+
+    // GPX POIs sheet scaffold state control
+    LaunchedEffect(showGpxPoisSheet, selectedPoiItem) {
+        when {
+            !showGpxPoisSheet -> gpxBottomSheetState.hide()
+            selectedPoiItem != null -> gpxBottomSheetState.partialExpand()
+            else -> gpxBottomSheetState.expand()
+        }
+    }
+
+    // Detect sheet state changes driven by user gestures
+    val gpxSheetValue by remember { derivedStateOf { gpxBottomSheetState.currentValue } }
+    LaunchedEffect(gpxSheetValue) {
+        when (gpxSheetValue) {
+            SheetValue.Hidden -> if (showGpxPoisSheet) {
+                showGpxPoisSheet = false
+                gpxSharedViewModel.selectPoi(null)
+            }
+            SheetValue.Expanded -> gpxSharedViewModel.selectPoi(null)
+            else -> {}
+        }
+    }
+
     // POI layer sync
     LaunchedEffect(showPoiLayer, visiblePois, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
@@ -323,6 +387,26 @@ fun MapViewScreen(
         }
     }
 
+    BottomSheetScaffold(
+        scaffoldState = gpxScaffoldState,
+        sheetPeekHeight = peekHeightDp,
+        sheetContainerColor = MaterialTheme.colorScheme.surface,
+        sheetContent = {
+            if (showGpxPoisSheet) {
+                GpxPoisSheetContent(
+                    poiItems = gpxPoiItems,
+                    isLoading = isLoadingPois,
+                    locationAvailable = locationAvailable,
+                    lazyListState = gpxPoisListState,
+                    onPoiSelected = { item ->
+                        gpxSharedViewModel.selectPoi(item)
+                    },
+                    context = context
+                )
+            }
+        },
+        containerColor = Color.Transparent
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Full-screen map
         ComposableMapView(
@@ -415,6 +499,7 @@ fun MapViewScreen(
             }
         }
     }
+    } // BottomSheetScaffold content
 
     // Bottom sheet (layers)
     if (showBottomSheet) {
@@ -548,16 +633,6 @@ fun MapViewScreen(
         )
     }
 
-    // POIs along GPX bottom sheet
-    if (showGpxPoisSheet) {
-        GpxPoisSheet(
-            poiItems = gpxPoiItems,
-            isLoading = isLoadingPois,
-            locationAvailable = locationAvailable,
-            onDismiss = { showGpxPoisSheet = false },
-            context = context
-        )
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -641,13 +716,13 @@ private fun PrototypeGroupSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GpxPoisSheet(
+private fun GpxPoisSheetContent(
     poiItems: List<GpxPoiItem>,
     isLoading: Boolean,
     locationAvailable: Boolean,
-    onDismiss: () -> Unit,
+    lazyListState: LazyListState,
+    onPoiSelected: (GpxPoiItem) -> Unit,
     context: android.content.Context
 ) {
     var includePassed by remember { mutableStateOf(false) }
@@ -655,84 +730,85 @@ private fun GpxPoisSheet(
     val aheadItems = remember(poiItems) { poiItems.filter { it.isAhead }.sortedBy { it.distanceM } }
     val behindItems = remember(poiItems) { poiItems.filter { !it.isAhead }.sortedBy { it.distanceM } }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            text = "POIs along .gpx",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "POIs along .gpx",
-                style = MaterialTheme.typography.titleMedium
+                text = "Include POIs you have passed",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Include POIs you have passed",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = includePassed,
-                    onCheckedChange = { includePassed = it }
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            when {
-                isLoading -> Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-                else -> LazyColumn {
-                    if (!locationAvailable) {
-                        item {
-                            Text(
-                                text = "Your location could not be determined. Distances are measured from the GPX starting point.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                        }
-                    }
-                    if (aheadItems.isEmpty() && !isLoading) {
-                        item {
-                            Text(
-                                text = "No POIs found along this track",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 32.dp)
-                            )
-                        }
-                    } else {
-                        items(aheadItems, key = { it.poiWD.poi.poiId }) { item ->
-                            GpxPoiRow(item = item, isBehind = false, context = context)
-                        }
-                    }
-                    if (includePassed && behindItems.isNotEmpty()) {
-                        items(behindItems, key = { "behind_${it.poiWD.poi.poiId}" }) { item ->
-                            GpxPoiRow(item = item, isBehind = true, context = context)
-                        }
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
+            Switch(
+                checked = includePassed,
+                onCheckedChange = { includePassed = it }
+            )
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        when {
+            isLoading -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            else -> LazyColumn(state = lazyListState) {
+                if (!locationAvailable) {
+                    item {
+                        Text(
+                            text = "Your location could not be determined. Distances are measured from the GPX starting point.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                }
+                if (aheadItems.isEmpty() && !isLoading) {
+                    item {
+                        Text(
+                            text = "No POIs found along this track",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 32.dp)
+                        )
+                    }
+                } else {
+                    items(aheadItems, key = { it.poiWD.poi.poiId }) { item ->
+                        GpxPoiRow(item = item, isBehind = false, context = context, onClick = { onPoiSelected(item) })
+                    }
+                }
+                if (includePassed && behindItems.isNotEmpty()) {
+                    items(behindItems, key = { "behind_${it.poiWD.poi.poiId}" }) { item ->
+                        GpxPoiRow(item = item, isBehind = true, context = context, onClick = { onPoiSelected(item) })
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
 @Composable
-private fun GpxPoiRow(item: GpxPoiItem, isBehind: Boolean, context: android.content.Context) {
+private fun GpxPoiRow(
+    item: GpxPoiItem,
+    isBehind: Boolean,
+    context: android.content.Context,
+    onClick: () -> Unit = {}
+) {
     val poiWD = item.poiWD
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

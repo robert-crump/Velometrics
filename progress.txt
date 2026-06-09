@@ -1,3 +1,41 @@
+## Issue #40 — Map tab: POI tap collapses sheet, refocuses map, highlights GPX segment
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**`GpxSharedViewModel` additions** (`ui/shared/GpxSharedViewModel.kt`)
+- `_selectedPoiItem: MutableStateFlow<GpxPoiItem?>` + `val selectedPoiItem: StateFlow<GpxPoiItem?>` — tracks
+  which POI the user has tapped in the sheet
+- `fun selectPoi(item: GpxPoiItem?)` — set by `MapViewScreen` when a row is tapped or when the sheet
+  expands back to full height
+- `val gpxSegmentPoints: StateFlow<List<LatLng>>` — derived via `combine(_selectedPoiItem, _userLocation)`;
+  calls `computeSegmentPoints` which finds the nearest track-point index for the user reference position
+  (current location or track start) and for the POI, then returns `track.subList(from, to + 1)`
+- `clearGpx()` now also resets `_selectedPoiItem` so the orange segment is removed when the GPX track is
+  cleared
+- Private helper `nearestPointIndex(track, point)` — `minByOrNull { haversineDistance }` over indices
+
+**`MapViewScreen` changes** (`ui/screens/mapview/MapViewScreen.kt`)
+- Replaced the `ModalBottomSheet` for the GPX POIs list with a `BottomSheetScaffold` (always rendered,
+  initially `Hidden`) so that `sheetPeekHeight` = 10% of screen height is fully controllable
+- When `showGpxPoisSheet` becomes true → `gpxBottomSheetState.expand()` (full list visible)
+- When a POI row is tapped → `gpxSharedViewModel.selectPoi(item)` + `gpxBottomSheetState.partialExpand()`
+  (sheet collapses to 10% peek, showing only the drag handle)
+- `LaunchedEffect(gpxSheetValue)` watches for user-driven state changes:
+  - `Hidden` → clears `showGpxPoisSheet` and deselects POI (user swiped sheet away)
+  - `Expanded` → clears `selectedPoiItem` (user swiped sheet back up, removing orange segment)
+- Orange segment rendering: `LaunchedEffect(gpxSegmentPoints, mapAndStyle)` adds/removes
+  `GPX_SEGMENT_HIGHLIGHT_ID` track layer using `FAST_WAY_HOME_TRACK_COLOR` (#FF6F00); the original
+  `GPX_TRACK_LAYER_ID` layer is untouched
+- Camera fit: `LaunchedEffect(selectedPoiItem, mapAndStyle)` fits bounds around the reference location
+  (current GPS fix or first GPX point) and the selected POI
+- `rememberLazyListState()` passed into `GpxPoisSheetContent` so scroll position survives POI selection
+  and sheet collapse/expand cycles
+- `GpxPoiRow` gains an `onClick: () -> Unit` parameter; each row triggers `onPoiSelected`
+
+### Tests
+All 138 unit tests pass (no new logic to unit-test; behaviour is pure UI/state wiring in ViewModel flows).
+
 ## Issue #25 — RepeatedInterval: clustering, persistence, and management screen
 Completed: 2026-06-08 | Closed: 2026-06-08
 

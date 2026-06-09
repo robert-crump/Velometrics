@@ -174,3 +174,24 @@ selection state)
 
 ### Tests
 All unit tests pass.
+
+## Issue #34 — Create Activity-scoped GpxSharedViewModel as GPX state foundation
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**`GpxSharedViewModel` (`ui/shared/GpxSharedViewModel.kt`)**
+- New `@HiltViewModel` scoped to the Activity (injectable via `hiltViewModel()` with the
+  Activity's `ViewModelStoreOwner`) so GPX state survives tab switching within a session but
+  does not persist across app kills
+- Exposes `gpxTrack: StateFlow<GpxTrack?>`, `gpxPois: StateFlow<List<PoiWithDistances>>`,
+  and `isLoadingPois: StateFlow<Boolean>`
+- `loadGpxFromUri(uri, contentResolver)` — parses the GPX on `Dispatchers.IO` via `GpxParser`,
+  sets `_gpxTrack`, then immediately calls `fetchPoisForTrack()`
+- `clearGpx()` — resets both `_gpxTrack` and `_gpxPois` to null/empty
+- `fetchPoisForTrack(track)` — private; uses the same corridor-filter (200 m) and projection
+  logic as `NavigationViewModel.doFetchAllTrackPois()`: queries `MapGraphRepository.getAllPois()`,
+  filters each POI by perpendicular distance to track, projects the remainder onto the track
+  geometry, and sorts by `trackDistanceM` from track start. Computes distances from the track's
+  first point (eager load, no GPS fix required).
+- No UI changes — purely ViewModel/domain layer per the issue scope.

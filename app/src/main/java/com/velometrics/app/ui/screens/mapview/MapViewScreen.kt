@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapIntervalRenderer
@@ -37,6 +38,7 @@ import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.shared.GpxSharedViewModel
 import com.velometrics.app.util.FormatUtils
+import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
@@ -111,9 +113,15 @@ fun MapViewScreen(
     val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
     val gpxPois by gpxSharedViewModel.gpxPois.collectAsState()
     val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
+    val gpxPoiItems by gpxSharedViewModel.gpxPoiItems.collectAsState()
+    val locationAvailable by gpxSharedViewModel.locationAvailable.collectAsState()
 
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    LaunchedEffect(currentLocation) {
+        gpxSharedViewModel.updateUserLocation(currentLocation)
     }
 
     val context = LocalContext.current
@@ -543,8 +551,9 @@ fun MapViewScreen(
     // POIs along GPX bottom sheet
     if (showGpxPoisSheet) {
         GpxPoisSheet(
-            pois = gpxPois,
+            poiItems = gpxPoiItems,
             isLoading = isLoadingPois,
+            locationAvailable = locationAvailable,
             onDismiss = { showGpxPoisSheet = false },
             context = context
         )
@@ -635,21 +644,43 @@ private fun PrototypeGroupSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GpxPoisSheet(
-    pois: List<com.velometrics.app.domain.model.PoiWithDistances>,
+    poiItems: List<GpxPoiItem>,
     isLoading: Boolean,
+    locationAvailable: Boolean,
     onDismiss: () -> Unit,
     context: android.content.Context
 ) {
+    var includePassed by remember { mutableStateOf(false) }
+
+    val aheadItems = remember(poiItems) { poiItems.filter { it.isAhead }.sortedBy { it.distanceM } }
+    val behindItems = remember(poiItems) { poiItems.filter { !it.isAhead }.sortedBy { it.distanceM } }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState()
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
                 text = "POIs along .gpx",
                 style = MaterialTheme.typography.titleMedium
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Include POIs you have passed",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = includePassed,
+                    onCheckedChange = { includePassed = it }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             when {
                 isLoading -> Box(
                     modifier = Modifier
@@ -659,52 +690,109 @@ private fun GpxPoisSheet(
                 ) {
                     CircularProgressIndicator()
                 }
-                pois.isEmpty() -> Text(
-                    text = "No POIs found along this track",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 32.dp)
-                )
-                else -> LazyColumn(modifier = Modifier.heightIn(max = 500.dp)) {
-                    items(pois, key = { it.poi.poiId }) { poiWD ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = poiWD.poi.name.ifEmpty { "Unnamed" },
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                                Text(
-                                    text = com.velometrics.app.util.FormatUtils.categoryDisplayName(poiWD.poi.category),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                poiWD.trackDistanceM?.let { m ->
-                                    Text(
-                                        text = "${com.velometrics.app.util.FormatUtils.formatPoiDistance(m)} along track",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { openPoiInGoogleMaps(context, poiWD) }) {
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Open in Google Maps",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                else -> LazyColumn {
+                    if (!locationAvailable) {
+                        item {
+                            Text(
+                                text = "Your location could not be determined. Distances are measured from the GPX starting point.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
                         }
-                        HorizontalDivider()
+                    }
+                    if (aheadItems.isEmpty() && !isLoading) {
+                        item {
+                            Text(
+                                text = "No POIs found along this track",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 32.dp)
+                            )
+                        }
+                    } else {
+                        items(aheadItems, key = { it.poiWD.poi.poiId }) { item ->
+                            GpxPoiRow(item = item, isBehind = false, context = context)
+                        }
+                    }
+                    if (includePassed && behindItems.isNotEmpty()) {
+                        items(behindItems, key = { "behind_${it.poiWD.poi.poiId}" }) { item ->
+                            GpxPoiRow(item = item, isBehind = true, context = context)
+                        }
                     }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable
+private fun GpxPoiRow(item: GpxPoiItem, isBehind: Boolean, context: android.content.Context) {
+    val poiWD = item.poiWD
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = poiWD.poi.name.ifEmpty { "Unnamed" },
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                OpenClosedBadge(poiWD.poi.openingHours)
+            }
+            Text(
+                text = FormatUtils.categoryDisplayName(poiWD.poi.category),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = FormatUtils.formatGpxPoiDistance(item.distanceM),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (isBehind) {
+                Text(
+                    text = "Behind you",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        IconButton(onClick = { openPoiInGoogleMaps(context, poiWD) }) {
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = "Open in Google Maps",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+    HorizontalDivider()
+}
+
+@Composable
+private fun OpenClosedBadge(openingHours: String?) {
+    if (openingHours == null) return
+    val isOpen = OpeningHoursUtils.isOpenNow(openingHours) ?: return
+    val badgeColor = if (isOpen) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+    val label = if (isOpen) "Open" else "Closed"
+    Surface(
+        color = badgeColor.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = label,
+            color = badgeColor,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 

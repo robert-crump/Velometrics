@@ -112,4 +112,14 @@ object FormatUtils {
             "${"%.1f".format(km).replace('.', ',')} km"
         }
     }
+
+    // Formats a GPX POI distance: < 1 km → nearest 10 m; ≥ 1 km → nearest full km (e.g. "3 km")
+    fun formatGpxPoiDistance(m: Double): String {
+        return if (m < 1000.0) {
+            val rounded = ((m / 10.0).roundToInt() * 10).coerceAtLeast(10)
+            "$rounded m"
+        } else {
+            "${(m / 1000.0).roundToInt()} km"
+        }
+    }
 }

@@ -262,6 +262,50 @@ Completed: 2026-06-09 | Closed: pending
 
 **No changes to `MapViewViewModel`** — POI state kept dormant for next slice.
 
+## Issue #39 — Map tab: 'POIs along .gpx' bottom sheet list
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**`GpxPoiItem` domain model** (`domain/model/GpxPoiItem.kt`)
+- New `data class GpxPoiItem(poiWD: PoiWithDistances, distanceM: Double, isAhead: Boolean)`
+  representing a single POI entry in the user-relative sheet list
+
+**`GpxSharedViewModel` additions** (`ui/shared/GpxSharedViewModel.kt`)
+- `_userLocation: MutableStateFlow<LatLng?>` + `fun updateUserLocation(location: LatLng?)`
+  — receives location pushes from `MapViewScreen`'s `LaunchedEffect(currentLocation)`
+- `val locationAvailable: StateFlow<Boolean>` — derived from `_userLocation != null`; drives the
+  "no location" notice in the sheet
+- `private var poiPerpDistances: Map<String, Double>` — stores each POI's perpendicular distance
+  from the track (Part 3 of the 3-part formula), populated alongside `_gpxPois` during
+  `fetchPoisForTrack`
+- `val gpxPoiItems: StateFlow<List<GpxPoiItem>>` — `combine(_gpxPois, _userLocation)` → `computePoiItems`:
+  - Projects user location onto track → `userTrackDistM`
+  - For each POI: `totalDist = perpDistUser + |poiTrackDistM − userTrackDistM| + perpDistPoi`
+  - `isAhead = poiTrackDistM >= userTrackDistM`
+  - Fallback (no location): user position treated as track start → all POIs are "ahead", `perpDistUser = 0`
+- `clearGpx()` also resets `cachedTrack` and `poiPerpDistances`
+
+**`FormatUtils.formatGpxPoiDistance`** — new format function: < 1 km → nearest 10 m;
+≥ 1 km → nearest full km (e.g. "3 km")
+
+**`MapViewScreen` changes**
+- `LaunchedEffect(currentLocation)` → `gpxSharedViewModel.updateUserLocation(currentLocation)`
+  wires live GPS fixes into the ViewModel
+- Collects `gpxPoiItems` and `locationAvailable` from `GpxSharedViewModel`
+- `GpxPoisSheet` composable fully replaced:
+  - `rememberModalBottomSheetState(skipPartiallyExpanded = true)` → opens full-screen
+  - Header row: "Include POIs you have passed" label + `Switch` (off by default)
+  - Location-unavailable notice shown when `!locationAvailable`
+  - `LazyColumn` of ahead POIs (sorted closest first); behind POIs appended when toggle on
+  - Each row via new `GpxPoiRow` composable: name + `OpenClosedBadge`, category, formatted
+    distance, "Behind you" label (when behind), Open in Maps button
+- New `OpenClosedBadge` composable: calls `OpeningHoursUtils.isOpenNow`; renders a colour-tinted
+  pill ("Open" green / "Closed" error); omitted when `openingHours == null` or format unrecognised
+
+### Tests
+All 138 unit tests pass (no new logic to unit-test beyond pure ViewModel state wiring).
+
 ## Issue #38 — Map tab: show 'Show POIs along .gpx' chip when track is loaded
 Completed: 2026-06-09 | Closed: 2026-06-09
 

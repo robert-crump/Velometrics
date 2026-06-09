@@ -46,7 +46,8 @@ class MapMatcher @Inject constructor(
 
         spatialIndex.rebuildIndex(edges, nodes)
 
-        val snapped = snapPoints(points)
+        val headings = computeGpsHeadings(points)
+        val snapped = snapPoints(points, headings, edges, nodes)
         val runs = dropIsolatedOutliers(collapseConsecutive(snapped), adj)
         if (runs.isEmpty()) return null
 
@@ -73,10 +74,38 @@ class MapMatcher @Inject constructor(
         return adj
     }
 
-    private suspend fun snapPoints(points: List<LatLng>): List<Int?> = points.map { point ->
-        spatialIndex.queryEdgesNear(point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M)
-            .firstOrNull()
-            ?.edgeKey?.toInt()
+    private fun computeGpsHeadings(points: List<LatLng>): List<Double?> =
+        points.mapIndexed { i, _ ->
+            val from = points[maxOf(0, i - 1)]
+            val to = points[minOf(points.lastIndex, i + 1)]
+            val dist = GeoUtils.haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude)
+            if (dist < 3.0) null
+            else GeoUtils.computeBearing(from.latitude, from.longitude, to.latitude, to.longitude)
+        }
+
+    private suspend fun snapPoints(
+        points: List<LatLng>,
+        headings: List<Double?>,
+        edges: List<MapEdge>,
+        nodes: Map<Long, MapNode>
+    ): List<Int?> = points.mapIndexed { i, point ->
+        val candidates = spatialIndex.queryEdgesNear(
+            point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
+        )
+        val heading = headings[i]
+        if (heading == null) {
+            candidates.firstOrNull()?.edgeKey?.toInt()
+        } else {
+            candidates.firstOrNull { candidate ->
+                val edge = edges.getOrNull(candidate.edgeKey.toInt()) ?: return@firstOrNull false
+                val fromNode = nodes[edge.fromNode] ?: return@firstOrNull false
+                val toNode = nodes[edge.toNode] ?: return@firstOrNull false
+                val edgeBearing = GeoUtils.computeBearing(
+                    fromNode.lat, fromNode.lon, toNode.lat, toNode.lon
+                )
+                GeoUtils.angleDifference(heading, edgeBearing) <= CyclingConstants.INTERVAL_SNAP_BEARING_MAX_DIFF_DEG
+            }?.edgeKey?.toInt()
+        }
     }
 
     private fun collapseConsecutive(snapped: List<Int?>): List<Run> {

@@ -170,6 +170,10 @@ object CyclingConstants {
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
     const val INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS = 1
+    // Max bearing difference between GPS heading and edge direction for a snap to be accepted.
+    // Candidates that exceed this are skipped; if none qualify the point becomes a null snap
+    // (gap repaired by BFS) rather than snapping to a perpendicular side street.
+    const val INTERVAL_SNAP_BEARING_MAX_DIFF_DEG = 45.0
 
     // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
     const val INTERVAL_LENGTH_TOLERANCE_M = 100.0

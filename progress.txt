@@ -1,3 +1,15 @@
+## Issue #31 — Repeated Routes and Repeated Intervals loading slowly
+Completed: 2026-06-09 | Closed: pending
+
+### What was done
+
+**Root cause**: `RepeatedRoutesCache` and `RepeatedIntervalsCache` are `@Singleton` classes with `SharingStarted.Eagerly`, but Hilt instantiates `@Singleton` components lazily — collection never started until the first `RepeatedRoutesViewModel` was created (i.e. when the user tapped the Routes tab). At that point the upstream DB flows (2 flows for routes, 3 flows for intervals) had to run cold, causing the ~2-second blank screen.
+
+**Fix**: Injected both caches into `VelometricsApplication` via `@Inject lateinit var`. Hilt satisfies field injection during `Application.onCreate()`, so both singletons are created at app startup. Their `SharingStarted.Eagerly` collection then begins immediately, and data is ready (or nearly ready) by the time the user navigates to the tab — eliminating the blank delay without any UI shimmer changes.
+
+### Tests
+All unit tests pass (unchanged count).
+
 ## Issue #40 — Map tab: POI tap collapses sheet, refocuses map, highlights GPX segment
 Completed: 2026-06-09 | Closed: pending
 

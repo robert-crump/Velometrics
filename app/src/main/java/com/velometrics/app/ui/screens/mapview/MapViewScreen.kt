@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.IntervalSession
@@ -107,6 +109,8 @@ fun MapViewScreen(
     }
 
     val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
+    val gpxPois by gpxSharedViewModel.gpxPois.collectAsState()
+    val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
 
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -115,6 +119,7 @@ fun MapViewScreen(
     val context = LocalContext.current
 
     var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
+    var showGpxPoisSheet by remember { mutableStateOf(false) }
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -324,28 +329,43 @@ fun MapViewScreen(
             }
         )
 
-        // POI category chip row — horizontally scrollable, single-select
-        LazyRow(
+        // Chip rows stacked at top of map
+        Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp)
         ) {
-            item {
-                FilterChip(
-                    selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
-                    onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
-                    label = { Text(MapViewViewModel.ALL_POIS_CHIP) }
-                )
+            // POI category chip row — horizontally scrollable, single-select
+            LazyRow(
+                modifier = Modifier.padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
+                        onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
+                        label = { Text(MapViewViewModel.ALL_POIS_CHIP) }
+                    )
+                }
+                items(availablePoiCategories) { category ->
+                    FilterChip(
+                        selected = activePoiChip == category,
+                        onClick = { viewModel.selectPoiChip(category) },
+                        label = { Text(category) }
+                    )
+                }
             }
-            items(availablePoiCategories) { category ->
-                FilterChip(
-                    selected = activePoiChip == category,
-                    onClick = { viewModel.selectPoiChip(category) },
-                    label = { Text(category) }
-                )
+
+            // GPX POI chip — only visible when a track is loaded
+            if (gpxTrack != null) {
+                Row(modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { showGpxPoisSheet = true },
+                        label = { Text("Show POIs along .gpx") }
+                    )
+                }
             }
         }
 
@@ -519,6 +539,16 @@ fun MapViewScreen(
             onDismiss = { viewModel.clearSelection() }
         )
     }
+
+    // POIs along GPX bottom sheet
+    if (showGpxPoisSheet) {
+        GpxPoisSheet(
+            pois = gpxPois,
+            isLoading = isLoadingPois,
+            onDismiss = { showGpxPoisSheet = false },
+            context = context
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -597,6 +627,82 @@ private fun PrototypeGroupSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GpxPoisSheet(
+    pois: List<com.velometrics.app.domain.model.PoiWithDistances>,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    context: android.content.Context
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Text(
+                text = "POIs along .gpx",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            when {
+                isLoading -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+                pois.isEmpty() -> Text(
+                    text = "No POIs found along this track",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 32.dp)
+                )
+                else -> LazyColumn(modifier = Modifier.heightIn(max = 500.dp)) {
+                    items(pois, key = { it.poi.poiId }) { poiWD ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = poiWD.poi.name.ifEmpty { "Unnamed" },
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = com.velometrics.app.util.FormatUtils.categoryDisplayName(poiWD.poi.category),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                poiWD.trackDistanceM?.let { m ->
+                                    Text(
+                                        text = "${com.velometrics.app.util.FormatUtils.formatPoiDistance(m)} along track",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { openPoiInGoogleMaps(context, poiWD) }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "Open in Google Maps",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(16.dp))
         }
     }

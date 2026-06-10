@@ -1,6 +1,5 @@
 ﻿package com.velometrics.app.data.local.entity
 
-import android.util.Log
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import com.velometrics.app.domain.model.MapEdge
@@ -36,30 +35,14 @@ private data class EdgeMetadataJson(
     @SerializedName("slope_percent") val slopePercent: Double?,
     @SerializedName("traversal_count") val traversalCount: Int?,
     @SerializedName("last_traversal") val lastTraversal: String?,
-    @SerializedName("time_of_day_dist") val timeOfDayDist: List<Int>?,
-    @SerializedName("stop_count") val stopCount: Int?,
-    @SerializedName("avg_stop_duration_s") val avgStopDurationS: Double?,
-    @SerializedName("stop_probability") val stopProbability: Double?,
-    @SerializedName("estimated_stop_time_s") val estimatedStopTimeS: Double?
+    @SerializedName("time_of_day_dist") val timeOfDayDist: List<Int>?
 )
 
 private val gson = Gson()
 
-private var stopLogCount = 0
-private var sampleLogCount = 0
-
 fun MapEdgeEntity.toDomain(): MapEdge {
     val meta = metadata?.let {
-        if (it.contains("stop_probability") && stopLogCount < 3) {
-            stopLogCount++
-            Log.d("StopSpots", "raw metadata[$stopLogCount]: $it")
-        }
-        if (isTraversed && sampleLogCount < 1) {
-            sampleLogCount++
-            Log.d("StopSpots", "sample traversed metadata: $it")
-        }
-        try { gson.fromJson(it, EdgeMetadataJson::class.java) } catch (e: Exception) {
-            Log.d("StopSpots", "parse error for metadata: $it", e)
+        try { gson.fromJson(it, EdgeMetadataJson::class.java) } catch (_: Exception) {
             null
         }
     }
@@ -86,10 +69,6 @@ fun MapEdgeEntity.toDomain(): MapEdge {
         slopePercent = meta?.slopePercent,
         traversalCount = meta?.traversalCount,
         lastTraversal = meta?.lastTraversal,
-        timeOfDayDist = meta?.timeOfDayDist,
-        stopCount = meta?.stopCount,
-        avgStopDurationS = meta?.avgStopDurationS,
-        stopProbability = meta?.stopProbability,
-        estimatedStopTimeS = meta?.estimatedStopTimeS
+        timeOfDayDist = meta?.timeOfDayDist
     )
 }

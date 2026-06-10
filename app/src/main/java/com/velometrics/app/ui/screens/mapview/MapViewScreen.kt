@@ -1,11 +1,13 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
 import android.Manifest
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -15,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
@@ -32,7 +35,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.R
 import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
@@ -40,6 +46,7 @@ import com.velometrics.app.ui.components.MapIntervalRenderer
 import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
+import com.velometrics.app.ui.components.PoiIcons
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.intent.GpxIntentViewModel
@@ -53,12 +60,11 @@ import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_LONG
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_MEDIUM
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_SHORT
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
+import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
 import com.velometrics.app.util.GpsTrackParser
+import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.PolylineDecoder
@@ -73,6 +79,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -96,7 +103,6 @@ fun MapViewScreen(
     val showAllRidesLayer by viewModel.showAllRidesLayer.collectAsState()
     val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
     val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
-    val showStopSpots by viewModel.showStopSpots.collectAsState()
 
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
@@ -166,7 +172,7 @@ fun MapViewScreen(
     }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
-    var showBottomSheet by remember { mutableStateOf(false) }
+    var showLayersPanel by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
@@ -182,18 +188,34 @@ fun MapViewScreen(
     )
     val gpxScaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = gpxBottomSheetState)
 
+    // Device heading (compass direction the phone is facing), shown as an arrow on the
+    // user location marker. Null if the rotation vector sensor is unavailable.
+    var currentHeading by remember { mutableStateOf<Float?>(null) }
+    DisposableEffect(Unit) {
+        val headingSensor = HeadingSensor(context) { heading -> currentHeading = heading }
+        headingSensor.start()
+        onDispose { headingSensor.stop() }
+    }
+
     // Render user location marker; re-center once a fine fix (accuracy ≤ 50 m) is obtained
     LaunchedEffect(currentLocation, locationAccuracy, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         val loc = currentLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
-        renderUserMarker(ms.first, ms.second, loc, accuracy)
+        renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
         if (!fineLocationZoomedIn && accuracy <= 50f) {
             fineLocationZoomedIn = true
             ms.first.animateCamera(
                 CameraUpdateFactory.newLatLngZoom(loc, DEFAULT_MAP_ZOOM + 2.0)
             )
         }
+    }
+
+    // Update the heading arrow's rotation cheaply (no layer recreation) as the device turns
+    LaunchedEffect(currentHeading, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val heading = currentHeading ?: return@LaunchedEffect
+        updateHeadingArrow(context, ms.second, heading)
     }
 
     // rememberUpdatedState for click listener (avoids stale captures)
@@ -249,15 +271,6 @@ fun MapViewScreen(
         MapOverlayRenderer.removeSpeedOverlay(ms.second)
         if (showSpeedOverlay) {
             MapOverlayRenderer.renderSpeedOverlay(ms.second, edges, selectedSpeedCategories)
-        }
-    }
-
-    // Stop spots sync
-    LaunchedEffect(showStopSpots, edges, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        MapOverlayRenderer.removeStopSpots(ms.second)
-        if (showStopSpots) {
-            MapOverlayRenderer.renderStopSpots(ms.second, edges)
         }
     }
 
@@ -372,14 +385,14 @@ fun MapViewScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapPoiRenderer.removePois(ms.second)
         if (showPoiLayer && visiblePois.isNotEmpty()) {
-            MapPoiRenderer.addPois(ms.second, visiblePois)
+            MapPoiRenderer.addPois(context, ms.second, visiblePois)
         }
     }
 
     // POI highlight sync
     LaunchedEffect(selectedPoi, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
-        MapPoiRenderer.highlightPoi(ms.second, selectedPoi?.poi)
+        MapPoiRenderer.highlightPoi(context, ms.second, selectedPoi?.poi)
     }
 
     // Interval overlay sync
@@ -431,6 +444,9 @@ fun MapViewScreen(
                     val poi = currentVisiblePois.find { it.poiId == poiId }
                     if (poi != null) {
                         viewModel.selectPoiFromMap(poi)
+                        ms.first.animateCamera(
+                            CameraUpdateFactory.newLatLng(LatLng(poi.lat, poi.lon))
+                        )
                         return@addOnMapClickListener true
                     }
                 }
@@ -517,7 +533,14 @@ fun MapViewScreen(
                     FilterChip(
                         selected = activePoiChip == category,
                         onClick = { viewModel.selectPoiChip(category) },
-                        label = { Text(category) },
+                        label = { Text(FormatUtils.categoryDisplayName(category)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = PoiIcons.forCategory(category),
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -551,22 +574,20 @@ fun MapViewScreen(
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }
-        }
 
-        // POI popup card (hidden while Fast Way Home card is showing)
-        if (!showFastWayHomeCard) {
-            selectedPoi?.let { poiWD ->
-                PoiPopupCard(
-                    poiWithDistances = poiWD,
-                    onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
-                )
+            // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
+            if (!showFastWayHomeCard) {
+                selectedPoi?.let { poiWD ->
+                    PoiPopupCard(
+                        poiWithDistances = poiWD,
+                        onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
             }
         }
 
-        // Stacked FABs - bottom right: locate-me, fast-way-home, layers
+        // Stacked FABs - bottom right: fast-way-home above locate-me
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -574,7 +595,14 @@ fun MapViewScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SmallFloatingActionButton(
+            FloatingActionButton(
+                onClick = {
+                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
+                }
+            ) {
+                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
+            }
+            FloatingActionButton(
                 onClick = {
                     viewModel.startLocationUpdates()
                     val loc = currentLocation
@@ -588,124 +616,134 @@ fun MapViewScreen(
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
             }
-            SmallFloatingActionButton(
-                onClick = {
-                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
-                }
+        }
+
+        // Layers FAB - fixed position below the POI category chip row, right-aligned
+        // with the bottom-right FAB stack. Does not reflow with the GPX POI chip row.
+        SmallFloatingActionButton(
+            onClick = { showLayersPanel = true },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 56.dp, end = 16.dp)
+        ) {
+            Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
+        }
+
+        // Layers panel overlay — scrim + centered card, confined to this content area so the
+        // bottom navigation bar (outside MapViewScreen) remains tappable while it's open.
+        if (showLayersPanel) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { showLayersPanel = false }
             ) {
-                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
-            }
-            FloatingActionButton(onClick = { showBottomSheet = true }) {
-                Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {}
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Layers",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            IconButton(onClick = { showLayersPanel = false }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close layers panel")
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // All Rides toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("All rides (Robert)", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showAllRidesLayer,
+                                onCheckedChange = { viewModel.toggleAllRidesLayer() }
+                            )
+                        }
+
+                        // Speed Overlay toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Speed Overlay", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showSpeedOverlay,
+                                onCheckedChange = { viewModel.toggleSpeedOverlay() }
+                            )
+                        }
+
+                        // Intervals toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Intervals", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showIntervalOverlay,
+                                onCheckedChange = { viewModel.toggleIntervalOverlay() }
+                            )
+                        }
+
+                        // .gpx track toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = gpxTrack != null,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        showLoadGpxConfirmDialog = true
+                                    } else {
+                                        gpxSharedViewModel.clearGpx()
+                                    }
+                                }
+                            )
+                        }
+
+                        if (showAllRidesLayer || showSpeedOverlay || showIntervalOverlay) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LegendCard(
+                                showAllRides = showAllRidesLayer,
+                                showSpeed = showSpeedOverlay,
+                                showIntervals = showIntervalOverlay,
+                                selectedSpeedCategories = selectedSpeedCategories,
+                                onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
             }
         }
     }
     } // BottomSheetScaffold content
-
-    // Bottom sheet (layers)
-    if (showBottomSheet) {
-        val sheetState = rememberModalBottomSheetState()
-
-        ModalBottomSheet(
-            onDismissRequest = { showBottomSheet = false },
-            sheetState = sheetState
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                // --- Overlay controls section ---
-                Text(
-                    text = "Overlays",
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // All Rides toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("All rides (Robert)", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showAllRidesLayer,
-                        onCheckedChange = { viewModel.toggleAllRidesLayer() }
-                    )
-                }
-
-                // Speed Overlay toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Speed Overlay", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showSpeedOverlay,
-                        onCheckedChange = { viewModel.toggleSpeedOverlay() }
-                    )
-                }
-
-                // Stop Spots toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Stop Spots", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showStopSpots,
-                        onCheckedChange = { viewModel.toggleStopSpots() }
-                    )
-                }
-
-                // Intervals toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Intervals", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showIntervalOverlay,
-                        onCheckedChange = { viewModel.toggleIntervalOverlay() }
-                    )
-                }
-
-                // .gpx track toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = gpxTrack != null,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                showLoadGpxConfirmDialog = true
-                            } else {
-                                gpxSharedViewModel.clearGpx()
-                            }
-                        }
-                    )
-                }
-
-                if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showIntervalOverlay) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LegendCard(
-                        showAllRides = showAllRidesLayer,
-                        showSpeed = showSpeedOverlay,
-                        showStops = showStopSpots,
-                        showIntervals = showIntervalOverlay,
-                        selectedSpeedCategories = selectedSpeedCategories,
-                        onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-    }
 
     if (showLoadGpxConfirmDialog) {
         AlertDialog(
@@ -1019,7 +1057,6 @@ private fun toGrayscaleColor(hexColor: String): Color {
 private fun LegendCard(
     showAllRides: Boolean,
     showSpeed: Boolean,
-    showStops: Boolean,
     showIntervals: Boolean = false,
     selectedSpeedCategories: Set<String> = emptySet(),
     onSpeedCategoryClick: (String) -> Unit = {}
@@ -1093,46 +1130,7 @@ private fun LegendCard(
                 }
             }
 
-            if (showSpeed && showStops) {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (showStops) {
-                Text(
-                    text = "Stops",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val stopTypes = listOf(
-                        "Low" to STOP_COLOR_SHORT,
-                        "Medium" to STOP_COLOR_MEDIUM,
-                        "High" to STOP_COLOR_LONG
-                    )
-                    stopTypes.forEach { (label, color) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        Color(android.graphics.Color.parseColor(color)),
-                                        CircleShape
-                                    )
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-            }
-
-            if ((showSpeed || showStops) && showIntervals) {
+            if (showSpeed && showIntervals) {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
@@ -1175,15 +1173,27 @@ private fun LegendCard(
     }
 }
 
-private fun renderUserMarker(map: MapLibreMap, style: Style, location: LatLng, accuracyM: Float) {
-    val sourceId = "user-location-source"
+private const val USER_LOCATION_SOURCE = "user-location-source"
+private const val USER_LOCATION_HEADING_LAYER = "user-location-heading"
+private const val USER_HEADING_ARROW_ICON = "user-heading-arrow-icon"
+
+private fun renderUserMarker(
+    context: Context,
+    map: MapLibreMap,
+    style: Style,
+    location: LatLng,
+    accuracyM: Float,
+    heading: Float?
+) {
+    val sourceId = USER_LOCATION_SOURCE
     val outerLayerId = "user-location-outer"
     val innerLayerId = "user-location-inner"
 
     val feature = Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude))
     val source = GeoJsonSource(sourceId, feature)
 
-    // Remove existing layers/source if present
+    // Remove existing layers/source if present (heading layer must go before its source)
+    if (style.getLayer(USER_LOCATION_HEADING_LAYER) != null) style.removeLayer(USER_LOCATION_HEADING_LAYER)
     if (style.getLayer(outerLayerId) != null) style.removeLayer(outerLayerId)
     if (style.getLayer(innerLayerId) != null) style.removeLayer(innerLayerId)
     if (style.getSource(sourceId) != null) style.removeSource(sourceId)
@@ -1235,5 +1245,50 @@ private fun renderUserMarker(map: MapLibreMap, style: Style, location: LatLng, a
 
     style.addLayer(outerCircle)
     style.addLayer(innerCircle)
+
+    if (heading != null) {
+        registerHeadingArrowIcon(context, style)
+        val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, sourceId).apply {
+            setProperties(
+                PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
+                PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
+                PropertyFactory.iconRotate(heading),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true)
+            )
+        }
+        style.addLayer(headingLayer)
+    }
+}
+
+private fun registerHeadingArrowIcon(context: Context, style: Style) {
+    if (style.getImage(USER_HEADING_ARROW_ICON) != null) return
+    val drawable = ContextCompat.getDrawable(context, R.drawable.ic_heading_arrow) ?: return
+    style.addImage(USER_HEADING_ARROW_ICON, drawable.toBitmap())
+}
+
+/** Cheaply updates the heading arrow's rotation, creating the layer if it doesn't exist yet. */
+private fun updateHeadingArrow(context: Context, style: Style, heading: Float) {
+    if (style.getSource(USER_LOCATION_SOURCE) == null) return
+
+    val existing = style.getLayer(USER_LOCATION_HEADING_LAYER) as? SymbolLayer
+    if (existing != null) {
+        existing.setProperties(PropertyFactory.iconRotate(heading))
+        return
+    }
+
+    registerHeadingArrowIcon(context, style)
+    val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, USER_LOCATION_SOURCE).apply {
+        setProperties(
+            PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
+            PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
+            PropertyFactory.iconRotate(heading),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true)
+        )
+    }
+    style.addLayer(headingLayer)
 }
 

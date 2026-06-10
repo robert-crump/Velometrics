@@ -103,4 +103,21 @@ class FormatUtilsTest {
         assertEquals("0h 2m 5s", FormatUtils.formatDurationLong(125))
         assertEquals("1h 1m 1s", FormatUtils.formatDurationLong(3661))
     }
+
+    @Test
+    fun `categoryDisplayName returns underscore-free capitalized names`() {
+        assertEquals("Café", FormatUtils.categoryDisplayName("cafe"))
+        assertEquals("Bakery", FormatUtils.categoryDisplayName("bakery"))
+        assertEquals("Bicycle", FormatUtils.categoryDisplayName("bicycle"))
+        assertEquals("Restaurant", FormatUtils.categoryDisplayName("restaurant"))
+        assertEquals("Fast food", FormatUtils.categoryDisplayName("fast_food"))
+        assertEquals("Fuel station", FormatUtils.categoryDisplayName("fuel"))
+        assertEquals("Drinking water", FormatUtils.categoryDisplayName("drinking_water"))
+        assertEquals("Vending machine", FormatUtils.categoryDisplayName("vending_machine"))
+    }
+
+    @Test
+    fun `categoryDisplayName maps friture to Fast food`() {
+        assertEquals("Fast food", FormatUtils.categoryDisplayName("friture"))
+    }
 }

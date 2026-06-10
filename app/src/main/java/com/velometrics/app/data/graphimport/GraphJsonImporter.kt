@@ -62,11 +62,7 @@ class GraphJsonImporter @Inject constructor() {
                 slopePercent = e.slope_percent,
                 traversalCount = e.traversal_count,
                 lastTraversal = e.last_traversal,
-                timeOfDayDist = e.time_of_day_dist,
-                stopCount = e.stop_count,
-                avgStopDurationS = e.avg_stop_duration_s,
-                stopProbability = e.stop_probability,
-                estimatedStopTimeS = e.estimated_stop_time_s
+                timeOfDayDist = e.time_of_day_dist
             )
         }
 
@@ -118,10 +114,6 @@ class GraphJsonImporter @Inject constructor() {
         val slope_percent: Double?,
         val traversal_count: Int?,
         val last_traversal: String?,
-        val time_of_day_dist: List<Int>?,
-        val stop_count: Int?,
-        val avg_stop_duration_s: Double?,
-        val stop_probability: Double?,
-        val estimated_stop_time_s: Double?
+        val time_of_day_dist: List<Int>?
     )
 }

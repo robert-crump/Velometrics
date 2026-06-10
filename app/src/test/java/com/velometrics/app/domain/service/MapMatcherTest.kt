@@ -24,8 +24,7 @@ class MapMatcherTest {
             speedP25 = null, speedP75 = null, speedP90 = null,
             powerMedian = null, powerMean = null, powerCount = null,
             powerP25 = null, powerP75 = null, powerP90 = null,
-            slopePercent = 0.0, traversalCount = 0, lastTraversal = null, timeOfDayDist = null,
-            stopCount = null, avgStopDurationS = null, stopProbability = null, estimatedStopTimeS = null
+            slopePercent = 0.0, traversalCount = 0, lastTraversal = null, timeOfDayDist = null
         )
     }
 

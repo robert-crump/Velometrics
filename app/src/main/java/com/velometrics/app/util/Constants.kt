@@ -33,10 +33,6 @@ object CyclingConstants {
     const val MINIMUM_GPS_DATAPOINTS = 60           // min GPS points required to import a ride
     const val POWER_DATA_COVERAGE_THRESHOLD = 0.10  // fraction of points needing power to count as power ride
 
-    // Stop probability thresholds
-    const val STOP_PROB_OCCASIONAL = 0.3   // < this → amber (occasional stop)
-    const val STOP_PROB_FREQUENT = 0.7     // ≥ this → red (frequent stop); between → orange
-
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117
     const val HOME_LON = 6.07261
@@ -104,22 +100,6 @@ object CyclingConstants {
     // Speed overlay
     const val SPEED_OVERLAY_LINE_WIDTH = 5f
 
-    // Stop spot classification thresholds (seconds)
-    const val STOP_SHORT_THRESHOLD_SEC = 60.0
-    const val STOP_LONG_THRESHOLD_SEC = 600.0
-
-    // Stop spot marker colors
-    const val STOP_COLOR_SHORT = "#FFC107"   // Amber - short stop
-    const val STOP_COLOR_MEDIUM = "#FF9800"  // Orange - medium stop
-    const val STOP_COLOR_LONG = "#F44336"    // Red - long stop
-
-    // Stop spot circle radius
-    const val STOP_SPOT_RADIUS = 7f
-    const val STOP_SPOT_STROKE_WIDTH = 2f
-    const val STOP_SPOT_STROKE_COLOR = "#FFFFFF"
-    const val STOP_CLUSTER_RADIUS = 60
-    const val STOP_CLUSTER_MAX_ZOOM = 13
-
     // Map view
     const val DEFAULT_MAP_ZOOM = 12.0
     const val TRACK_LINE_WIDTH = 4f
@@ -141,24 +121,6 @@ object CyclingConstants {
     val OSM_RASTER_STYLE_JSON = CARTO_DARK_STYLE_URL
 
     const val ROUTE_START_RADIUS_M = 50.0
-    const val ROUTE_STRAIGHT_BONUS_WEIGHT = 3.0
-    const val ROUTE_SPEED_WEIGHT = 1.5
-    const val ROUTE_STOP_PENALTY_WEIGHT = -2.0
-    const val ROUTE_TURN_PENALTY_WEIGHT = -1.5
-    const val ROUTE_NOVELTY_WEIGHT = -0.5
-    const val ROUTE_DIRECTION_WEIGHT = 2.0
-    const val ROUTE_STRAIGHT_ANGLE_THRESHOLD = 30.0
-    const val ROUTE_STRAIGHT_SPEED_THRESHOLD = 25.0
-    const val ROUTE_TURN_ANGLE_THRESHOLD = 45.0
-    const val ROUTE_SPEED_CAP = 40.0
-    const val ROUTE_MIN_SCORE = 0.01
-    const val ROUTE_REVISIT_PENALTY = 0.1
-    const val ROUTE_RETURN_BUDGET_FACTOR = 1.3
-    const val ROUTE_MAX_CANDIDATES = 10
-    const val ROUTE_DISTANCE_TOLERANCE_TIGHT = 0.10
-    const val ROUTE_DISTANCE_TOLERANCE_RELAXED = 0.15
-    const val ROUTE_MIN_CONFIRMED_EDGES = 100
-    const val ROUTE_DEFAULT_DISTANCE_KM = 40.0
 
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0
@@ -176,17 +138,14 @@ object CyclingConstants {
     const val INTERVAL_SUBSET_OVERLAP_THRESHOLD = 0.8
 
     // Navigation / POI
-    const val POI_COLOR_FUEL = "#E53935"
-    const val POI_COLOR_CAFE = "#795548"
-    const val POI_COLOR_BAKERY = "#795548"
-    const val POI_COLOR_FAST_FOOD = "#FF9800"
-    const val POI_COLOR_FRITURE = "#FF9800"
-    const val POI_MARKER_RADIUS = 8f
-    const val POI_MARKER_STROKE_WIDTH = 2f
+    const val POI_CIRCLE_COLOR = "#37474F"
+    const val POI_MARKER_RADIUS = 16f
+    const val POI_MARKER_STROKE_WIDTH = 4f
     const val NAV_TRACK_COLOR = "#2979FF"
     const val NAV_TRACK_WIDTH = 5f
     const val NAV_USER_MARKER_COLOR = "#2196F3"
     const val NAV_USER_MARKER_RADIUS = 10f
+    const val USER_HEADING_ARROW_ICON_SIZE = 0.9f
     const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
     const val FAST_WAY_HOME_TRACK_WIDTH = 5f
     const val FAST_WAY_HOME_BBOX_MARGIN_M = 2000.0

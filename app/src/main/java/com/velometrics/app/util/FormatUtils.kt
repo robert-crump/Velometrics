@@ -93,13 +93,16 @@ object FormatUtils {
     }
 
     fun categoryDisplayName(category: String): String = when (category) {
-        "cafe"       -> "Café"
-        "bakery"     -> "Bakery"
-        "restaurant" -> "Restaurant"
-        "fast_food"  -> "Fast food"
-        "fuel"       -> "Fuel station"
-        "friture"    -> "Friture"
-        else         -> category.replaceFirstChar { it.uppercase() }
+        "cafe"            -> "Café"
+        "bakery"          -> "Bakery"
+        "bicycle"         -> "Bicycle"
+        "restaurant"      -> "Restaurant"
+        "fast_food"       -> "Fast food"
+        "friture"         -> "Fast food"
+        "fuel"            -> "Fuel station"
+        "drinking_water"  -> "Drinking water"
+        "vending_machine" -> "Vending machine"
+        else              -> category.replaceFirstChar { it.uppercase() }
     }
 
     // Formats a distance in metres: < 1 km → nearest 10 m; ≥ 1 km → one decimal with comma separator

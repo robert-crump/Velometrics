@@ -28,9 +28,4 @@ data class MapEdge(
     val traversalCount: Int?,
     val lastTraversal: String?,
     val timeOfDayDist: List<Int>?,
-
-    val stopCount: Int?,
-    val avgStopDurationS: Double?,
-    val stopProbability: Double?,
-    val estimatedStopTimeS: Double?,
 )

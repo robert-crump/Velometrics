@@ -487,3 +487,24 @@ Completed: 2026-06-09 | Closed: 2026-06-09
 
 ### Tests
 All unit tests pass (138 total; +1 `selectPoiChip activates, switches, and deactivates on re-tap`).
+
+## Issue #45 — Remove the Navigate tab and its dead navigation code
+Completed: 2026-06-10 | Closed: 2026-06-10
+
+### What was done
+
+- Removed `Screen.Navigation` from `Screen.kt` and its entry in `bottomNavItems`; bottom bar is
+  now Home, Map, Routes, Settings (4 tabs)
+- Removed the `composable(Screen.Navigation.route) { NavigationScreen(...) }` entry and the
+  `onNavigateToNavigation` wiring from `VelometricsNavHost.kt`, plus the now-unused
+  `NavigationScreen` import
+- Removed the Navigate-tab re-tap special case from `BottomNavBar.kt`
+- Deleted `NavigationScreen.kt`, `NavigationViewModel.kt`, the empty
+  `app/src/test/java/com/velometrics/app/ui/screens/navigation/` directory, and
+  `NavigationRouteHolder.kt` (`domain/service/`)
+- Removed the dead `onNavigateToNavigation` parameter from `RepeatedRoutesScreen`
+- Updated the stale `GraphBuilderModule.kt` comment that referenced `NavigationRouteHolder`
+
+### Tests
+`compileDebugKotlin` and `testDebugUnitTest` both pass; no remaining references to
+`Screen.Navigation`, `NavigationScreen`, `NavigationViewModel`, or `NavigationRouteHolder`.

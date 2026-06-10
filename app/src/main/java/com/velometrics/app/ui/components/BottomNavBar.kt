@@ -32,12 +32,6 @@ fun BottomNavBar(navController: NavController) {
                         screen is Screen.Home -> {
                             navController.popBackStack(Screen.Home.route, inclusive = false)
                         }
-                        // Re-tapping Navigate while already on it resets the screen (clears ViewModel)
-                        screen is Screen.Navigation && currentRoute == Screen.Navigation.route -> {
-                            navController.navigate(screen.route) {
-                                popUpTo(screen.route) { inclusive = true }
-                            }
-                        }
                         else -> {
                             navController.navigate(screen.route) {
                                 popUpTo(navController.graph.startDestinationId) {

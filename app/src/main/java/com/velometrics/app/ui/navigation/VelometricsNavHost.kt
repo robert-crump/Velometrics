@@ -13,7 +13,6 @@ import com.velometrics.app.ui.screens.home.HomeScreen
 import com.velometrics.app.ui.screens.homeaddress.HomeAddressScreen
 import com.velometrics.app.ui.screens.info.InfoScreen
 import com.velometrics.app.ui.screens.mapview.MapViewScreen
-import com.velometrics.app.ui.screens.navigation.NavigationScreen
 import com.velometrics.app.ui.screens.repeatedintervaldetail.RepeatedIntervalDetailScreen
 import com.velometrics.app.ui.screens.repeatedroutedetail.RepeatedRouteDetailScreen
 import com.velometrics.app.ui.screens.repeatedroutes.RepeatedRoutesScreen
@@ -60,9 +59,6 @@ fun VelometricsNavHost(
                 },
                 onNavigateToIntervalDetail = { intervalId ->
                     navController.navigate(Screen.RepeatedIntervalDetail.createRoute(intervalId))
-                },
-                onNavigateToNavigation = {
-                    navController.navigate(Screen.Navigation.route)
                 }
             )
         }
@@ -87,14 +83,6 @@ fun VelometricsNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSession = { sessionId ->
                     navController.navigate(Screen.SessionDetail.createRoute(sessionId))
-                }
-            )
-        }
-
-        composable(Screen.Navigation.route) {
-            NavigationScreen(
-                onNavigateToHome = {
-                    navController.popBackStack(Screen.Home.route, false)
                 }
             )
         }

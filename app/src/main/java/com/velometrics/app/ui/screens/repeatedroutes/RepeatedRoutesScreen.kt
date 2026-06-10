@@ -25,7 +25,6 @@ import com.velometrics.app.util.FormatUtils
 fun RepeatedRoutesScreen(
     onNavigateToRouteDetail: (Long) -> Unit = {},
     onNavigateToIntervalDetail: (Long) -> Unit = {},
-    onNavigateToNavigation: () -> Unit = {},
     viewModel: RepeatedRoutesViewModel = hiltViewModel(),
     intervalsViewModel: RepeatedIntervalsViewModel = hiltViewModel()
 ) {

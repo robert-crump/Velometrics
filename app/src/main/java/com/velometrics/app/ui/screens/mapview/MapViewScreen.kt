@@ -431,6 +431,9 @@ fun MapViewScreen(
                     val poi = currentVisiblePois.find { it.poiId == poiId }
                     if (poi != null) {
                         viewModel.selectPoiFromMap(poi)
+                        ms.first.animateCamera(
+                            CameraUpdateFactory.newLatLng(LatLng(poi.lat, poi.lon))
+                        )
                         return@addOnMapClickListener true
                     }
                 }
@@ -551,18 +554,16 @@ fun MapViewScreen(
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }
-        }
 
-        // POI popup card (hidden while Fast Way Home card is showing)
-        if (!showFastWayHomeCard) {
-            selectedPoi?.let { poiWD ->
-                PoiPopupCard(
-                    poiWithDistances = poiWD,
-                    onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
-                )
+            // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
+            if (!showFastWayHomeCard) {
+                selectedPoi?.let { poiWD ->
+                    PoiPopupCard(
+                        poiWithDistances = poiWD,
+                        onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
             }
         }
 

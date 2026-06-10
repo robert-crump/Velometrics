@@ -156,13 +156,9 @@ object CyclingConstants {
     const val INTERVAL_SUBSET_OVERLAP_THRESHOLD = 0.8
 
     // Navigation / POI
-    const val POI_COLOR_FUEL = "#E53935"
-    const val POI_COLOR_CAFE = "#795548"
-    const val POI_COLOR_BAKERY = "#795548"
-    const val POI_COLOR_FAST_FOOD = "#FF9800"
-    const val POI_COLOR_FRITURE = "#FF9800"
-    const val POI_MARKER_RADIUS = 8f
-    const val POI_MARKER_STROKE_WIDTH = 2f
+    const val POI_CIRCLE_COLOR = "#37474F"
+    const val POI_MARKER_RADIUS = 16f
+    const val POI_MARKER_STROKE_WIDTH = 4f
     const val NAV_TRACK_COLOR = "#2979FF"
     const val NAV_TRACK_WIDTH = 5f
     const val NAV_USER_MARKER_COLOR = "#2196F3"

@@ -1,3 +1,37 @@
+## Issue #53 — [Map] POI category names, icons, and circle styling
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**Display names (`FormatUtils.kt`)**
+- `categoryDisplayName` is now underscore-free for all 8 categories: added
+  "Bicycle", "Drinking water", "Vending machine"; "friture" now maps to
+  "Fast food" (same as `fast_food`).
+
+**Circle styling (`Constants.kt`, `MapPoiRenderer.kt`)**
+- Replaced the per-category `POI_COLOR_*` constants with a single
+  `POI_CIRCLE_COLOR = "#37474F"` (fixed dark, theme-independent).
+- `POI_MARKER_RADIUS` 8f → 16f and `POI_MARKER_STROKE_WIDTH` 2f → 4f (stroke
+  scaled proportionally). The highlight layer keeps its 1.5x multiplier on
+  both, so it scales proportionally too.
+
+**Icons (`PoiIcons.kt`, `MapPoiRenderer.kt`, `MapViewScreen.kt`, 8 new drawables)**
+- New `PoiIcons` object maps each category (bakery, bicycle, cafe,
+  drinking_water, fast_food/friture, fuel, restaurant, vending_machine) to a
+  Material Icons Extended `ImageVector` (for chips) and to a white vector
+  drawable resource (`res/drawable/ic_poi_*.xml`) for the map.
+- `MapPoiRenderer.registerIcons` rasterizes each drawable to a bitmap and
+  registers it via `style.addImage()`; `addPois`/`highlightPoi` now take a
+  `Context` and render a `SymbolLayer` (`icon-image` from a per-feature
+  `icon` property) on top of the POI/highlight `CircleLayer`s, sized
+  proportionally to the circle radius.
+- POI category filter chips now show `categoryDisplayName` with a
+  `leadingIcon` from `PoiIcons.forCategory`, tinted white.
+
+### Tests
+Added `FormatUtilsTest` cases for `categoryDisplayName` (all 8 categories +
+friture → Fast food). `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #52 — [Map] FAB layout redesign (Locate Me, Home, Layers)
 Completed: 2026-06-10 | Closed: pending
 

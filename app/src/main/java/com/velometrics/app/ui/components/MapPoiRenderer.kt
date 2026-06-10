@@ -1,5 +1,8 @@
-﻿package com.velometrics.app.ui.components
+package com.velometrics.app.ui.components
 
+import android.content.Context
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.util.CyclingConstants
 import org.maplibre.android.maps.Style
@@ -19,19 +22,33 @@ object MapPoiRenderer {
     const val POI_LAYER = "poi-layer"
     const val POI_CLUSTER_LAYER = "poi-cluster-layer"
     private const val POI_CLUSTER_COUNT_LAYER = "poi-cluster-count-layer"
+    private const val POI_ICON_LAYER = "poi-icon-layer"
 
     private const val HIGHLIGHT_SOURCE = "poi-highlight-source"
     private const val HIGHLIGHT_LAYER = "poi-highlight-layer"
+    private const val HIGHLIGHT_ICON_LAYER = "poi-highlight-icon-layer"
 
-    fun addPois(style: Style, pois: List<Poi>) {
+    /** Registers the white category icon bitmaps with the map style, if not already present. */
+    fun registerIcons(context: Context, style: Style) {
+        for (category in PoiIcons.ALL_CATEGORIES) {
+            val imageId = PoiIcons.mapIconId(category)
+            if (style.getImage(imageId) != null) continue
+            val drawable = ContextCompat.getDrawable(context, PoiIcons.drawableResForCategory(category)) ?: continue
+            style.addImage(imageId, drawable.toBitmap())
+        }
+    }
+
+    fun addPois(context: Context, style: Style, pois: List<Poi>) {
         removePois(style)
 
         if (pois.isEmpty()) return
 
+        registerIcons(context, style)
+
         val features = pois.map { poi ->
             val point = Point.fromLngLat(poi.lon, poi.lat)
             val feature = Feature.fromGeometry(point)
-            feature.addStringProperty("color", colorForCategory(poi.category))
+            feature.addStringProperty("icon", PoiIcons.mapIconId(poi.category))
             feature.addStringProperty("poiId", poi.poiId)
             feature
         }
@@ -80,51 +97,66 @@ object MapPoiRenderer {
         val layer = CircleLayer(POI_LAYER, POI_SOURCE)
             .withFilter(Expression.not(Expression.has("point_count")))
             .withProperties(
-                PropertyFactory.circleColor(Expression.get("color")),
+                PropertyFactory.circleColor(CyclingConstants.POI_CIRCLE_COLOR),
                 PropertyFactory.circleRadius(CyclingConstants.POI_MARKER_RADIUS),
                 PropertyFactory.circleStrokeWidth(CyclingConstants.POI_MARKER_STROKE_WIDTH),
                 PropertyFactory.circleStrokeColor("#FFFFFF")
             )
         style.addLayer(layer)
+
+        // Category icon on top of each POI circle
+        val iconLayer = SymbolLayer(POI_ICON_LAYER, POI_SOURCE)
+            .withFilter(Expression.not(Expression.has("point_count")))
+            .withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconSize(CyclingConstants.POI_MARKER_RADIUS / 24f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true)
+            )
+        style.addLayer(iconLayer)
     }
 
     fun removePois(style: Style) {
+        try { style.removeLayer(HIGHLIGHT_ICON_LAYER) } catch (_: Exception) {}
         try { style.removeLayer(HIGHLIGHT_LAYER) } catch (_: Exception) {}
         try { style.removeSource(HIGHLIGHT_SOURCE) } catch (_: Exception) {}
         try { style.removeLayer(POI_CLUSTER_COUNT_LAYER) } catch (_: Exception) {}
         try { style.removeLayer(POI_CLUSTER_LAYER) } catch (_: Exception) {}
+        try { style.removeLayer(POI_ICON_LAYER) } catch (_: Exception) {}
         try { style.removeLayer(POI_LAYER) } catch (_: Exception) {}
         try { style.removeSource(POI_SOURCE) } catch (_: Exception) {}
     }
 
-    /** Renders a single highlighted POI on top of the base POI layer at 1.5× radius. */
-    fun highlightPoi(style: Style, poi: Poi?) {
+    /** Renders a single highlighted POI on top of the base POI layer at 1.5x radius. */
+    fun highlightPoi(context: Context, style: Style, poi: Poi?) {
+        try { style.removeLayer(HIGHLIGHT_ICON_LAYER) } catch (_: Exception) {}
         try { style.removeLayer(HIGHLIGHT_LAYER) } catch (_: Exception) {}
         try { style.removeSource(HIGHLIGHT_SOURCE) } catch (_: Exception) {}
         poi ?: return
 
+        registerIcons(context, style)
+
         val point = Point.fromLngLat(poi.lon, poi.lat)
         val feature = Feature.fromGeometry(point)
-        feature.addStringProperty("color", colorForCategory(poi.category))
+        feature.addStringProperty("icon", PoiIcons.mapIconId(poi.category))
         val source = GeoJsonSource(HIGHLIGHT_SOURCE, feature)
         style.addSource(source)
 
         val layer = CircleLayer(HIGHLIGHT_LAYER, HIGHLIGHT_SOURCE).withProperties(
-            PropertyFactory.circleColor(Expression.get("color")),
+            PropertyFactory.circleColor(CyclingConstants.POI_CIRCLE_COLOR),
             PropertyFactory.circleRadius(CyclingConstants.POI_MARKER_RADIUS * 1.5f),
             PropertyFactory.circleStrokeWidth(CyclingConstants.POI_MARKER_STROKE_WIDTH * 1.5f),
             PropertyFactory.circleStrokeColor("#FFFFFF")
         )
         style.addLayer(layer)
-    }
 
-    private fun colorForCategory(category: String): String = when (category) {
-        "cafe" -> CyclingConstants.POI_COLOR_CAFE
-        "bakery" -> CyclingConstants.POI_COLOR_BAKERY
-        "restaurant" -> "#E64A19"
-        "fast_food" -> CyclingConstants.POI_COLOR_FAST_FOOD
-        "fuel" -> CyclingConstants.POI_COLOR_FUEL
-        "friture" -> CyclingConstants.POI_COLOR_FRITURE
-        else -> "#607D8B"
+        val iconLayer = SymbolLayer(HIGHLIGHT_ICON_LAYER, HIGHLIGHT_SOURCE)
+            .withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconSize(CyclingConstants.POI_MARKER_RADIUS * 1.5f / 24f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true)
+            )
+        style.addLayer(iconLayer)
     }
 }

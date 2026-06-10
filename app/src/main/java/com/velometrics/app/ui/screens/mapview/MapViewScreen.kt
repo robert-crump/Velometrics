@@ -40,6 +40,7 @@ import com.velometrics.app.ui.components.MapIntervalRenderer
 import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
+import com.velometrics.app.ui.components.PoiIcons
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.intent.GpxIntentViewModel
@@ -359,14 +360,14 @@ fun MapViewScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapPoiRenderer.removePois(ms.second)
         if (showPoiLayer && visiblePois.isNotEmpty()) {
-            MapPoiRenderer.addPois(ms.second, visiblePois)
+            MapPoiRenderer.addPois(context, ms.second, visiblePois)
         }
     }
 
     // POI highlight sync
     LaunchedEffect(selectedPoi, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
-        MapPoiRenderer.highlightPoi(ms.second, selectedPoi?.poi)
+        MapPoiRenderer.highlightPoi(context, ms.second, selectedPoi?.poi)
     }
 
     // Interval overlay sync
@@ -507,7 +508,14 @@ fun MapViewScreen(
                     FilterChip(
                         selected = activePoiChip == category,
                         onClick = { viewModel.selectPoiChip(category) },
-                        label = { Text(category) },
+                        label = { Text(FormatUtils.categoryDisplayName(category)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = PoiIcons.forCategory(category),
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,

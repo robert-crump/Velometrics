@@ -32,10 +32,6 @@ class GpxExporterTest {
         traversalCount = 5,
         lastTraversal = "2025-01-01",
         timeOfDayDist = null,
-        stopCount = null,
-        avgStopDurationS = null,
-        stopProbability = null,
-        estimatedStopTimeS = null,
     )
 
     @Test

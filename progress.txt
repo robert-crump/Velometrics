@@ -1,3 +1,27 @@
+## Issue #50 — Safe removal of legacy code (RoutePlanner, stop-detection data)
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**Removed unused route-generation algorithm**
+- Deleted `RoutePlanner.kt` (random-walk + A* route generator) and its test
+  `RoutePlannerTest.kt` — no production code called `generateBestRoute`.
+- Removed `GeoUtils.angleDifference`, only used by `RoutePlanner`.
+- Removed 14 `ROUTE_*` constants from `Constants.kt` that were only used by
+  `RoutePlanner`/`RoutePlannerTest`. Kept `ROUTE_START_RADIUS_M` (used by
+  `FastWayHomeService`).
+
+**Removed leftover stop-detection data fields**
+- Removed `stopCount`, `avgStopDurationS`, `stopProbability`,
+  `estimatedStopTimeS` from `MapEdge`, `MapEdgeEntity`/`EdgeMetadataJson`, and
+  `GraphJsonImporter`'s `RawEdge` — these were only consumed by the now-deleted
+  `RoutePlanner`. Packed inside the `metadata` JSON blob, so no DB migration
+  needed.
+- Removed the 3 orphaned `Log.d("StopSpots", ...)` debug lines in
+  `MapEdgeEntity.kt` left over from #51.
+- Updated test fixtures in `FastWayHomeServiceTest`, `GpxExporterTest`,
+  `IntervalClusteringServiceTest`, `IntervalMatcherTest`, `MapMatcherTest`.
+
 ## Issue #53 — [Map] POI category names, icons, and circle styling
 Completed: 2026-06-10 | Closed: pending
 

@@ -121,24 +121,6 @@ object CyclingConstants {
     val OSM_RASTER_STYLE_JSON = CARTO_DARK_STYLE_URL
 
     const val ROUTE_START_RADIUS_M = 50.0
-    const val ROUTE_STRAIGHT_BONUS_WEIGHT = 3.0
-    const val ROUTE_SPEED_WEIGHT = 1.5
-    const val ROUTE_STOP_PENALTY_WEIGHT = -2.0
-    const val ROUTE_TURN_PENALTY_WEIGHT = -1.5
-    const val ROUTE_NOVELTY_WEIGHT = -0.5
-    const val ROUTE_DIRECTION_WEIGHT = 2.0
-    const val ROUTE_STRAIGHT_ANGLE_THRESHOLD = 30.0
-    const val ROUTE_STRAIGHT_SPEED_THRESHOLD = 25.0
-    const val ROUTE_TURN_ANGLE_THRESHOLD = 45.0
-    const val ROUTE_SPEED_CAP = 40.0
-    const val ROUTE_MIN_SCORE = 0.01
-    const val ROUTE_REVISIT_PENALTY = 0.1
-    const val ROUTE_RETURN_BUDGET_FACTOR = 1.3
-    const val ROUTE_MAX_CANDIDATES = 10
-    const val ROUTE_DISTANCE_TOLERANCE_TIGHT = 0.10
-    const val ROUTE_DISTANCE_TOLERANCE_RELAXED = 0.15
-    const val ROUTE_MIN_CONFIRMED_EDGES = 100
-    const val ROUTE_DEFAULT_DISTANCE_KM = 40.0
 
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0

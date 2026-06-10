@@ -103,15 +103,6 @@ object GeoUtils {
     }
 
     /**
-     * Calculate the shortest angular distance between two bearings
-     * @return angle difference in degrees [0, 180]
-     */
-    fun angleDifference(a: Double, b: Double): Double {
-        val diff = abs(a - b) % 360
-        return if (diff > 180) 360 - diff else diff
-    }
-
-    /**
      * Calculate fat burn rate in kcal per second based on power
      * Uses polynomial: (a*W² + b*W + c) / 3600, clamped >= 0
      */

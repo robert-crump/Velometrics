@@ -39,8 +39,7 @@ class FastWayHomeServiceTest {
             powerP25 = if (speedMedian != null) 160.0 else null,
             powerP75 = if (speedMedian != null) 200.0 else null,
             powerP90 = if (speedMedian != null) 220.0 else null,
-            slopePercent = 0.0, traversalCount = if (isTraversed) 5 else 0, lastTraversal = null, timeOfDayDist = null,
-            stopCount = null, avgStopDurationS = null, stopProbability = null, estimatedStopTimeS = null
+            slopePercent = 0.0, traversalCount = if (isTraversed) 5 else 0, lastTraversal = null, timeOfDayDist = null
         )
     }
 

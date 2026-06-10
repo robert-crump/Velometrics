@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 interface MapGraphRepository {
     fun getAllEdges(): Flow<List<MapEdge>>
     fun getAllNodes(): Flow<List<MapNode>>
+    suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>): List<MapEdge>
     suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapEdge>
     suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapNode>
     fun getTraversedEdges(): Flow<List<MapEdge>>

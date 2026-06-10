@@ -36,11 +36,12 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> {
         return combine(
             dao.getAll(),
-            intervalRepository.getAllIntervals(),
-            mapGraphRepository.getAllEdges()
-        ) { entities, intervals, edges ->
+            intervalRepository.getAllIntervals()
+        ) { entities, intervals ->
             val intervalMap = intervals.associateBy { it.id }
-            val edgeMap = buildEdgeMap(edges)
+            if (entities.isEmpty()) return@combine emptyList()
+            val allEdgeRefs = entities.flatMap { parseEdgeRefs(it.edges) }.distinct()
+            val edgeMap = mapGraphRepository.getEdgesByNodePairs(allEdgeRefs).associateBy { it.fromNode to it.toNode }
             entities.mapNotNull { entity -> entityToDomain(entity, intervalMap, edgeMap) }
         }
     }
@@ -48,12 +49,10 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     override fun getRepeatedIntervalById(id: Long): Flow<RepeatedInterval?> =
         dao.getByIdFlow(id).flatMapLatest { entity ->
             if (entity == null) flowOf(null)
-            else combine(
-                intervalRepository.getAllIntervals(),
-                mapGraphRepository.getAllEdges()
-            ) { intervals, edges ->
+            else intervalRepository.getAllIntervals().map { intervals ->
                 val intervalMap = intervals.associateBy { it.id }
-                val edgeMap = buildEdgeMap(edges)
+                val edgeRefs = parseEdgeRefs(entity.edges)
+                val edgeMap = mapGraphRepository.getEdgesByNodePairs(edgeRefs).associateBy { it.fromNode to it.toNode }
                 entityToDomain(entity, intervalMap, edgeMap)
             }
         }
@@ -61,7 +60,8 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     override suspend fun getAllRepeatedIntervalsList(): List<RepeatedInterval> {
         val entities = dao.getAllList()
         val intervalMap = intervalRepository.getAllIntervals().first().associateBy { it.id }
-        val edgeMap = buildEdgeMap(mapGraphRepository.getAllEdges().first())
+        val allEdgeRefs = entities.flatMap { parseEdgeRefs(it.edges) }.distinct()
+        val edgeMap = mapGraphRepository.getEdgesByNodePairs(allEdgeRefs).associateBy { it.fromNode to it.toNode }
         return entities.mapNotNull { entityToDomain(it, intervalMap, edgeMap) }
     }
 
@@ -86,9 +86,6 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     override suspend fun deleteAll() {
         dao.deleteAll()
     }
-
-    private fun buildEdgeMap(edges: List<MapEdge>): Map<Pair<Long, Long>, MapEdge> =
-        edges.associateBy { it.fromNode to it.toNode }
 
     private fun entityToDomain(
         entity: RepeatedIntervalEntity,

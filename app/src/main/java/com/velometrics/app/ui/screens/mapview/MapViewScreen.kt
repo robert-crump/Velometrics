@@ -70,6 +70,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
@@ -266,6 +267,26 @@ fun MapViewScreen(
         }
     }
 
+    // Finish-line marker for selected GPX POI — rendered at the highest layer
+    LaunchedEffect(selectedPoiItem, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        try { ms.second.removeLayer("poi-finish-layer") } catch (_: Exception) {}
+        try { ms.second.removeSource("poi-finish-source") } catch (_: Exception) {}
+        val item = selectedPoiItem ?: return@LaunchedEffect
+        val point = Point.fromLngLat(item.poiWD.poi.lon, item.poiWD.poi.lat)
+        val feature = Feature.fromGeometry(point)
+        val source = GeoJsonSource("poi-finish-source", feature)
+        ms.second.addSource(source)
+        val layer = SymbolLayer("poi-finish-layer", "poi-finish-source").withProperties(
+            PropertyFactory.textField("🏁"),
+            PropertyFactory.textSize(32f),
+            PropertyFactory.textAnchor("bottom"),
+            PropertyFactory.textAllowOverlap(true),
+            PropertyFactory.textIgnorePlacement(true)
+        )
+        ms.second.addLayer(layer)
+    }
+
     // Camera fit when a POI is selected
     LaunchedEffect(selectedPoiItem, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
@@ -437,14 +458,22 @@ fun MapViewScreen(
                     FilterChip(
                         selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
                         onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
-                        label = { Text(MapViewViewModel.ALL_POIS_CHIP) }
+                        label = { Text(MapViewViewModel.ALL_POIS_CHIP) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        )
                     )
                 }
                 items(availablePoiCategories) { category ->
                     FilterChip(
                         selected = activePoiChip == category,
                         onClick = { viewModel.selectPoiChip(category) },
-                        label = { Text(category) }
+                        label = { Text(category) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        )
                     )
                 }
             }
@@ -455,7 +484,11 @@ fun MapViewScreen(
                     FilterChip(
                         selected = false,
                         onClick = { showGpxPoisSheet = true },
-                        label = { Text("Show POIs along .gpx") }
+                        label = { Text("POIs along .gpx") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        )
                     )
                 }
             }

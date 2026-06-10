@@ -16,6 +16,9 @@ interface MapEdgeDao {
     @Query("SELECT * FROM map_edges WHERE is_traversed = 0")
     fun getUntraversed(): Flow<List<MapEdgeEntity>>
 
+    @Query("SELECT * FROM map_edges WHERE from_node IN (:fromNodes)")
+    suspend fun getEdgesByFromNodes(fromNodes: List<Long>): List<MapEdgeEntity>
+
     @Query(
         """
         SELECT DISTINCT e.* FROM map_edges e

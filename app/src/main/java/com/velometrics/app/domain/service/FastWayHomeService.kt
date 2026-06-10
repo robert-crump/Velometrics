@@ -7,8 +7,6 @@ import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.PolylineDecoder
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.maplibre.android.geometry.LatLng
 import java.util.PriorityQueue
 import javax.inject.Inject
@@ -20,6 +18,14 @@ data class FastWayHomeResult(
     val avg: RideEstimate,
     val fast: RideEstimate,
     val anySegmentsEstimated: Boolean
+)
+
+private data class Connectivity(
+    val edgeByIndex: Map<Int, MapEdge>,
+    val adjacency: Map<Int, List<Int>>,
+    val edgeStartPoints: Map<Int, LatLng>,
+    val edgeEndPoints: Map<Int, LatLng>,
+    val edgeStatsByIndex: Map<Int, EdgeStats>
 )
 
 /**
@@ -35,34 +41,21 @@ class FastWayHomeService @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository
 ) {
 
-    private val mutex = Mutex()
-    private var edgeByIndex: Map<Int, MapEdge>? = null
-    private var adjacency: Map<Int, List<Int>>? = null
-    private var edgeStartPoints: Map<Int, LatLng>? = null
-    private var edgeEndPoints: Map<Int, LatLng>? = null
-    private var edgeStatsByIndex: Map<Int, EdgeStats>? = null
-
-    suspend fun invalidate() {
-        mutex.withLock {
-            edgeByIndex = null
-            adjacency = null
-            edgeStartPoints = null
-            edgeEndPoints = null
-            edgeStatsByIndex = null
-        }
-    }
-
     suspend fun findFastWayHome(start: LatLng): FastWayHomeResult? {
-        ensureConnectivity()
-
-        val edges = edgeByIndex ?: return null
-        val startPoints = edgeStartPoints ?: return null
-        val statsByIndex = edgeStatsByIndex ?: return null
-
         val targetLat = userSettingsRepository.homeLat.first()
         val targetLon = userSettingsRepository.homeLon.first()
 
-        val startCandidates = startPoints.entries.filter { (_, pt) ->
+        // The full road graph is 500K+ edges — far too large to load in one go (decoding every
+        // polyline and parsing its metadata blows the heap, #46). Query only the slice of the
+        // graph spanning the start and home locations, with a margin generous enough to cover
+        // routes that first move away from home before heading back towards it.
+        val bbox = TrackGeometryUtils.computeBoundingBox(
+            listOf(start, LatLng(targetLat, targetLon)),
+            CyclingConstants.FAST_WAY_HOME_BBOX_MARGIN_M
+        )
+        val connectivity = buildConnectivity(bbox)
+
+        val startCandidates = connectivity.edgeStartPoints.entries.filter { (_, pt) ->
             GeoUtils.haversineDistance(start.latitude, start.longitude, pt.latitude, pt.longitude) <=
                 CyclingConstants.ROUTE_START_RADIUS_M
         }
@@ -72,8 +65,11 @@ class FastWayHomeService @Inject constructor(
             GeoUtils.haversineDistance(start.latitude, start.longitude, it.value.latitude, it.value.longitude)
         }?.key ?: return null
 
-        val pathIndices = aStarToHome(fromIdx, targetLat, targetLon) ?: return null
+        val pathIndices = aStarToHome(connectivity, fromIdx, targetLat, targetLon) ?: return null
         val fullIndices = listOf(fromIdx) + pathIndices
+
+        val edges = connectivity.edgeByIndex
+        val statsByIndex = connectivity.edgeStatsByIndex
 
         val path = fullIndices.mapNotNull { edges[it] }
         if (path.isEmpty()) return null
@@ -98,24 +94,17 @@ class FastWayHomeService @Inject constructor(
         )
     }
 
-    private suspend fun ensureConnectivity() {
-        mutex.withLock {
-            if (edgeByIndex != null && adjacency != null) return
-            buildConnectivity()
-        }
-    }
-
-    private suspend fun buildConnectivity() {
-        val allEdges = repository.getAllEdges().first()
-        val allNodes = repository.getAllNodes().first()
-        val nMap = allNodes.associateBy { it.id }
+    private suspend fun buildConnectivity(bbox: BoundingBox): Connectivity {
+        val edgesList = repository.getEdgesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
+        val nodesList = repository.getNodesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
+        val nMap = nodesList.associateBy { it.id }
 
         val edgesByIdx = mutableMapOf<Int, MapEdge>()
         val startPts = mutableMapOf<Int, LatLng>()
         val endPts = mutableMapOf<Int, LatLng>()
         val bearings = mutableMapOf<Int, Double>()
 
-        allEdges.forEachIndexed { idx, edge ->
+        edgesList.forEachIndexed { idx, edge ->
             edgesByIdx[idx] = edge
             val decoded = PolylineDecoder.decode(edge.geometryEncoded)
             if (decoded.size >= 2) {
@@ -138,26 +127,28 @@ class FastWayHomeService @Inject constructor(
 
         // Build adjacency from graph topology (fromNode -> toNode), same as RoutePlanner
         val edgesByFromNode = mutableMapOf<Long, MutableList<Int>>()
-        allEdges.forEachIndexed { idx, edge ->
+        edgesList.forEachIndexed { idx, edge ->
             edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
         }
         val adj = mutableMapOf<Int, MutableList<Int>>()
-        allEdges.forEachIndexed { idx, edge ->
+        edgesList.forEachIndexed { idx, edge ->
             val successors = edgesByFromNode[edge.toNode] ?: return@forEachIndexed
             val filtered = successors.filter { it != idx }
             if (filtered.isNotEmpty()) adj[idx] = filtered.toMutableList()
         }
 
         val statsByIdx = mutableMapOf<Int, EdgeStats>()
-        allEdges.forEachIndexed { idx, edge ->
+        edgesList.forEachIndexed { idx, edge ->
             statsByIdx[idx] = statsFor(idx, edge, endPts, bearings)
         }
 
-        edgeByIndex = edgesByIdx
-        edgeStartPoints = startPts
-        edgeEndPoints = endPts
-        adjacency = adj
-        edgeStatsByIndex = statsByIdx
+        return Connectivity(
+            edgeByIndex = edgesByIdx,
+            adjacency = adj,
+            edgeStartPoints = startPts,
+            edgeEndPoints = endPts,
+            edgeStatsByIndex = statsByIdx
+        )
     }
 
     /**
@@ -199,15 +190,17 @@ class FastWayHomeService @Inject constructor(
      * speed, keeping it admissible for the time-based cost.
      */
     private fun aStarToHome(
+        connectivity: Connectivity,
         fromIdx: Int,
         targetLat: Double,
         targetLon: Double
     ): List<Int>? {
-        val adj = adjacency ?: return null
-        val edges = edgeByIndex ?: return null
-        val stats = edgeStatsByIndex ?: return null
+        val adj = connectivity.adjacency
+        val edges = connectivity.edgeByIndex
+        val stats = connectivity.edgeStatsByIndex
+        val edgeEndPoints = connectivity.edgeEndPoints
 
-        val endPt = edgeEndPoints?.get(fromIdx) ?: return null
+        val endPt = edgeEndPoints[fromIdx] ?: return null
 
         data class Node(val idx: Int, val gCost: Double, val fCost: Double)
 
@@ -236,7 +229,7 @@ class FastWayHomeService @Inject constructor(
             if (currentIdx in closedSet) continue
             closedSet.add(currentIdx)
 
-            val curEndPt = edgeEndPoints?.get(currentIdx)
+            val curEndPt = edgeEndPoints[currentIdx]
             if (curEndPt != null) {
                 val distToTarget = GeoUtils.haversineDistance(
                     curEndPt.latitude, curEndPt.longitude, targetLat, targetLon
@@ -270,7 +263,7 @@ class FastWayHomeService @Inject constructor(
 
                 gCosts[succIdx] = newG
                 cameFrom[succIdx] = currentIdx
-                val succEnd = edgeEndPoints?.get(succIdx)
+                val succEnd = edgeEndPoints[succIdx]
                 val h = if (succEnd != null) timeHeuristicSec(succEnd.latitude, succEnd.longitude) else 0.0
                 openSet.add(Node(succIdx, newG, newG + h))
             }

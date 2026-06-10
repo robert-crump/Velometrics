@@ -42,6 +42,7 @@ import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
+import com.velometrics.app.ui.intent.GpxIntentViewModel
 import com.velometrics.app.ui.shared.GpxSharedViewModel
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
@@ -86,7 +87,8 @@ private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 fun MapViewScreen(
     viewModel: MapViewViewModel = hiltViewModel(),
     fastWayHomeViewModel: FastWayHomeViewModel = hiltViewModel(),
-    gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
+    gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalContext.current as ComponentActivity),
+    gpxIntentViewModel: GpxIntentViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
 ) {
     val edges by viewModel.allEdges.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
@@ -136,6 +138,7 @@ fun MapViewScreen(
     val locationAvailable by gpxSharedViewModel.locationAvailable.collectAsState()
     val selectedPoiItem by gpxSharedViewModel.selectedPoiItem.collectAsState()
     val gpxSegmentPoints by gpxSharedViewModel.gpxSegmentPoints.collectAsState()
+    val pendingGpxUri by gpxIntentViewModel.pendingGpxUri.collectAsState()
 
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -146,6 +149,13 @@ fun MapViewScreen(
     }
 
     val context = LocalContext.current
+
+    // Load a GPX file opened from another app (ACTION_VIEW / ACTION_SEND)
+    LaunchedEffect(pendingGpxUri) {
+        val uri = pendingGpxUri ?: return@LaunchedEffect
+        gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
+        gpxIntentViewModel.consumePendingUri()
+    }
 
     var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
     var showGpxPoisSheet by remember { mutableStateOf(false) }

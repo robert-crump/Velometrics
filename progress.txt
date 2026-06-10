@@ -1,3 +1,19 @@
+## Issue #44 — Open GPX files from external apps directly into the Map tab
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+- `MainActivity.kt` — when a pending GPX URI is set, navigate to `Screen.MapView.route`
+  instead of the now-removed `Screen.Navigation.route` target.
+- `MapViewScreen.kt` — injects `GpxIntentViewModel` (Activity-scoped via
+  `hiltViewModel(LocalContext.current as ComponentActivity)`, same pattern as
+  `GpxSharedViewModel`). A new `LaunchedEffect(pendingGpxUri)` calls
+  `gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)` to load the track/POIs
+  onto the map, then `gpxIntentViewModel.consumePendingUri()` so it isn't reloaded on
+  recomposition or re-navigation.
+- Opening a `.gpx` file via `ACTION_VIEW`/`ACTION_SEND` now lands on the Map tab with the
+  track and its POIs loaded, same as the in-app "Load GPX" picker.
+
 ## Issue #43 — Add Fast Way Home to the Map tab
 Completed: 2026-06-10 | Closed: pending
 

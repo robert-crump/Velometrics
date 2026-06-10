@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(pendingUri) {
                     if (pendingUri != null) {
-                        navController.navigate(Screen.Navigation.route) {
+                        navController.navigate(Screen.MapView.route) {
                             launchSingleTop = true
                         }
                     }

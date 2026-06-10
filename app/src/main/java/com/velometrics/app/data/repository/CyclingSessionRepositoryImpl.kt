@@ -2,6 +2,7 @@
 
 import com.velometrics.app.data.local.dao.CyclingSessionDao
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.util.toDomain
@@ -18,6 +19,12 @@ class CyclingSessionRepositoryImpl @Inject constructor(
 
     override fun getAllSessions(): Flow<List<CyclingSession>> {
         return dao.getAllSessions().map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun getAllSessionSummaries(): Flow<List<CyclingSessionSummary>> {
+        return dao.getAllSessionSummaries().map { entities ->
             entities.map { it.toDomain() }
         }
     }

@@ -1,11 +1,13 @@
 ﻿package com.velometrics.app.domain.repository
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import kotlinx.coroutines.flow.Flow
 
 interface CyclingSessionRepository {
     fun getAllSessions(): Flow<List<CyclingSession>>
+    fun getAllSessionSummaries(): Flow<List<CyclingSessionSummary>>
     fun getRecentSessions(limit: Int): Flow<List<CyclingSession>>
     fun getSessionsByIds(ids: List<Long>): Flow<List<CyclingSession>>
     suspend fun getSessionById(id: Long): CyclingSession?

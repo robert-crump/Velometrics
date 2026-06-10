@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.util
 
+import com.velometrics.app.data.local.dao.CyclingSessionSummaryEntity
 import com.velometrics.app.data.local.entity.*
 import com.velometrics.app.domain.model.*
 import com.google.gson.Gson
@@ -72,6 +73,17 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         fatEfficiencyScore = fatEfficiencyScore,
         sprintCount = sprintCount,
         sprintHistogram = sprintHistogram?.let { gson.toJson(it) }
+    )
+}
+
+fun CyclingSessionSummaryEntity.toDomain(): CyclingSessionSummary {
+    return CyclingSessionSummary(
+        id = id,
+        sessionStart = Instant.ofEpochMilli(sessionStart),
+        distanceKm = distanceKm,
+        netDurationSec = netDurationSec,
+        averagePower = averagePower,
+        hasPower = hasPower
     )
 }
 

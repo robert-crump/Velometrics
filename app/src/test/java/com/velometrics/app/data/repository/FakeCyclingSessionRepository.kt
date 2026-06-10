@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.data.repository
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import kotlinx.coroutines.flow.Flow
@@ -11,6 +12,19 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
     val sessions = mutableListOf<CyclingSession>()
 
     override fun getAllSessions(): Flow<List<CyclingSession>> = flowOf(sessions.toList())
+
+    override fun getAllSessionSummaries(): Flow<List<CyclingSessionSummary>> = flowOf(
+        sessions.map {
+            CyclingSessionSummary(
+                id = it.id,
+                sessionStart = it.sessionStart,
+                distanceKm = it.distanceKm,
+                netDurationSec = it.netDurationSec,
+                averagePower = it.averagePower,
+                hasPower = it.hasPower
+            )
+        }
+    )
 
     override fun getRecentSessions(limit: Int): Flow<List<CyclingSession>> =
         flowOf(sessions.sortedByDescending { it.sessionStart }.take(limit))

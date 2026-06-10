@@ -10,6 +10,15 @@ data class SessionIdAndTrack(
     @ColumnInfo(name = "gpsTrack") val gpsTrack: String?
 )
 
+data class CyclingSessionSummaryEntity(
+    @ColumnInfo(name = "id") val id: Long,
+    @ColumnInfo(name = "sessionStart") val sessionStart: Long,
+    @ColumnInfo(name = "distanceKm") val distanceKm: Double,
+    @ColumnInfo(name = "netDurationSec") val netDurationSec: Int,
+    @ColumnInfo(name = "averagePower") val averagePower: Int?,
+    @ColumnInfo(name = "hasPower") val hasPower: Boolean
+)
+
 @Dao
 interface CyclingSessionDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -23,6 +32,9 @@ interface CyclingSessionDao {
 
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC")
     fun getAllSessions(): Flow<List<CyclingSessionEntity>>
+
+    @Query("SELECT id, sessionStart, distanceKm, netDurationSec, averagePower, hasPower FROM cycling_sessions ORDER BY sessionStart DESC")
+    fun getAllSessionSummaries(): Flow<List<CyclingSessionSummaryEntity>>
 
     @Query("SELECT * FROM cycling_sessions WHERE id = :id")
     suspend fun getById(id: Long): CyclingSessionEntity?

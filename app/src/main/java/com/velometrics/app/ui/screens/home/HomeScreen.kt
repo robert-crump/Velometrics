@@ -45,7 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import kotlin.math.roundToInt
-import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.util.FormatUtils
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -545,7 +545,7 @@ private fun MonthlyLineChart(
 }
 
 @Composable
-private fun SessionCard(session: CyclingSession, onClick: () -> Unit) {
+private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 

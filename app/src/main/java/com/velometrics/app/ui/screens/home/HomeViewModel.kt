@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
-import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.di.ApplicationScope
 import com.velometrics.app.domain.service.RouteClusteringService
@@ -68,7 +68,7 @@ class HomeViewModel @Inject constructor(
     private val _isInitialLoading = MutableStateFlow(true)
     val isInitialLoading: StateFlow<Boolean> = _isInitialLoading.asStateFlow()
 
-    val sessions: StateFlow<List<CyclingSession>> = sessionRepository.getAllSessions()
+    val sessions: StateFlow<List<CyclingSessionSummary>> = sessionRepository.getAllSessionSummaries()
         .onEach { _isInitialLoading.value = false }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

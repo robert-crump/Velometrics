@@ -1,3 +1,28 @@
+## Issue #43 — Add Fast Way Home to the Map tab
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**New files** (`ui/screens/mapview/`)
+- `FastWayHomeViewModel.kt` — ported from `NavigationViewModel`, dropping the dead
+  `offTrackDialogKm` state. `findFastWayHome()` now takes the current location as a
+  parameter (`LatLng?`) instead of taking its own GPS fix, so it reuses
+  `MapViewViewModel.currentLocation`.
+- `FastWayHomeOverlay.kt` — `FastWayHomeCard` / `FastWayHomeEstimateRow` composables plus
+  `renderHomeMarker` / `removeHomeMarker` helpers and the `FAST_WAY_HOME_TRACK_ID` constant,
+  ported from `NavigationScreen.kt` (made non-private so `MapViewScreen` can use them).
+
+**`MapViewScreen.kt`**
+- Injects `FastWayHomeViewModel` alongside the existing `MapViewViewModel`.
+- New FAB (Home icon) in the bottom-right stack, ordered locate-me → fast-way-home → layers.
+- New `LaunchedEffect` mirrors the Navigate tab's route+marker rendering: draws the FWH
+  polyline and home marker (`FAST_WAY_HOME_TRACK_*` constants) and eases the camera to fit.
+- `FastWayHomeCard` placed at `BottomCenter` (loading / result / message states); while
+  showing, it takes priority and hides `PoiPopupCard`. Dismissing (X) clears both the card
+  and the map overlay; no other map interaction auto-clears it.
+- Navigate tab (`NavigationScreen`/`NavigationViewModel`) left unchanged, to be removed in a
+  follow-up issue.
+
 ## Issue #42 — Modify Repeated Interval Detail Screen
 Completed: 2026-06-10 | Closed: pending
 

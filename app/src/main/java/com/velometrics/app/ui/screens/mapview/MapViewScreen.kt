@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.OpenInNew
@@ -47,6 +48,7 @@ import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
+import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
@@ -58,6 +60,7 @@ import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
+import com.velometrics.app.util.PolylineDecoder
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlinx.coroutines.withContext
@@ -82,6 +85,7 @@ private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 @Composable
 fun MapViewScreen(
     viewModel: MapViewViewModel = hiltViewModel(),
+    fastWayHomeViewModel: FastWayHomeViewModel = hiltViewModel(),
     gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
 ) {
     val edges by viewModel.allEdges.collectAsState()
@@ -112,6 +116,13 @@ fun MapViewScreen(
 
     val currentLocation by viewModel.currentLocation.collectAsState()
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
+
+    // Fast Way Home state
+    val fastWayHomeResult by fastWayHomeViewModel.fastWayHomeResult.collectAsState()
+    val fastWayHomeMessage by fastWayHomeViewModel.fastWayHomeMessage.collectAsState()
+    val isFindingFastWayHome by fastWayHomeViewModel.isFindingFastWayHome.collectAsState()
+    val fastWayHomeLocation by fastWayHomeViewModel.homeLocation.collectAsState()
+    val showFastWayHomeCard = isFindingFastWayHome || fastWayHomeResult != null || fastWayHomeMessage != null
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -149,6 +160,7 @@ fun MapViewScreen(
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
+    var fastWayHomeRendered by remember { mutableStateOf(false) }
     var fineLocationZoomedIn by remember { mutableStateOf(false) }
 
     val gpxPoisListState = rememberLazyListState()
@@ -265,6 +277,32 @@ fun MapViewScreen(
             MapTrackRenderer.addTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID, gpxSegmentPoints, FAST_WAY_HOME_TRACK_COLOR, NAV_TRACK_WIDTH)
             gpxSegmentRendered = true
         }
+    }
+
+    // Fast Way Home overlay sync (route line + home marker)
+    LaunchedEffect(fastWayHomeResult, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        if (fastWayHomeRendered) {
+            try { MapTrackRenderer.removeTrack(ms.second, FAST_WAY_HOME_TRACK_ID) } catch (_: Exception) {}
+            removeHomeMarker(ms.second)
+            fastWayHomeRendered = false
+        }
+        val result = fastWayHomeResult ?: return@LaunchedEffect
+        val points = result.path.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+        if (points.size < 2) return@LaunchedEffect
+        MapTrackRenderer.addTrack(
+            ms.second, FAST_WAY_HOME_TRACK_ID, points,
+            FAST_WAY_HOME_TRACK_COLOR, FAST_WAY_HOME_TRACK_WIDTH
+        )
+        fastWayHomeLocation?.let { renderHomeMarker(ms.second, it) }
+        fastWayHomeRendered = true
+        val bounds = LatLngBounds.Builder().apply {
+            points.forEach { include(it) }
+            fastWayHomeLocation?.let { include(it) }
+        }.build()
+        ms.first.easeCamera(
+            CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600
+        )
     }
 
     // Finish-line marker for selected GPX POI — rendered at the highest layer
@@ -494,18 +532,33 @@ fun MapViewScreen(
             }
         }
 
-        // POI popup card
-        selectedPoi?.let { poiWD ->
-            PoiPopupCard(
-                poiWithDistances = poiWD,
-                onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+        // POI popup card (hidden while Fast Way Home card is showing)
+        if (!showFastWayHomeCard) {
+            selectedPoi?.let { poiWD ->
+                PoiPopupCard(
+                    poiWithDistances = poiWD,
+                    onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
+                )
+            }
+        }
+
+        // Fast Way Home result card
+        if (showFastWayHomeCard) {
+            FastWayHomeCard(
+                result = fastWayHomeResult,
+                message = fastWayHomeMessage,
+                isLoading = isFindingFastWayHome,
+                onDismiss = { fastWayHomeViewModel.clearFastWayHome() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
             )
         }
 
-        // Stacked FABs - bottom right: locate-me above layers
+        // Stacked FABs - bottom right: locate-me, fast-way-home, layers
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -526,6 +579,11 @@ fun MapViewScreen(
                 }
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
+            }
+            SmallFloatingActionButton(
+                onClick = { fastWayHomeViewModel.findFastWayHome(currentLocation) }
+            ) {
+                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
             }
             FloatingActionButton(onClick = { showBottomSheet = true }) {
                 Icon(Icons.Default.Layers, contentDescription = "Toggle layers")

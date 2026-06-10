@@ -554,7 +554,7 @@ fun MapViewScreen(
             }
         }
 
-        // Stacked FABs - bottom right: locate-me, fast-way-home, layers
+        // Stacked FABs - bottom right: fast-way-home above locate-me
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -562,7 +562,14 @@ fun MapViewScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SmallFloatingActionButton(
+            FloatingActionButton(
+                onClick = {
+                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
+                }
+            ) {
+                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
+            }
+            FloatingActionButton(
                 onClick = {
                     viewModel.startLocationUpdates()
                     val loc = currentLocation
@@ -576,16 +583,18 @@ fun MapViewScreen(
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
             }
-            SmallFloatingActionButton(
-                onClick = {
-                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
-                }
-            ) {
-                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
-            }
-            FloatingActionButton(onClick = { showBottomSheet = true }) {
-                Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
-            }
+        }
+
+        // Layers FAB - fixed position below the POI category chip row, right-aligned
+        // with the bottom-right FAB stack. Does not reflow with the GPX POI chip row.
+        SmallFloatingActionButton(
+            onClick = { showBottomSheet = true },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 56.dp, end = 16.dp)
+        ) {
+            Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
         }
     }
     } // BottomSheetScaffold content

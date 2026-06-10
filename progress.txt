@@ -1,3 +1,22 @@
+## Issue #52 — [Map] FAB layout redesign (Locate Me, Home, Layers)
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**`MapViewScreen.kt`**
+- Bottom-right FAB stack now contains the Home (Find Fast Way Home) and
+  Locate Me FABs as standard `FloatingActionButton`s (56dp), with Home above
+  Locate Me (Locate Me is the lowest/first FAB).
+- The Layers FAB is now a `SmallFloatingActionButton` (40dp) in a fixed
+  position: top-end of the screen, below the POI category chip row,
+  right-aligned with the bottom-right FAB stack. It no longer reflows when
+  the optional GPX POI chip row appears, and its onClick behavior (opening
+  the layers bottom sheet) is unchanged.
+
+### Tests
+`compileDebugKotlin` passes. No existing unit/UI tests reference the FAB
+layout, so none required updating.
+
 ## Issue #51 — [Map] Remove Stop Spots layer
 Completed: 2026-06-10 | Closed: pending
 

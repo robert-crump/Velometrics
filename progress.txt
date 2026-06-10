@@ -296,3 +296,37 @@ in-screen overlay confined to the `MapViewScreen` content `Box`:
 
 ### Tests
 All unit tests pass. `compileDebugKotlin` succeeds.
+
+## Issue #57 — Dead code sweep: find and remove other unused files/functions
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+Follow-up to #50. Ran a search-agent sweep plus manual grep verification across all
+132 main-source Kotlin files for zero-reference classes/functions, excluding Hilt DI,
+Compose nav, and Room false positives. Removed:
+
+- `util/FormatUtils.kt`: removed unused `formatDateShort()` and its private
+  `dateShortFormatter`.
+- `util/GeoUtils.kt`: removed unused `latToMeters()`, `lonToMeters()`, and
+  `compassDirection()`.
+- `ui/components/CaloriesCard.kt`: deleted — composable with zero call sites.
+- `ui/components/ComparisonCard.kt`: deleted — composable with zero call sites
+  (session comparison is now rendered inline in `RideSummaryGrid` in
+  `SessionDetailScreen.kt` via `SessionComparison` directly).
+- `ui/components/SpeedHistogramChart.kt`: removed unused `SpeedHistogramChart()`
+  overload (only `SpeedHistogramChartAvg()` is used, by `RepeatedRouteDetailScreen`).
+- `data/graphimport/GraphJsonImporter.kt`, `data/graphimport/PoiJsonImporter.kt`:
+  deleted — `@Singleton @Inject` scaffolding classes with an `import()` method that
+  was never called from anywhere.
+- `di/GraphBuilderModule.kt`: deleted — empty file containing only a stale comment
+  referencing the removed `RoutePlanner` (#50) and the two importers above; not a
+  real Hilt `@Module` and not referenced anywhere.
+
+Verified `RTreeSpatialIndex`, `TrackIndex`, `SessionComparator`, `IntervalSimilarity`,
+`SprintDetector`, `RouteClusteringService`, `IntervalClusteringService`,
+`IntervalMatcher`, `NominatimService`/`NominatimResult`, `OpeningHoursUtils`, and the
+chart/renderer composables are all still in use — kept as-is.
+
+### Tests
+All unit tests pass. `compileDebugKotlin` and `compileDebugUnitTestKotlin` succeed.

@@ -26,17 +26,6 @@ private val barColors = listOf(
 
 private val shortLabels = listOf("0-5", "5-10", "10-20", "20-25", "25-30", "30-35", "35-40", ">40")
 
-/** Displays the speed distribution from a raw histogram (seconds per bin). */
-@Composable
-fun SpeedHistogramChart(speedHistogram: Map<String, Int>) {
-    val bins = CyclingConstants.SPEED_HISTOGRAM_BINS.map { it.first }
-    val total = speedHistogram.values.sum().coerceAtLeast(1)
-    val percentages = bins.associateWith { binName ->
-        (speedHistogram[binName] ?: 0).toFloat() / total * 100f
-    }
-    SpeedHistogramChartContent(percentages)
-}
-
 /** Displays the speed distribution from pre-computed average percentages per bin (0–100 scale). */
 @Composable
 fun SpeedHistogramChartAvg(percentages: Map<String, Float>) {

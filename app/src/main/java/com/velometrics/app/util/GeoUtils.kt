@@ -38,20 +38,6 @@ object GeoUtils {
     }
 
     /**
-     * Convert latitude difference to meters
-     */
-    fun latToMeters(latDiff: Double): Double {
-        return latDiff * METERS_PER_DEG_LAT
-    }
-
-    /**
-     * Convert longitude difference to meters at given reference latitude
-     */
-    fun lonToMeters(lonDiff: Double, refLat: Double): Double {
-        return lonDiff * metersPerDegLon(refLat)
-    }
-
-    /**
      * Convert meters to latitude difference
      */
     fun metersToLat(meters: Double): Double {
@@ -82,24 +68,6 @@ object GeoUtils {
         val bearingDeg = Math.toDegrees(bearingRad)
 
         return (bearingDeg + 360) % 360
-    }
-
-    /**
-     * Convert bearing to compass direction
-     * @return "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"
-     */
-    fun compassDirection(bearing: Double): String {
-        return when {
-            bearing < 22.5 -> "north"
-            bearing < 67.5 -> "northeast"
-            bearing < 112.5 -> "east"
-            bearing < 157.5 -> "southeast"
-            bearing < 202.5 -> "south"
-            bearing < 247.5 -> "southwest"
-            bearing < 292.5 -> "west"
-            bearing < 337.5 -> "northwest"
-            else -> "north"
-        }
     }
 
     /**

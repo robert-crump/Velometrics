@@ -12,9 +12,6 @@ object FormatUtils {
     private val dateFormatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy")
         .withZone(ZoneId.systemDefault())
 
-    private val dateShortFormatter = DateTimeFormatter.ofPattern("dd MMM")
-        .withZone(ZoneId.systemDefault())
-
     fun formatDurationHhMm(totalSeconds: Int): String {
         val h = totalSeconds / 3600
         val m = (totalSeconds % 3600) / 60
@@ -47,8 +44,6 @@ object FormatUtils {
     fun formatPower(watts: Int): String = "$watts W"
 
     fun formatDate(instant: Instant): String = dateFormatter.format(instant)
-
-    fun formatDateShort(instant: Instant): String = dateShortFormatter.format(instant)
 
     fun formatComparison(
         currentValue: Number,

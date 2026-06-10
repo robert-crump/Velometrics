@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
@@ -163,7 +165,7 @@ fun MapViewScreen(
     }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
-    var showBottomSheet by remember { mutableStateOf(false) }
+    var showLayersPanel by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
@@ -596,7 +598,7 @@ fun MapViewScreen(
         // Layers FAB - fixed position below the POI category chip row, right-aligned
         // with the bottom-right FAB stack. Does not reflow with the GPX POI chip row.
         SmallFloatingActionButton(
-            onClick = { showBottomSheet = true },
+            onClick = { showLayersPanel = true },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
@@ -604,99 +606,121 @@ fun MapViewScreen(
         ) {
             Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
         }
-    }
-    } // BottomSheetScaffold content
 
-    // Bottom sheet (layers)
-    if (showBottomSheet) {
-        val sheetState = rememberModalBottomSheetState()
-
-        ModalBottomSheet(
-            onDismissRequest = { showBottomSheet = false },
-            sheetState = sheetState
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                // --- Overlay controls section ---
-                Text(
-                    text = "Overlays",
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // All Rides toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        // Layers panel overlay — scrim + centered card, confined to this content area so the
+        // bottom navigation bar (outside MapViewScreen) remains tappable while it's open.
+        if (showLayersPanel) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { showLayersPanel = false }
+            ) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {}
                 ) {
-                    Text("All rides (Robert)", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showAllRidesLayer,
-                        onCheckedChange = { viewModel.toggleAllRidesLayer() }
-                    )
-                }
-
-                // Speed Overlay toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Speed Overlay", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showSpeedOverlay,
-                        onCheckedChange = { viewModel.toggleSpeedOverlay() }
-                    )
-                }
-
-                // Intervals toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Intervals", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showIntervalOverlay,
-                        onCheckedChange = { viewModel.toggleIntervalOverlay() }
-                    )
-                }
-
-                // .gpx track toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = gpxTrack != null,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                showLoadGpxConfirmDialog = true
-                            } else {
-                                gpxSharedViewModel.clearGpx()
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Layers",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            IconButton(onClick = { showLayersPanel = false }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close layers panel")
                             }
                         }
-                    )
-                }
 
-                if (showAllRidesLayer || showSpeedOverlay || showIntervalOverlay) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LegendCard(
-                        showAllRides = showAllRidesLayer,
-                        showSpeed = showSpeedOverlay,
-                        showIntervals = showIntervalOverlay,
-                        selectedSpeedCategories = selectedSpeedCategories,
-                        onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
-                    )
-                }
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        // All Rides toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("All rides (Robert)", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showAllRidesLayer,
+                                onCheckedChange = { viewModel.toggleAllRidesLayer() }
+                            )
+                        }
+
+                        // Speed Overlay toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Speed Overlay", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showSpeedOverlay,
+                                onCheckedChange = { viewModel.toggleSpeedOverlay() }
+                            )
+                        }
+
+                        // Intervals toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Intervals", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showIntervalOverlay,
+                                onCheckedChange = { viewModel.toggleIntervalOverlay() }
+                            )
+                        }
+
+                        // .gpx track toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = gpxTrack != null,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        showLoadGpxConfirmDialog = true
+                                    } else {
+                                        gpxSharedViewModel.clearGpx()
+                                    }
+                                }
+                            )
+                        }
+
+                        if (showAllRidesLayer || showSpeedOverlay || showIntervalOverlay) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LegendCard(
+                                showAllRides = showAllRidesLayer,
+                                showSpeed = showSpeedOverlay,
+                                showIntervals = showIntervalOverlay,
+                                selectedSpeedCategories = selectedSpeedCategories,
+                                onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
             }
         }
     }
+    } // BottomSheetScaffold content
 
     if (showLoadGpxConfirmDialog) {
         AlertDialog(

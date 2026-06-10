@@ -248,3 +248,27 @@ Completed: 2026-06-09 | Closed: pending
 
 ### Tests
 All unit tests pass (unchanged count).
+## Issue #55 — [Map] Layers panel: convert bottom sheet to dialog overlay
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+`MapViewScreen.kt` — the "Layers" toggle (formerly the "Overlays" `ModalBottomSheet`) is now an
+in-screen overlay confined to the `MapViewScreen` content `Box`:
+
+- Replaced the `ModalBottomSheet`/`rememberModalBottomSheetState` with a `Box(fillMaxSize)` scrim
+  (32% black, `Color.Black.copy(alpha = 0.32f)`) inside the existing content `Box`, so the
+  bottom navigation bar outside `MapViewScreen` stays tappable while the panel is open.
+- The panel is a `Card` centered via `Alignment.Center` with horizontal padding, so the map
+  remains visible around it.
+- Header changed from "Overlays" to "Layers", with a new `Icons.Default.Close` `IconButton` in
+  the top-right corner to dismiss.
+- Tapping the scrim (`clickable` on the outer `Box`) or the X both set `showLayersPanel = false`.
+  A no-op `clickable` on the `Card` (with `indication = null` and a fresh
+  `MutableInteractionSource`) prevents taps on the panel itself from reaching the scrim.
+- Renamed the `showBottomSheet` state variable to `showLayersPanel` for clarity.
+- The existing GPX POIs `BottomSheetScaffold`/`ModalBottomSheet` (shown via "POIs along .gpx")
+  is untouched.
+
+### Tests
+All unit tests pass. `compileDebugKotlin` succeeds.

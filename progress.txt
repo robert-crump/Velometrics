@@ -508,3 +508,50 @@ Completed: 2026-06-10 | Closed: 2026-06-10
 ### Tests
 `compileDebugKotlin` and `testDebugUnitTest` both pass; no remaining references to
 `Screen.Navigation`, `NavigationScreen`, `NavigationViewModel`, or `NavigationRouteHolder`.
+
+## Issue #41 — Speed up POI lookup for long .gpx files
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**New `TrackIndex` (domain/service/TrackIndex.kt)**
+- Spatial grid (cells sized to `CORRIDOR_M`) + cumulative along-track distances, built once
+  per loaded track via `TrackIndex.build(track.points)`
+- `project(point)` finds candidate segments from the 3x3 grid neighborhood and projects only
+  against those (near-O(1)); falls back to `TrackGeometryUtils.projectPointOntoTrack`'s full
+  O(N) scan if the neighborhood has no candidates (off-route points)
+- `distanceAlongTrack(projection)` is O(1) via the cumulative distance array
+- `TrackGeometryUtils.projectPointOntoSegment` changed from `private` to internal-visibility
+  so `TrackIndex` can reuse it
+
+**DB-side bounding-box prefilter for POIs**
+- `PoiDao.getInBoundingBox(minLat, maxLat, minLon, maxLon)` (mirrors `MapEdgeDao.getNear`'s
+  pattern, simple `WHERE lat/lon BETWEEN` since `pois` has its own coordinates)
+- `MapGraphRepository.getPoisInBoundingBox(...)` / `MapGraphRepositoryImpl` delegates to the
+  new DAO query; `getAllPois()` unchanged (still used for the map POI layer)
+- Added trivial `getPoisInBoundingBox(...) = emptyList()` overrides to the 5 fake
+  `MapGraphRepository` implementations (`RoutePlannerTest`, `MapViewViewModelTest`,
+  `MapMatcherTest`, `FastWayHomeServiceTest`, `EdgeStatsEstimatorTest`)
+
+**`GpxSharedViewModel` wiring**
+- `fetchPoisForTrack`: builds `cachedTrackIndex` once, queries POIs via
+  `getPoisInBoundingBox` (bbox = track bbox + `CORRIDOR_M` buffer) instead of `getAllPois()`,
+  and replaces the redundant double-projection with a single `trackIndex.project(...)` +
+  `trackIndex.distanceAlongTrack(...)` per POI
+- `computePoiItems` and `nearestPointIndex` (used by `computeSegmentPoints`) now use
+  `cachedTrackIndex` for O(1) projection, falling back to the old O(N) scans when no index is
+  cached (track < 2 points). Note: `nearestPointIndex` returns a segment's start index, so the
+  track's final point can never be the "nearest" point — documented as an acceptable
+  approximation for the polyline overlay
+- `cachedTrackIndex` is reset in `clearGpx()`
+
+**Look-back distance chips (MapViewScreen.kt, `GpxPoisSheetContent`)**
+- When "Include POIs you have passed" is on, shows a "Look-back distance:" label and a row of
+  4 `FilterChip`s (5 km / 10 km / 25 km / Whole track), default 5 km, styled like the existing
+  POI category chips
+- `behindItems` filtered by `distanceM <= lookBackKm * 1000` (or unfiltered for "Whole track")
+
+### Tests
+All unit tests pass (175 total; +6 new in `TrackIndexTest` covering on-route/near-route
+projection matching `TrackGeometryUtils`, the empty-grid fallback path, `distanceAlongTrack`
+correctness, and the `track.size >= 2` precondition).

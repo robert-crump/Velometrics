@@ -10,6 +10,7 @@ import com.velometrics.app.domain.model.GpxTrack
 import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.service.TrackGeometryUtils
+import com.velometrics.app.domain.service.TrackIndex
 import com.velometrics.app.domain.service.TrackProjection
 import com.velometrics.app.util.GeoUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,7 +20,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,6 +51,7 @@ class GpxSharedViewModel @Inject constructor(
     val selectedPoiItem: StateFlow<GpxPoiItem?> = _selectedPoiItem.asStateFlow()
 
     private var cachedTrack: List<LatLng> = emptyList()
+    private var cachedTrackIndex: TrackIndex? = null
     private var poiPerpDistances: Map<String, Double> = emptyMap()
 
     val gpxPoiItems: StateFlow<List<GpxPoiItem>> = combine(_gpxPois, _userLocation) { pois, userLoc ->
@@ -87,6 +88,7 @@ class GpxSharedViewModel @Inject constructor(
         _gpxPois.value = emptyList()
         _selectedPoiItem.value = null
         cachedTrack = emptyList()
+        cachedTrackIndex = null
         poiPerpDistances = emptyMap()
     }
 
@@ -95,13 +97,19 @@ class GpxSharedViewModel @Inject constructor(
         val track = cachedTrack
         if (track.size < 2) return pois.map { GpxPoiItem(it, it.trackDistanceM ?: 0.0, true) }
 
+        val trackIndex = cachedTrackIndex
         val startProjection = TrackProjection(0, 0.0, 0.0, track.first())
         val userProjection = if (userLoc != null) {
-            TrackGeometryUtils.projectPointOntoTrack(userLoc, track)
+            trackIndex?.project(userLoc) ?: TrackGeometryUtils.projectPointOntoTrack(userLoc, track)
         } else {
             startProjection
         }
-        val userTrackDistM = TrackGeometryUtils.computeDistanceAlongTrack(track, startProjection, userProjection)
+        val userTrackDistM = if (userLoc != null) {
+            trackIndex?.distanceAlongTrack(userProjection)
+                ?: TrackGeometryUtils.computeDistanceAlongTrack(track, startProjection, userProjection)
+        } else {
+            0.0
+        }
         val perpDistUser = if (userLoc != null) userProjection.distanceFromTrackM else 0.0
 
         return pois.map { poiWD ->
@@ -119,18 +127,20 @@ class GpxSharedViewModel @Inject constructor(
             if (track.points.size < 2) return@launch
             _isLoadingPois.value = true
             cachedTrack = track.points
+            val trackIndex = TrackIndex.build(track.points)
+            cachedTrackIndex = trackIndex
             try {
-                val allRepoPois = mapGraphRepository.getAllPois().first()
+                val bbox = TrackGeometryUtils.computeBoundingBox(track.points, CORRIDOR_M)
+                val candidatePois = mapGraphRepository.getPoisInBoundingBox(bbox.minLat, bbox.maxLat, bbox.minLon, bbox.maxLon)
                 val startPoint = track.points.first()
                 val perpDists = mutableMapOf<String, Double>()
                 val result = withContext(Dispatchers.Default) {
-                    val startProjection = TrackProjection(0, 0.0, 0.0, startPoint)
-                    allRepoPois.mapNotNull { poi ->
-                        val (_, offRoute) = TrackGeometryUtils.projectPoiOntoTrack(poi.lat, poi.lon, track.points)
+                    candidatePois.mapNotNull { poi ->
+                        val projection = trackIndex.project(LatLng(poi.lat, poi.lon))
+                        val offRoute = projection.distanceFromTrackM
                         if (offRoute > CORRIDOR_M) return@mapNotNull null
                         perpDists[poi.poiId] = offRoute
-                        val poiProjection = TrackGeometryUtils.projectPointOntoTrack(LatLng(poi.lat, poi.lon), track.points)
-                        val trackDistM = TrackGeometryUtils.computeDistanceAlongTrack(track.points, startProjection, poiProjection)
+                        val trackDistM = trackIndex.distanceAlongTrack(projection)
                         val airDistM = GeoUtils.haversineDistance(startPoint.latitude, startPoint.longitude, poi.lat, poi.lon)
                         PoiWithDistances(poi, airDistM, trackDistM)
                     }.sortedBy { it.trackDistanceM ?: Double.MAX_VALUE }
@@ -155,8 +165,10 @@ class GpxSharedViewModel @Inject constructor(
         return if (from == to) listOf(track[from]) else track.subList(from, to + 1)
     }
 
+    // segmentIndex is the segment's start index (0..track.size-2), so the track's final
+    // point can never be returned here - an acceptable approximation for this overlay.
     private fun nearestPointIndex(track: List<LatLng>, point: LatLng): Int =
-        track.indices.minByOrNull {
+        cachedTrackIndex?.project(point)?.segmentIndex ?: track.indices.minByOrNull {
             GeoUtils.haversineDistance(
                 track[it].latitude, track[it].longitude,
                 point.latitude, point.longitude

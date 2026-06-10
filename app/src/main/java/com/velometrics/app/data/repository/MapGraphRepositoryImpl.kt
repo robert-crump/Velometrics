@@ -51,6 +51,9 @@ class MapGraphRepositoryImpl @Inject constructor(
     override fun getAllPois(): Flow<List<Poi>> =
         poiDao.getAll().map { list -> list.mapNotNull { it.toDomain() } }
 
+    override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi> =
+        poiDao.getInBoundingBox(minLat, maxLat, minLon, maxLon).mapNotNull { it.toDomain() }
+
     override fun getMetadata(): GraphMetadata? = null
 
     override suspend fun loadGraph(nodes: List<MapNode>, edges: List<MapEdge>, metadata: GraphMetadata) {

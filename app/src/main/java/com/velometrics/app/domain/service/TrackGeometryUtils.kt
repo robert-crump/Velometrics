@@ -191,7 +191,7 @@ object TrackGeometryUtils {
         return result
     }
 
-    private fun projectPointOntoSegment(
+    fun projectPointOntoSegment(
         point: LatLng,
         segStart: LatLng,
         segEnd: LatLng

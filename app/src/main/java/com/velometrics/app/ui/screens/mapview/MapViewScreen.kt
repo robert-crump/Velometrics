@@ -540,6 +540,17 @@ fun MapViewScreen(
                     )
                 }
             }
+
+            // Fast Way Home result card — sits below the chip rows
+            if (showFastWayHomeCard) {
+                FastWayHomeCard(
+                    result = fastWayHomeResult,
+                    message = fastWayHomeMessage,
+                    isLoading = isFindingFastWayHome,
+                    onDismiss = { fastWayHomeViewModel.clearFastWayHome() },
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
         }
 
         // POI popup card (hidden while Fast Way Home card is showing)
@@ -553,19 +564,6 @@ fun MapViewScreen(
                         .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
                 )
             }
-        }
-
-        // Fast Way Home result card
-        if (showFastWayHomeCard) {
-            FastWayHomeCard(
-                result = fastWayHomeResult,
-                message = fastWayHomeMessage,
-                isLoading = isFindingFastWayHome,
-                onDismiss = { fastWayHomeViewModel.clearFastWayHome() },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 16.dp, end = 16.dp, bottom = 80.dp)
-            )
         }
 
         // Stacked FABs - bottom right: locate-me, fast-way-home, layers
@@ -827,9 +825,14 @@ private fun GpxPoisSheetContent(
     context: android.content.Context
 ) {
     var includePassed by remember { mutableStateOf(false) }
+    var lookBackKm by remember { mutableStateOf<Int?>(5) }
 
     val aheadItems = remember(poiItems) { poiItems.filter { it.isAhead }.sortedBy { it.distanceM } }
-    val behindItems = remember(poiItems) { poiItems.filter { !it.isAhead }.sortedBy { it.distanceM } }
+    val behindItems = remember(poiItems, lookBackKm) {
+        poiItems.filter { !it.isAhead }
+            .filter { lookBackKm == null || it.distanceM <= lookBackKm!! * 1000 }
+            .sortedBy { it.distanceM }
+    }
 
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Text(
@@ -851,6 +854,33 @@ private fun GpxPoisSheetContent(
                 checked = includePassed,
                 onCheckedChange = { includePassed = it }
             )
+        }
+        if (includePassed) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Look-back distance:",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val lookBackOptions: List<Pair<String, Int?>> = listOf(
+                    "5 km" to 5,
+                    "10 km" to 10,
+                    "25 km" to 25,
+                    "Whole track" to null
+                )
+                lookBackOptions.forEach { (label, value) ->
+                    FilterChip(
+                        selected = lookBackKm == value,
+                        onClick = { lookBackKm = value },
+                        label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        )
+                    )
+                }
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
         when {

@@ -9,4 +9,7 @@ import kotlinx.coroutines.flow.Flow
 interface PoiDao {
     @Query("SELECT * FROM pois")
     fun getAll(): Flow<List<PoiEntity>>
+
+    @Query("SELECT * FROM pois WHERE lat BETWEEN :minLat AND :maxLat AND lon BETWEEN :minLon AND :maxLon")
+    suspend fun getInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<PoiEntity>
 }

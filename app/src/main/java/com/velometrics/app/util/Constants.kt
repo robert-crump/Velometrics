@@ -163,6 +163,7 @@ object CyclingConstants {
     const val NAV_TRACK_WIDTH = 5f
     const val NAV_USER_MARKER_COLOR = "#2196F3"
     const val NAV_USER_MARKER_RADIUS = 10f
+    const val USER_HEADING_ARROW_ICON_SIZE = 0.9f
     const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
     const val FAST_WAY_HOME_TRACK_WIDTH = 5f
     const val FAST_WAY_HOME_BBOX_MARGIN_M = 2000.0

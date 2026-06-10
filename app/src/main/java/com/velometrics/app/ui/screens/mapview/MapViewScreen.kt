@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
 import android.Manifest
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,7 +35,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.R
 import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
@@ -58,7 +62,9 @@ import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
+import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
 import com.velometrics.app.util.GpsTrackParser
+import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.PolylineDecoder
@@ -73,6 +79,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -181,18 +188,34 @@ fun MapViewScreen(
     )
     val gpxScaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = gpxBottomSheetState)
 
+    // Device heading (compass direction the phone is facing), shown as an arrow on the
+    // user location marker. Null if the rotation vector sensor is unavailable.
+    var currentHeading by remember { mutableStateOf<Float?>(null) }
+    DisposableEffect(Unit) {
+        val headingSensor = HeadingSensor(context) { heading -> currentHeading = heading }
+        headingSensor.start()
+        onDispose { headingSensor.stop() }
+    }
+
     // Render user location marker; re-center once a fine fix (accuracy ≤ 50 m) is obtained
     LaunchedEffect(currentLocation, locationAccuracy, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         val loc = currentLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
-        renderUserMarker(ms.first, ms.second, loc, accuracy)
+        renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
         if (!fineLocationZoomedIn && accuracy <= 50f) {
             fineLocationZoomedIn = true
             ms.first.animateCamera(
                 CameraUpdateFactory.newLatLngZoom(loc, DEFAULT_MAP_ZOOM + 2.0)
             )
         }
+    }
+
+    // Update the heading arrow's rotation cheaply (no layer recreation) as the device turns
+    LaunchedEffect(currentHeading, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val heading = currentHeading ?: return@LaunchedEffect
+        updateHeadingArrow(context, ms.second, heading)
     }
 
     // rememberUpdatedState for click listener (avoids stale captures)
@@ -1150,15 +1173,27 @@ private fun LegendCard(
     }
 }
 
-private fun renderUserMarker(map: MapLibreMap, style: Style, location: LatLng, accuracyM: Float) {
-    val sourceId = "user-location-source"
+private const val USER_LOCATION_SOURCE = "user-location-source"
+private const val USER_LOCATION_HEADING_LAYER = "user-location-heading"
+private const val USER_HEADING_ARROW_ICON = "user-heading-arrow-icon"
+
+private fun renderUserMarker(
+    context: Context,
+    map: MapLibreMap,
+    style: Style,
+    location: LatLng,
+    accuracyM: Float,
+    heading: Float?
+) {
+    val sourceId = USER_LOCATION_SOURCE
     val outerLayerId = "user-location-outer"
     val innerLayerId = "user-location-inner"
 
     val feature = Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude))
     val source = GeoJsonSource(sourceId, feature)
 
-    // Remove existing layers/source if present
+    // Remove existing layers/source if present (heading layer must go before its source)
+    if (style.getLayer(USER_LOCATION_HEADING_LAYER) != null) style.removeLayer(USER_LOCATION_HEADING_LAYER)
     if (style.getLayer(outerLayerId) != null) style.removeLayer(outerLayerId)
     if (style.getLayer(innerLayerId) != null) style.removeLayer(innerLayerId)
     if (style.getSource(sourceId) != null) style.removeSource(sourceId)
@@ -1210,5 +1245,50 @@ private fun renderUserMarker(map: MapLibreMap, style: Style, location: LatLng, a
 
     style.addLayer(outerCircle)
     style.addLayer(innerCircle)
+
+    if (heading != null) {
+        registerHeadingArrowIcon(context, style)
+        val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, sourceId).apply {
+            setProperties(
+                PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
+                PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
+                PropertyFactory.iconRotate(heading),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true)
+            )
+        }
+        style.addLayer(headingLayer)
+    }
+}
+
+private fun registerHeadingArrowIcon(context: Context, style: Style) {
+    if (style.getImage(USER_HEADING_ARROW_ICON) != null) return
+    val drawable = ContextCompat.getDrawable(context, R.drawable.ic_heading_arrow) ?: return
+    style.addImage(USER_HEADING_ARROW_ICON, drawable.toBitmap())
+}
+
+/** Cheaply updates the heading arrow's rotation, creating the layer if it doesn't exist yet. */
+private fun updateHeadingArrow(context: Context, style: Style, heading: Float) {
+    if (style.getSource(USER_LOCATION_SOURCE) == null) return
+
+    val existing = style.getLayer(USER_LOCATION_HEADING_LAYER) as? SymbolLayer
+    if (existing != null) {
+        existing.setProperties(PropertyFactory.iconRotate(heading))
+        return
+    }
+
+    registerHeadingArrowIcon(context, style)
+    val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, USER_LOCATION_SOURCE).apply {
+        setProperties(
+            PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
+            PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
+            PropertyFactory.iconRotate(heading),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true)
+        )
+    }
+    style.addLayer(headingLayer)
 }
 

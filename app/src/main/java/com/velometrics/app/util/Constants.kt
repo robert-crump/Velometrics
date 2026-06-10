@@ -160,12 +160,6 @@ object CyclingConstants {
     const val ROUTE_MIN_CONFIRMED_EDGES = 100
     const val ROUTE_DEFAULT_DISTANCE_KM = 40.0
 
-    // Edge statistic estimation (borrowing stats from nearby traversed edges)
-    const val EDGE_STATS_NEAREST_K = 3
-    const val EDGE_STATS_SEARCH_RADIUS_M = 50.0
-    const val EDGE_STATS_FALLBACK_SPEED_KMH = 15.0
-    const val EDGE_STATS_MAX_BEARING_DIFF_DEG = 90.0
-
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
@@ -196,6 +190,8 @@ object CyclingConstants {
     const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
     const val FAST_WAY_HOME_TRACK_WIDTH = 5f
     const val FAST_WAY_HOME_BBOX_MARGIN_M = 2000.0
+    const val FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M = 20f
+    const val FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS = 5_000L
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

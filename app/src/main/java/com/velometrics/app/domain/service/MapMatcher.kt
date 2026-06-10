@@ -14,7 +14,7 @@ import javax.inject.Singleton
  * graph, producing a single connected, ordered [MapEdge] sequence — the representation
  * `RepeatedInterval` clustering uses to compare and render archetypes (#10/#25).
  *
- * Algorithm: greedy nearest-edge snapping via [RTreeSpatialIndex] (as in [EdgeStatsEstimator]),
+ * Algorithm: greedy nearest-edge snapping via [RTreeSpatialIndex],
  * then repair of small gaps between non-adjacent snapped edges via bounded local
  * adjacency-graph search (the same edge-indexing/successor-map pattern as [FastWayHomeService]).
  * Isolated single-point mis-snaps are dropped; gaps too large to repair reject the whole track.

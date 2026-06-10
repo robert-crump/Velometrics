@@ -589,7 +589,9 @@ fun MapViewScreen(
                 Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
             }
             SmallFloatingActionButton(
-                onClick = { fastWayHomeViewModel.findFastWayHome(currentLocation) }
+                onClick = {
+                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
+                }
             ) {
                 Icon(Icons.Default.Home, contentDescription = "Find fast way home")
             }

@@ -6,7 +6,10 @@ import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.PolylineDecoder
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import org.maplibre.android.geometry.LatLng
 import java.util.PriorityQueue
 import javax.inject.Inject
@@ -14,34 +17,45 @@ import javax.inject.Singleton
 
 data class FastWayHomeResult(
     val path: List<MapEdge>,
-    val slow: RideEstimate,
-    val avg: RideEstimate,
-    val fast: RideEstimate,
-    val anySegmentsEstimated: Boolean
+    val totalDistanceM: Double,
+    val coveragePercent: Int,
+    val slow: RideEstimate?,
+    val avg: RideEstimate?,
+    val fast: RideEstimate?
 )
 
 private data class Connectivity(
     val edgeByIndex: Map<Int, MapEdge>,
     val adjacency: Map<Int, List<Int>>,
     val edgeStartPoints: Map<Int, LatLng>,
-    val edgeEndPoints: Map<Int, LatLng>,
-    val edgeStatsByIndex: Map<Int, EdgeStats>
+    val edgeEndPoints: Map<Int, LatLng>
 )
 
 /**
- * Finds the time-optimal route from a given location to the user's configured home location
- * and scores it via [RideEstimator]. Uses its own A* search ([aStarToHome]) rather than
- * [RoutePlanner.aStarReturn] — that search is distance-based and tied to route generation,
- * while this one minimizes travel time using per-edge speed estimates from [EdgeStatsEstimator].
+ * Finds the *shortest* route from a given location to the user's configured home location
+ * (#47 — replaces the old time-optimal search, which sometimes produced "pretzel" routes when
+ * GPS noise or map-matching errors skewed an edge's speed metadata) and scores it via
+ * [RideEstimator]. Uses its own A* search ([aStarToHome]) rather than [RoutePlanner.aStarReturn]
+ * — that search is direction/novelty-scored and tied to route generation, while this one is a
+ * pure shortest-path search.
  */
 @Singleton
 class FastWayHomeService @Inject constructor(
     private val repository: MapGraphRepository,
-    private val edgeStatsEstimator: EdgeStatsEstimator,
     private val userSettingsRepository: UserSettingsRepository
 ) {
 
-    suspend fun findFastWayHome(start: LatLng): FastWayHomeResult? {
+    suspend fun findFastWayHome(
+        currentLocation: StateFlow<LatLng?>,
+        locationAccuracy: StateFlow<Float?>
+    ): FastWayHomeResult? {
+        val start = withTimeoutOrNull(CyclingConstants.FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS) {
+            combine(currentLocation, locationAccuracy) { loc, accuracy -> loc to accuracy }
+                .first { (loc, accuracy) ->
+                    loc != null && accuracy != null && accuracy <= CyclingConstants.FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M
+                }
+        }?.first ?: currentLocation.value ?: return null
+
         val targetLat = userSettingsRepository.homeLat.first()
         val targetLon = userSettingsRepository.homeLon.first()
 
@@ -69,28 +83,31 @@ class FastWayHomeService @Inject constructor(
         val fullIndices = listOf(fromIdx) + pathIndices
 
         val edges = connectivity.edgeByIndex
-        val statsByIndex = connectivity.edgeStatsByIndex
-
         val path = fullIndices.mapNotNull { edges[it] }
         if (path.isEmpty()) return null
 
-        val segments = fullIndices.mapNotNull { idx ->
-            val edge = edges[idx] ?: return@mapNotNull null
-            val edgeStats = statsByIndex[idx] ?: return@mapNotNull null
+        val totalDistanceM = path.sumOf { it.lengthM }
+        val coveredLengthM = path.filter { it.speedP25 != null && it.speedMedian != null && it.speedP75 != null }
+            .sumOf { it.lengthM }
+        val coveragePercent = if (totalDistanceM > 0) {
+            Math.round(coveredLengthM / totalDistanceM * 100.0).toInt()
+        } else 0
+
+        val segments = path.map { edge ->
             ScoredSegment(
                 lengthM = edge.lengthM,
-                speedP25 = edgeStats.speedP25, speedP50 = edgeStats.speedP50, speedP75 = edgeStats.speedP75,
-                powerP25 = edgeStats.powerP25, powerP50 = edgeStats.powerP50, powerP75 = edgeStats.powerP75,
-                isEstimated = edgeStats.isEstimated
+                speedP25 = edge.speedP25, speedP50 = edge.speedMedian, speedP75 = edge.speedP75,
+                powerP25 = edge.powerP25, powerP50 = edge.powerMedian, powerP75 = edge.powerP75
             )
         }
 
         return FastWayHomeResult(
             path = path,
+            totalDistanceM = totalDistanceM,
+            coveragePercent = coveragePercent,
             slow = RideEstimator.estimateRide(segments, Percentile.SLOW),
             avg = RideEstimator.estimateRide(segments, Percentile.AVG),
-            fast = RideEstimator.estimateRide(segments, Percentile.FAST),
-            anySegmentsEstimated = segments.any { it.isEstimated }
+            fast = RideEstimator.estimateRide(segments, Percentile.FAST)
         )
     }
 
@@ -102,7 +119,6 @@ class FastWayHomeService @Inject constructor(
         val edgesByIdx = mutableMapOf<Int, MapEdge>()
         val startPts = mutableMapOf<Int, LatLng>()
         val endPts = mutableMapOf<Int, LatLng>()
-        val bearings = mutableMapOf<Int, Double>()
 
         edgesList.forEachIndexed { idx, edge ->
             edgesByIdx[idx] = edge
@@ -110,17 +126,12 @@ class FastWayHomeService @Inject constructor(
             if (decoded.size >= 2) {
                 startPts[idx] = decoded.first()
                 endPts[idx] = decoded.last()
-                bearings[idx] = GeoUtils.computeBearing(
-                    decoded.first().latitude, decoded.first().longitude,
-                    decoded.last().latitude, decoded.last().longitude
-                )
             } else {
                 val fromNode = nMap[edge.fromNode]
                 val toNode = nMap[edge.toNode]
                 if (fromNode != null && toNode != null) {
                     startPts[idx] = LatLng(fromNode.lat, fromNode.lon)
                     endPts[idx] = LatLng(toNode.lat, toNode.lon)
-                    bearings[idx] = GeoUtils.computeBearing(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon)
                 }
             }
         }
@@ -137,57 +148,17 @@ class FastWayHomeService @Inject constructor(
             if (filtered.isNotEmpty()) adj[idx] = filtered.toMutableList()
         }
 
-        val statsByIdx = mutableMapOf<Int, EdgeStats>()
-        edgesList.forEachIndexed { idx, edge ->
-            statsByIdx[idx] = statsFor(idx, edge, endPts, bearings)
-        }
-
         return Connectivity(
             edgeByIndex = edgesByIdx,
             adjacency = adj,
             edgeStartPoints = startPts,
-            edgeEndPoints = endPts,
-            edgeStatsByIndex = statsByIdx
+            edgeEndPoints = endPts
         )
     }
 
     /**
-     * Real traversed stats are used directly; everything else (untraversed or data-sparse
-     * edges) is filled in via [EdgeStatsEstimator], which itself falls back to a flat
-     * 15 km/h estimate when no nearby traversed edges match.
-     */
-    private suspend fun statsFor(
-        idx: Int,
-        edge: MapEdge,
-        endPts: Map<Int, LatLng>,
-        bearings: Map<Int, Double>
-    ): EdgeStats {
-        val speedP25 = edge.speedP25
-        val speedP50 = edge.speedMedian
-        val speedP75 = edge.speedP75
-        if (edge.isTraversed && speedP25 != null && speedP50 != null && speedP75 != null) {
-            return EdgeStats(
-                speedP25 = speedP25, speedP50 = speedP50, speedP75 = speedP75,
-                powerP25 = edge.powerP25, powerP50 = edge.powerMedian, powerP75 = edge.powerP75,
-                isEstimated = false
-            )
-        }
-
-        val point = endPts[idx] ?: return EdgeStats(
-            speedP25 = CyclingConstants.EDGE_STATS_FALLBACK_SPEED_KMH,
-            speedP50 = CyclingConstants.EDGE_STATS_FALLBACK_SPEED_KMH,
-            speedP75 = CyclingConstants.EDGE_STATS_FALLBACK_SPEED_KMH,
-            powerP25 = null, powerP50 = null, powerP75 = null,
-            isEstimated = true
-        )
-        return edgeStatsEstimator.estimateStatsNear(point, bearings[idx] ?: 0.0)
-    }
-
-    /**
-     * A* search minimizing travel time (cost = lengthM / speedP50), independent from
-     * [RoutePlanner.aStarReturn] (which is distance-based and must stay untouched). The
-     * heuristic converts remaining distance to a lower-bound time using an optimistic max
-     * speed, keeping it admissible for the time-based cost.
+     * Pure shortest-path A* search: cost = edge length, heuristic = haversine distance from the
+     * edge's end point to home. Both are in meters, so the heuristic is admissible.
      */
     private fun aStarToHome(
         connectivity: Connectivity,
@@ -197,24 +168,21 @@ class FastWayHomeService @Inject constructor(
     ): List<Int>? {
         val adj = connectivity.adjacency
         val edges = connectivity.edgeByIndex
-        val stats = connectivity.edgeStatsByIndex
         val edgeEndPoints = connectivity.edgeEndPoints
 
         val endPt = edgeEndPoints[fromIdx] ?: return null
 
         data class Node(val idx: Int, val gCost: Double, val fCost: Double)
 
-        fun timeHeuristicSec(lat: Double, lon: Double): Double {
-            val distM = GeoUtils.haversineDistance(lat, lon, targetLat, targetLon)
-            return distM / (CyclingConstants.GPS_IMPLIED_MAX_SPEED_KMH / 3.6)
-        }
+        fun heuristicM(lat: Double, lon: Double): Double =
+            GeoUtils.haversineDistance(lat, lon, targetLat, targetLon)
 
         val openSet = PriorityQueue<Node>(compareBy { it.fCost })
         val gCosts = mutableMapOf<Int, Double>()
         val cameFrom = mutableMapOf<Int, Int>()
         val closedSet = mutableSetOf<Int>()
 
-        val h0 = timeHeuristicSec(endPt.latitude, endPt.longitude)
+        val h0 = heuristicM(endPt.latitude, endPt.longitude)
         gCosts[fromIdx] = 0.0
         openSet.add(Node(fromIdx, 0.0, h0))
 
@@ -252,11 +220,8 @@ class FastWayHomeService @Inject constructor(
             for (succIdx in successors) {
                 if (succIdx in closedSet) continue
                 val succEdge = edges[succIdx] ?: continue
-                val succStats = stats[succIdx] ?: continue
 
-                val speedMs = succStats.speedP50 / 3.6
-                val edgeCost = if (speedMs > 0.0) succEdge.lengthM / speedMs else Double.MAX_VALUE
-                val newG = currentG + edgeCost
+                val newG = currentG + succEdge.lengthM
 
                 val bestG = gCosts[succIdx]
                 if (bestG != null && newG >= bestG) continue
@@ -264,7 +229,7 @@ class FastWayHomeService @Inject constructor(
                 gCosts[succIdx] = newG
                 cameFrom[succIdx] = currentIdx
                 val succEnd = edgeEndPoints[succIdx]
-                val h = if (succEnd != null) timeHeuristicSec(succEnd.latitude, succEnd.longitude) else 0.0
+                val h = if (succEnd != null) heuristicM(succEnd.latitude, succEnd.longitude) else 0.0
                 openSet.add(Node(succIdx, newG, newG + h))
             }
         }

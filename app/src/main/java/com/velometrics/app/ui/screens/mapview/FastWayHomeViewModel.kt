@@ -35,17 +35,17 @@ class FastWayHomeViewModel @Inject constructor(
         userSettingsRepository.homeLat, userSettingsRepository.homeLon
     ) { lat, lon -> LatLng(lat, lon) }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    fun findFastWayHome(currentLocation: LatLng?) {
+    fun findFastWayHome(currentLocation: StateFlow<LatLng?>, locationAccuracy: StateFlow<Float?>) {
         viewModelScope.launch {
             _isFindingFastWayHome.value = true
             _fastWayHomeMessage.value = null
             _fastWayHomeResult.value = null
             try {
-                if (currentLocation == null) {
+                if (currentLocation.value == null) {
                     _fastWayHomeMessage.value = "Waiting for GPS signal…"
                     return@launch
                 }
-                val result = fastWayHomeService.findFastWayHome(currentLocation)
+                val result = fastWayHomeService.findFastWayHome(currentLocation, locationAccuracy)
                 if (result == null) {
                     _fastWayHomeMessage.value = "No known route home from here"
                 } else {

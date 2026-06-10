@@ -52,7 +52,12 @@ fun FastWayHomeCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Fast Way Home", style = MaterialTheme.typography.titleMedium)
+                val title = if (result != null) {
+                    "Fast way home: ${Math.round(result.totalDistanceM / 1000.0)} km"
+                } else {
+                    "Fast way home"
+                }
+                Text(title, style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Dismiss")
                 }
@@ -64,7 +69,7 @@ fun FastWayHomeCard(
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Finding fastest way home…",
+                            text = "Finding fast way home…",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -74,14 +79,12 @@ fun FastWayHomeCard(
                     FastWayHomeEstimateRow("Fast", result.fast)
                     FastWayHomeEstimateRow("Avg", result.avg)
                     FastWayHomeEstimateRow("Slow", result.slow)
-                    if (result.anySegmentsEstimated) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Some segments use estimated speeds",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Data coverage: ${result.coveragePercent}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 message != null -> {
                     Text(
@@ -96,7 +99,7 @@ fun FastWayHomeCard(
 }
 
 @Composable
-fun FastWayHomeEstimateRow(label: String, estimate: RideEstimate) {
+fun FastWayHomeEstimateRow(label: String, estimate: RideEstimate?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -104,8 +107,13 @@ fun FastWayHomeEstimateRow(label: String, estimate: RideEstimate) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        val text = if (estimate != null) {
+            "${FormatUtils.formatDuration(estimate.durationSec.toInt())} · ${FormatUtils.formatPower(estimate.avgPowerW.toInt())}"
+        } else {
+            "—"
+        }
         Text(
-            text = "${FormatUtils.formatDuration(estimate.durationSec.toInt())} · ${FormatUtils.formatPower(estimate.avgPowerW.toInt())}",
+            text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

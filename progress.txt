@@ -1,3 +1,61 @@
+## Issue #47 — Fastest Way Home: Redesign to find shortest path home
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**`FastWayHomeService.kt` rewrite**
+- `aStarToHome` now does a pure shortest-path search: cost = `edge.lengthM`, heuristic =
+  haversine distance (meters) from an edge's end point to home — both in the same unit, so
+  the heuristic stays admissible. No longer depends on `speedP50` or
+  `GPS_IMPLIED_MAX_SPEED_KMH`.
+- `findFastWayHome` now takes `currentLocation: StateFlow<LatLng?>` and
+  `locationAccuracy: StateFlow<Float?>` (sourced from `MapViewViewModel`). Uses
+  `combine` + `withTimeoutOrNull(FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS = 5_000)` to wait until
+  accuracy ≤ `FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M` (20m), then proceeds with whatever
+  location is current at that point (falling back to `currentLocation.value`); returns `null`
+  if there's no fix at all.
+- `buildConnectivity` simplified — no longer computes edge bearings or per-edge `EdgeStats`,
+  just raw `MapEdge` speed/power fields.
+- `FastWayHomeResult` reshaped: adds `totalDistanceM` and `coveragePercent` (length of edges
+  with all three speed percentiles ÷ total path length, rounded); `slow`/`avg`/`fast` become
+  `RideEstimate?`.
+
+**`EdgeStatsEstimator` removed entirely**
+- Deleted `EdgeStatsEstimator.kt` and `EdgeStatsEstimatorTest.kt`, the
+  `EDGE_STATS_NEAREST_K`/`EDGE_STATS_SEARCH_RADIUS_M`/`EDGE_STATS_FALLBACK_SPEED_KMH`/
+  `EDGE_STATS_MAX_BEARING_DIFF_DEG` constants (including the flat 15 km/h fallback), and the
+  stale `MapMatcher.kt` doc reference to it.
+
+**`RideEstimator.kt` rewrite**
+- `ScoredSegment`'s speed fields are now nullable (`speedP25/50/75: Double?`); `isEstimated`
+  removed.
+- Per percentile: average speed = length-weighted avg of `speedPxx` over edges where that
+  field is non-null; total duration = total path length ÷ that average speed; average power =
+  duration-weighted avg of `powerPxx` over edges where both `speedPxx` and `powerPxx` are
+  non-null.
+- `estimateRide` now returns `RideEstimate?` — `null` when zero segments carry speed data for
+  that percentile (`anyEstimatedSegments` removed).
+
+**UI (`FastWayHomeOverlay.kt`, `FastWayHomeViewModel.kt`, `MapViewScreen.kt`)**
+- Card title: `"Fast way home"` while loading/message; `"Fast way home: X km"`
+  (X = `Math.round(totalDistanceM / 1000.0)`) once a result exists.
+- Loading text changed to a single `"Finding fast way home…"` (covers the GPS-accuracy wait
+  + search); `"Waiting for GPS signal…"` still shown by `FastWayHomeViewModel` when there's no
+  fix at all.
+- Always show `"Data coverage: X%"` footnote when a result exists, replacing the old
+  "Some segments use estimated speeds" text.
+- `FastWayHomeEstimateRow` shows `"—"` for duration/power when that percentile's
+  `RideEstimate` is `null`.
+- `FastWayHomeViewModel.findFastWayHome` now takes `(currentLocation, locationAccuracy)`
+  StateFlows; `MapViewScreen`'s FAB passes `viewModel.currentLocation` /
+  `viewModel.locationAccuracy`.
+
+### Tests
+135 unit tests pass. `RideEstimatorTest` rewritten for nullable estimates;
+`FastWayHomeServiceTest` rewritten for the new constructor/signature, plus new cases:
+shortest-vs-faster-route preference, null estimates with no speed data, no-GPS-fix, and
+GPS-accuracy-wait timeout fallback.
+
 ## Issue #44 — Open GPX files from external apps directly into the Map tab
 Completed: 2026-06-10 | Closed: pending
 

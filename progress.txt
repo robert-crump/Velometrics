@@ -1,3 +1,26 @@
+## Issue #51 — [Map] Remove Stop Spots layer
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**Removed Stop Spots overlay (UI only)**
+- `MapOverlayRenderer.kt` — removed `renderStopSpots`/`removeStopSpots` and the
+  now-unused `STOP_*` source/layer constants, plus imports (`Log`, `CircleLayer`,
+  `SymbolLayer`, `GeoJsonOptions`) that were only used by that code.
+- `MapViewViewModel.kt` — removed `showStopSpots`/`toggleStopSpots` state.
+- `MapViewScreen.kt` — removed the "Stop Spots" toggle row, the stop-spots
+  `LaunchedEffect` sync, the `STOP_COLOR_*` imports, and the "Stops" section of
+  `LegendCard` (and its `showStops` parameter).
+- `Constants.kt` — removed `STOP_PROB_OCCASIONAL/FREQUENT`, `STOP_COLOR_SHORT/MEDIUM/LONG`,
+  `STOP_SPOT_RADIUS/STROKE_WIDTH/STROKE_COLOR`, `STOP_CLUSTER_RADIUS/MAX_ZOOM`, and the
+  unused `STOP_SHORT_THRESHOLD_SEC`/`STOP_LONG_THRESHOLD_SEC` thresholds.
+- Left `stopProbability`/`stopCount`/`estimatedStopTimeS` on `MapEdge` and
+  `RoutePlanner`'s use of `ROUTE_STOP_PENALTY_WEIGHT` untouched, per the issue's
+  data-must-remain-untouched requirement.
+
+### Tests
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #49 — [Map] FABs overshadow POI popups
 Completed: 2026-06-10 | Closed: pending
 

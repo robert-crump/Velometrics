@@ -33,10 +33,6 @@ object CyclingConstants {
     const val MINIMUM_GPS_DATAPOINTS = 60           // min GPS points required to import a ride
     const val POWER_DATA_COVERAGE_THRESHOLD = 0.10  // fraction of points needing power to count as power ride
 
-    // Stop probability thresholds
-    const val STOP_PROB_OCCASIONAL = 0.3   // < this → amber (occasional stop)
-    const val STOP_PROB_FREQUENT = 0.7     // ≥ this → red (frequent stop); between → orange
-
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117
     const val HOME_LON = 6.07261
@@ -103,22 +99,6 @@ object CyclingConstants {
 
     // Speed overlay
     const val SPEED_OVERLAY_LINE_WIDTH = 5f
-
-    // Stop spot classification thresholds (seconds)
-    const val STOP_SHORT_THRESHOLD_SEC = 60.0
-    const val STOP_LONG_THRESHOLD_SEC = 600.0
-
-    // Stop spot marker colors
-    const val STOP_COLOR_SHORT = "#FFC107"   // Amber - short stop
-    const val STOP_COLOR_MEDIUM = "#FF9800"  // Orange - medium stop
-    const val STOP_COLOR_LONG = "#F44336"    // Red - long stop
-
-    // Stop spot circle radius
-    const val STOP_SPOT_RADIUS = 7f
-    const val STOP_SPOT_STROKE_WIDTH = 2f
-    const val STOP_SPOT_STROKE_COLOR = "#FFFFFF"
-    const val STOP_CLUSTER_RADIUS = 60
-    const val STOP_CLUSTER_MAX_ZOOM = 13
 
     // Map view
     const val DEFAULT_MAP_ZOOM = 12.0

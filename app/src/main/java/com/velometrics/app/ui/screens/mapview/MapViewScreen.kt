@@ -53,9 +53,6 @@ import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_LONG
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_MEDIUM
-import com.velometrics.app.util.CyclingConstants.STOP_COLOR_SHORT
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.GpsTrackParser
@@ -96,7 +93,6 @@ fun MapViewScreen(
     val showAllRidesLayer by viewModel.showAllRidesLayer.collectAsState()
     val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
     val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
-    val showStopSpots by viewModel.showStopSpots.collectAsState()
 
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
@@ -249,15 +245,6 @@ fun MapViewScreen(
         MapOverlayRenderer.removeSpeedOverlay(ms.second)
         if (showSpeedOverlay) {
             MapOverlayRenderer.renderSpeedOverlay(ms.second, edges, selectedSpeedCategories)
-        }
-    }
-
-    // Stop spots sync
-    LaunchedEffect(showStopSpots, edges, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        MapOverlayRenderer.removeStopSpots(ms.second)
-        if (showStopSpots) {
-            MapOverlayRenderer.renderStopSpots(ms.second, edges)
         }
     }
 
@@ -646,19 +633,6 @@ fun MapViewScreen(
                     )
                 }
 
-                // Stop Spots toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Stop Spots", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = showStopSpots,
-                        onCheckedChange = { viewModel.toggleStopSpots() }
-                    )
-                }
-
                 // Intervals toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -691,12 +665,11 @@ fun MapViewScreen(
                     )
                 }
 
-                if (showAllRidesLayer || showSpeedOverlay || showStopSpots || showIntervalOverlay) {
+                if (showAllRidesLayer || showSpeedOverlay || showIntervalOverlay) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LegendCard(
                         showAllRides = showAllRidesLayer,
                         showSpeed = showSpeedOverlay,
-                        showStops = showStopSpots,
                         showIntervals = showIntervalOverlay,
                         selectedSpeedCategories = selectedSpeedCategories,
                         onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
@@ -1020,7 +993,6 @@ private fun toGrayscaleColor(hexColor: String): Color {
 private fun LegendCard(
     showAllRides: Boolean,
     showSpeed: Boolean,
-    showStops: Boolean,
     showIntervals: Boolean = false,
     selectedSpeedCategories: Set<String> = emptySet(),
     onSpeedCategoryClick: (String) -> Unit = {}
@@ -1094,46 +1066,7 @@ private fun LegendCard(
                 }
             }
 
-            if (showSpeed && showStops) {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (showStops) {
-                Text(
-                    text = "Stops",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val stopTypes = listOf(
-                        "Low" to STOP_COLOR_SHORT,
-                        "Medium" to STOP_COLOR_MEDIUM,
-                        "High" to STOP_COLOR_LONG
-                    )
-                    stopTypes.forEach { (label, color) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        Color(android.graphics.Color.parseColor(color)),
-                                        CircleShape
-                                    )
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-            }
-
-            if ((showSpeed || showStops) && showIntervals) {
+            if (showSpeed && showIntervals) {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 

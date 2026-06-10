@@ -6,9 +6,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -24,7 +21,6 @@ import org.maplibre.android.maps.Style
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalDensity
@@ -40,7 +36,6 @@ import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
 import org.maplibre.android.camera.CameraUpdateFactory
-import kotlin.math.abs
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -414,55 +409,3 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
     }
 }
 
-@Composable
-private fun MetricCell(
-    label: String,
-    value: String,
-    current: Double?,
-    median: Double?,
-    higherIsBetter: Boolean
-) {
-    val (arrowIcon, arrowColor) = remember(current, median, higherIsBetter) {
-        getArrow(current, median, higherIsBetter)
-    }
-
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            if (arrowIcon != null && current != null && median != null) {
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = arrowIcon,
-                    contentDescription = null,
-                    tint = arrowColor,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-    }
-}
-
-private fun getArrow(
-    current: Double?,
-    median: Double?,
-    higherIsBetter: Boolean
-): Pair<ImageVector?, Color> {
-    if (current == null || median == null || median == 0.0) return Pair(null, Color.Gray)
-    val relDiff = (current - median) / median
-    return when {
-        abs(relDiff) < 0.05 ->
-            Pair(Icons.Default.ArrowForward, Color.Gray)
-        relDiff > 0 && higherIsBetter -> Pair(Icons.Default.ArrowUpward, Color(0xFF4CAF50))
-        relDiff < 0 && higherIsBetter -> Pair(Icons.Default.ArrowDownward, Color(0xFFF44336))
-        relDiff > 0 && !higherIsBetter -> Pair(Icons.Default.ArrowUpward, Color(0xFFF44336))
-        else -> Pair(Icons.Default.ArrowDownward, Color(0xFF4CAF50))
-    }
-}

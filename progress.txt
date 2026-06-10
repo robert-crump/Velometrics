@@ -1,3 +1,46 @@
+## Issue #42 — Modify Repeated Interval Detail Screen
+Completed: 2026-06-10 | Closed: pending
+
+### What was done
+
+**New shared component** (`ui/components/MetricCell.kt`)
+- Extracted `MetricCell` (label/value pair with optional trend arrow vs. a median) and its
+  private `getArrow` helper out of `SessionDetailScreen.kt` so both the Ride Detail and
+  Repeated Interval Detail screens can use the same stat layout.
+- `SessionDetailScreen.kt`'s `RideSummaryGrid` now relies on the shared component (picked up
+  via the existing `com.velometrics.app.ui.components.*` wildcard import); unused
+  arrow/icon/`abs`/`ImageVector` imports removed.
+
+**`RepeatedIntervalDetailScreen` rebuilt to mirror `SessionDetailScreen`**
+- Replaced the small non-interactive preview map + scrolling column with a full-screen
+  zoomable/pannable `RepeatedIntervalDetailMap` (same `ComposableMapView` + bounds-fit +
+  drawer-aware re-centering pattern as `SessionDetailMap`, minus the interval overlay/legend).
+- Stats and history now live in a `PullUpDrawer` (`initialFraction = 0.5f`), matching the Ride
+  Detail Screen's drawer behaviour.
+- New `RepeatedIntervalSummaryGrid` renders the five stats (Times, Distance, Avg duration,
+  Avg speed, Avg power) via `MetricCell` in the same two-column layout as `RideSummaryGrid`
+  (no median/arrow comparisons — repeated intervals have no baseline to compare against; no
+  power-zone/fat-efficiency/duration-estimate cards, per the issue).
+- "Occurrences" card renamed to "History" (unchanged content/behaviour — tap a row to open
+  the originating ride session).
+
+**Rename cursor fix** (`RepeatedIntervalDetailScreen` + `RepeatedRouteDetailScreen`)
+- `editName` changed from `String` to `TextFieldValue`. Tapping the pen icon now sets
+  `TextFieldValue(name, TextRange(name.length))` so the cursor starts at the end of the
+  existing name instead of the beginning.
+
+### Build fix (carried over from uncommitted work picked up at session start)
+- `app/src/test/java/.../RoutePlannerTest.kt`, `MapViewViewModelTest.kt`,
+  `EdgeStatsEstimatorTest.kt`, `FastWayHomeServiceTest.kt`, `MapMatcherTest.kt`: added
+  `getEdgesByNodePairs` overrides to `FakeMapGraphRepository`/anonymous repo implementations
+  so the test sources compile against the new `MapGraphRepository` member added in commit
+  463ff47.
+
+### Tests
+All unit tests pass. `compileDebugKotlin` succeeds. (Pre-existing `lintDebug` failure in
+`MapViewScreen.kt` — `LocalContext as ComponentActivity` — predates this change and is out of
+scope.)
+
 ## Issue #31 — Repeated Routes and Repeated Intervals loading slowly
 Completed: 2026-06-09 | Closed: pending
 

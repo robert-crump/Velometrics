@@ -165,6 +165,7 @@ class MapViewViewModelTest {
 private class FakeMapGraphRepository : MapGraphRepository {
     override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getAllNodes(): Flow<List<MapNode>> = flowOf(emptyList())
+    override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>) = emptyList<MapEdge>()
     override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapEdge>()
     override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapNode>()
     override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())

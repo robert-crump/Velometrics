@@ -2,30 +2,36 @@ package com.velometrics.app.ui.screens.repeatedintervaldetail
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapTrackRenderer
+import com.velometrics.app.ui.components.MetricCell
+import com.velometrics.app.ui.components.PullUpDrawer
+import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,11 +42,13 @@ fun RepeatedIntervalDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var isEditing by remember { mutableStateOf(false) }
-    var editName by remember { mutableStateOf("") }
+    var editName by remember { mutableStateOf(TextFieldValue("")) }
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(uiState.repeatedInterval?.name) {
-        uiState.repeatedInterval?.name?.let { editName = it }
+        if (!isEditing) {
+            uiState.repeatedInterval?.name?.let { editName = TextFieldValue(it) }
+        }
     }
 
     Scaffold(
@@ -57,7 +65,7 @@ fun RepeatedIntervalDetailScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
-                                viewModel.rename(editName)
+                                viewModel.rename(editName.text)
                                 isEditing = false
                             }),
                             textStyle = MaterialTheme.typography.titleMedium
@@ -74,14 +82,15 @@ fun RepeatedIntervalDetailScreen(
                 actions = {
                     if (isEditing) {
                         IconButton(onClick = {
-                            viewModel.rename(editName)
+                            viewModel.rename(editName.text)
                             isEditing = false
                         }) {
                             Icon(Icons.Default.Check, contentDescription = "Save name")
                         }
                     } else {
                         IconButton(onClick = {
-                            editName = uiState.repeatedInterval?.name ?: ""
+                            val name = uiState.repeatedInterval?.name ?: ""
+                            editName = TextFieldValue(name, TextRange(name.length))
                             isEditing = true
                         }) {
                             Icon(Icons.Default.Edit, contentDescription = "Rename interval")
@@ -106,65 +115,39 @@ fun RepeatedIntervalDetailScreen(
             return@Scaffold
         }
 
-        Column(
+        var drawerFraction by remember { mutableStateOf(0.5f) }
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            // ─── Matched edge geometry map ───
-            if (uiState.trackPoints.isNotEmpty()) {
-                IntervalPreviewMap(
-                    points = uiState.trackPoints,
+            // Full-screen map background (interactive)
+            RepeatedIntervalDetailMap(
+                trackPoints = uiState.trackPoints,
+                drawerFraction = drawerFraction
+            )
+
+            // Pull-up drawer with all statistics; opens at 50%
+            PullUpDrawer(
+                initialFraction = 0.5f,
+                onFractionSnapped = { drawerFraction = it }
+            ) {
+                RepeatedIntervalSummaryGrid(
+                    timesCount = repeatedInterval.intervals.size,
+                    distanceM = repeatedInterval.distanceM,
+                    avgDurationSec = uiState.avgDurationSec,
+                    avgSpeedKmh = uiState.avgSpeedKmh,
+                    avgPowerW = uiState.avgPowerW
+                )
+
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(220.dp)
                         .padding(horizontal = 16.dp)
-                )
-            }
-
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // ─── Statistics: 2x2 grid, no card, same style as route detail ───
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        MetricStatCell(
-                            label = "Times",
-                            value = "${repeatedInterval.intervals.size}",
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Distance",
-                            value = FormatUtils.formatDistance(repeatedInterval.distanceM / 1000.0),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        MetricStatCell(
-                            label = "Avg duration",
-                            value = FormatUtils.formatDuration(uiState.avgDurationSec),
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg speed",
-                            value = FormatUtils.formatSpeed(uiState.avgSpeedKmh),
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg power",
-                            value = FormatUtils.formatPower(uiState.avgPowerW),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                // ─── Raw intervals list ───
-                Card(modifier = Modifier.fillMaxWidth()) {
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Occurrences", style = MaterialTheme.typography.titleMedium)
+                        Text("History", style = MaterialTheme.typography.titleMedium)
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         repeatedInterval.intervals.sortedByDescending { it.startTimestamp }.forEach { interval ->
                             Row(
@@ -187,6 +170,8 @@ fun RepeatedIntervalDetailScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
@@ -197,33 +182,102 @@ fun RepeatedIntervalDetailScreen(
 }
 
 @Composable
-private fun IntervalPreviewMap(
-    points: List<LatLng>,
-    modifier: Modifier = Modifier
+private fun RepeatedIntervalDetailMap(
+    trackPoints: List<LatLng>,
+    drawerFraction: Float
 ) {
-    val shapes = MaterialTheme.shapes
+    val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
+    val boundsRef = remember { mutableStateOf<LatLngBounds?>(null) }
+    val density = LocalDensity.current
 
-    ComposableMapView(
-        modifier = modifier.clip(shapes.extraSmall),
-        gesturesEnabled = false,
-        onMapReady = { map, style ->
-            MapTrackRenderer.addTrack(style, "interval-preview", points, "#2196F3")
-            val bounds = GpsTrackParser.computeBounds(points)
-            if (bounds != null) {
-                map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 48))
+    if (trackPoints.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Default.Map,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "No GPS data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-    )
+    } else {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val mapHeightPx = with(density) { maxHeight.toPx() }
+
+            // Re-center track whenever the drawer snaps to a new position
+            LaunchedEffect(drawerFraction) {
+                if (drawerFraction >= 1.0f) return@LaunchedEffect
+                val map = mapRef.value ?: return@LaunchedEffect
+                val bounds = boundsRef.value ?: return@LaunchedEffect
+                val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngBounds(
+                        bounds,
+                        TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
+                    )
+                )
+            }
+
+            ComposableMapView(
+                modifier = Modifier.fillMaxSize(),
+                gesturesEnabled = true,
+                onMapReady = { map, style ->
+                    mapRef.value = map
+                    MapTrackRenderer.addTrack(style, "repeated-interval-detail", trackPoints, "#2196F3")
+                    val bounds = GpsTrackParser.computeBounds(trackPoints)
+                    boundsRef.value = bounds
+                    if (bounds != null) {
+                        val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
+                        map.moveCamera(
+                            CameraUpdateFactory.newLatLngBounds(
+                                bounds,
+                                TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
+                            )
+                        )
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable
-private fun MetricStatCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(value, style = MaterialTheme.typography.bodyMedium)
+private fun RepeatedIntervalSummaryGrid(
+    timesCount: Int,
+    distanceM: Double,
+    avgDurationSec: Int,
+    avgSpeedKmh: Double,
+    avgPowerW: Int
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                MetricCell(label = "Times", value = "$timesCount")
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(label = "Distance", value = FormatUtils.formatDistance(distanceM / 1000.0))
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(label = "Avg duration", value = FormatUtils.formatDuration(avgDurationSec))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                MetricCell(label = "Avg speed", value = FormatUtils.formatSpeed(avgSpeedKmh))
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(label = "Avg power", value = FormatUtils.formatPower(avgPowerW))
+            }
+        }
     }
 }

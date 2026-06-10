@@ -17,8 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.ui.components.ComposableMapView
@@ -43,7 +45,7 @@ fun RepeatedRouteDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var isEditing by remember { mutableStateOf(false) }
-    var editName by remember { mutableStateOf("") }
+    var editName by remember { mutableStateOf(TextFieldValue("")) }
     val focusRequester = remember { FocusRequester() }
 
     // Slider index for the power → duration estimator (local UI state)
@@ -54,7 +56,9 @@ fun RepeatedRouteDetailScreen(
     }
 
     LaunchedEffect(uiState.route?.name) {
-        uiState.route?.name?.let { editName = it }
+        if (!isEditing) {
+            uiState.route?.name?.let { editName = TextFieldValue(it) }
+        }
     }
 
     Scaffold(
@@ -71,7 +75,7 @@ fun RepeatedRouteDetailScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
-                                viewModel.renameRoute(editName)
+                                viewModel.renameRoute(editName.text)
                                 isEditing = false
                             }),
                             textStyle = MaterialTheme.typography.titleMedium
@@ -88,14 +92,15 @@ fun RepeatedRouteDetailScreen(
                 actions = {
                     if (isEditing) {
                         IconButton(onClick = {
-                            viewModel.renameRoute(editName)
+                            viewModel.renameRoute(editName.text)
                             isEditing = false
                         }) {
                             Icon(Icons.Default.Check, contentDescription = "Save name")
                         }
                     } else {
                         IconButton(onClick = {
-                            editName = uiState.route?.name ?: ""
+                            val name = uiState.route?.name ?: ""
+                            editName = TextFieldValue(name, TextRange(name.length))
                             isEditing = true
                         }) {
                             Icon(Icons.Default.Edit, contentDescription = "Rename route")

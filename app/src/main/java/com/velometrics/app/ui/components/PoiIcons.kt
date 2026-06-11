@@ -39,7 +39,7 @@ object PoiIcons {
         "fuel" -> R.drawable.ic_poi_fuel
         "restaurant" -> R.drawable.ic_poi_restaurant
         "vending_machine" -> R.drawable.ic_poi_vending_machine
-        else -> R.drawable.ic_poi_cafe
+        else -> R.drawable.ic_poi_place
     }
 
     /** All categories with a registered map icon, used to pre-register bitmaps with the map style. */

@@ -330,3 +330,39 @@ chart/renderer composables are all still in use — kept as-is.
 
 ### Tests
 All unit tests pass. `compileDebugKotlin` and `compileDebugUnitTestKotlin` succeed.
+
+## Issue #21 — Manual Dropbox sync via pull-to-refresh
+Completed: 2026-06-11 | Closed: pending
+
+### What was done
+
+Built on top of #20's Dropbox OAuth2 PKCE auth to add a manual sync of new
+`.fit` files from `Apps/Wahoo` into the existing import pipeline.
+
+- `data/dropbox/DropboxSyncService.kt` (new): uses `DbxClientV2` (built from the
+  stored `DbxCredential` + shared `DbxRequestConfig`) to list `/Apps/Wahoo` via
+  `files().listFolder`/`listFolderContinue`. Persists the returned cursor after
+  each page so subsequent syncs fetch only the delta. For each `.fit`
+  `FileMetadata` entry, downloads the bytes and calls
+  `FitImportService.importFile()` directly — no separate batch-import path.
+  Returns early with an empty list if Dropbox isn't connected (no credential).
+- `data/dropbox/DropboxCredentialStore.kt`: added `saveSyncCursor()` /
+  `getSyncCursor()` backed by the same `EncryptedSharedPreferences` as the
+  OAuth tokens (cleared together by the existing `clear()` on disconnect).
+- `ui/screens/home/HomeViewModel.kt`: injected `DropboxSyncService`, added
+  `isSyncing: StateFlow<Boolean>` and `syncDropbox()`. Runs on `Dispatchers.IO`
+  with no mutex shared with `importFromUris()` — the `fileSha1` UNIQUE index
+  already prevents double-inserts if both run concurrently. Triggers route
+  re-clustering on `appScope` if any file imported successfully.
+- `ui/screens/home/HomeScreen.kt`: wrapped the main content `Column` in a
+  Material3 `PullToRefreshBox` (`isRefreshing = isSyncing`,
+  `onRefresh = viewModel::syncDropbox`), following the same pattern already
+  used in `RepeatedRoutesScreen`.
+
+On first sync (no cursor), `listFolder` lists the full `Apps/Wahoo` folder;
+already-imported files short-circuit via `FitImportService`'s existing
+`ImportResult.AlreadyImported` (SHA-1 dedup), so a large existing backlog is a
+near-instant no-op after the first run.
+
+### Tests
+All unit tests pass. `compileDebugKotlin` and `compileDebugUnitTestKotlin` succeed.

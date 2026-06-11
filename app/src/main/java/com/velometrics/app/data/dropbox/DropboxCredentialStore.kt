@@ -23,6 +23,7 @@ class DropboxCredentialStore @Inject constructor(
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_APP_KEY = "app_key"
+        private const val KEY_SYNC_CURSOR = "sync_cursor"
     }
 
     private val masterKey = MasterKey.Builder(context)
@@ -59,4 +60,11 @@ class DropboxCredentialStore @Inject constructor(
     }
 
     fun isConnected(): Boolean = prefs.contains(KEY_REFRESH_TOKEN)
+
+    /** Persists the cursor returned by `list_folder`/`list_folder/continue` for delta syncs. */
+    fun saveSyncCursor(cursor: String) {
+        prefs.edit().putString(KEY_SYNC_CURSOR, cursor).apply()
+    }
+
+    fun getSyncCursor(): String? = prefs.getString(KEY_SYNC_CURSOR, null)
 }

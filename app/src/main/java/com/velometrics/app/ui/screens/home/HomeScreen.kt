@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -96,6 +97,7 @@ fun HomeScreen(
     val selectedMonthIndex by viewModel.selectedMonthIndex.collectAsState()
     val selectedMonthSummary by viewModel.selectedMonthSummary.collectAsState()
     val isInitialLoading by viewModel.isInitialLoading.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
 
     val listState = rememberLazyListState()
     var showScrollBar by remember { mutableStateOf(false) }
@@ -138,93 +140,100 @@ fun HomeScreen(
             }
         }
     ) { padding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = isSyncing,
+            onRefresh = { viewModel.syncDropbox() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Import progress indicator
-            when (val state = importState) {
-                is ImportUiState.BatchLoading -> {
-                    LinearProgressIndicator(
-                        progress = { state.current.toFloat() / state.total.toFloat() },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        text = "Importing file ${state.current} of ${state.total}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
-                is ImportUiState.Loading -> {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(
-                        text = "Importing…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
-                else -> {}
-            }
-
-            when {
-                isInitialLoading -> {
-                    // Show blank screen while rides are loading from the DB
-                    Box(modifier = Modifier.fillMaxSize())
-                }
-                sessions.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.DirectionsBike,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "No rides imported yet",
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Tap the + button to import .fit files",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
+                // Import progress indicator
+                when (val state = importState) {
+                    is ImportUiState.BatchLoading -> {
+                        LinearProgressIndicator(
+                            progress = { state.current.toFloat() / state.total.toFloat() },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "Importing file ${state.current} of ${state.total}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
                     }
+                    is ImportUiState.Loading -> {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text(
+                            text = "Importing…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                    else -> {}
                 }
-                else -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                            // Monthly stats section — above the ride list
-                            item {
-                                MonthlyStatsSection(
-                                    monthlyData = monthlyData,
-                                    selectedMonthIndex = selectedMonthIndex,
-                                    selectedSummary = selectedMonthSummary,
-                                    onMonthSelected = { viewModel.selectMonthIndex(it) }
+    
+                when {
+                    isInitialLoading -> {
+                        // Show blank screen while rides are loading from the DB
+                        Box(modifier = Modifier.fillMaxSize())
+                    }
+                    sessions.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.DirectionsBike,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(64.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    "No rides imported yet",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Tap the + button to import .fit files",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
-                            // Session list
-                            items(sessions) { session ->
-                                SessionCard(session = session, onClick = { onSessionClick(session.id) })
-                            }
                         }
-                        ScrollBarOverlay(
-                            visible = showScrollBar,
-                            listState = listState,
-                            modifier = Modifier.align(Alignment.CenterEnd)
-                        )
+                    }
+                    else -> {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                                // Monthly stats section — above the ride list
+                                item {
+                                    MonthlyStatsSection(
+                                        monthlyData = monthlyData,
+                                        selectedMonthIndex = selectedMonthIndex,
+                                        selectedSummary = selectedMonthSummary,
+                                        onMonthSelected = { viewModel.selectMonthIndex(it) }
+                                    )
+                                }
+    
+                                // Session list
+                                items(sessions) { session ->
+                                    SessionCard(session = session, onClick = { onSessionClick(session.id) })
+                                }
+                            }
+                            ScrollBarOverlay(
+                                visible = showScrollBar,
+                                listState = listState,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
+                        }
                     }
                 }
             }

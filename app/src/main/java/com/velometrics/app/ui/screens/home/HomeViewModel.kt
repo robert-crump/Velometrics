@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.data.dropbox.DropboxSyncService
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
@@ -58,6 +59,7 @@ data class MonthlyRideSummary(
 class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val fitImportService: FitImportService,
+    private val dropboxSyncService: DropboxSyncService,
     private val routeClusteringService: RouteClusteringService,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
@@ -178,6 +180,28 @@ class HomeViewModel @Inject constructor(
 
     fun clearImportState() {
         _importState.value = ImportUiState.Idle
+    }
+
+    // --- Dropbox sync ---
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    /** Pull-to-refresh entry point: syncs new .fit files from Dropbox's Apps/Wahoo folder. */
+    fun syncDropbox() {
+        if (_isSyncing.value) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSyncing.value = true
+            try {
+                val results = dropboxSyncService.sync()
+                if (results.any { it is ImportResult.Success }) {
+                    appScope.launch { routeClusteringService.runClustering() }
+                }
+            } finally {
+                _isSyncing.value = false
+            }
+        }
     }
 
     private fun getFileName(uri: Uri): String? {

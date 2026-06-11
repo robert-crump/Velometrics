@@ -2,6 +2,7 @@
 
 import android.Manifest
 import android.content.Context
+import android.graphics.PointF
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +30,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -42,6 +44,7 @@ import com.velometrics.app.R
 import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
+import com.velometrics.app.ui.components.MapScaleBar
 import com.velometrics.app.ui.components.MapIntervalRenderer
 import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
@@ -68,6 +71,8 @@ import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.PolylineDecoder
+import com.velometrics.app.util.ScaleBarInfo
+import com.velometrics.app.util.ScaleBarUtils
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlinx.coroutines.withContext
@@ -172,6 +177,8 @@ fun MapViewScreen(
     }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
+    var scaleBarInfo by remember { mutableStateOf<ScaleBarInfo?>(null) }
+    val density = LocalDensity.current.density
     var showLayersPanel by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
@@ -500,8 +507,10 @@ fun MapViewScreen(
             onMapReady = { map, style ->
                 mapAndStyle = Pair(map, style)
                 viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                scaleBarInfo = computeScaleBarInfo(map, density)
                 map.addOnCameraIdleListener {
                     viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                    scaleBarInfo = computeScaleBarInfo(map, density)
                 }
             }
         )
@@ -585,6 +594,18 @@ fun MapViewScreen(
                     )
                 }
             }
+        }
+
+        // Distance scale bar - bottom left, stacked above the MapLibre attribution control
+        scaleBarInfo?.let { info ->
+            MapScaleBar(
+                widthDp = (info.widthPx / density).dp,
+                distanceLabel = info.label,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, bottom = 40.dp)
+            )
         }
 
         // Stacked FABs - bottom right: fast-way-home above locate-me
@@ -1171,6 +1192,18 @@ private fun LegendCard(
             }
         }
     }
+}
+
+private const val SCALE_BAR_MAX_WIDTH_DP = 80f
+
+/** Computes the scale bar's bar width and label from the map's current zoom and latitude. */
+private fun computeScaleBarInfo(map: MapLibreMap, density: Float): ScaleBarInfo {
+    val centerY = map.height / 2f
+    val left = map.projection.fromScreenLocation(PointF(0f, centerY))
+    val right = map.projection.fromScreenLocation(PointF(100f, centerY))
+    val metersPerPixel = left.distanceTo(right) / 100.0
+    val maxWidthPx = SCALE_BAR_MAX_WIDTH_DP * density
+    return ScaleBarUtils.computeScaleBar(metersPerPixel, maxWidthPx.toDouble())
 }
 
 private const val USER_LOCATION_SOURCE = "user-location-source"

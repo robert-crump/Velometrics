@@ -170,6 +170,7 @@ fun MapViewScreen(
     var showGpxPoisSheet by remember { mutableStateOf(false) }
     var gpxToggleActive by remember { mutableStateOf(false) }
     var gpxPoiMode by remember { mutableStateOf(false) }
+    var showLayersPanel by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -177,7 +178,9 @@ fun MapViewScreen(
         if (uri != null) {
             coroutineScope.launch {
                 val success = gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
-                if (!success) {
+                if (success) {
+                    showLayersPanel = false
+                } else {
                     gpxToggleActive = false
                     Toast.makeText(context, "Failed to load GPX file", Toast.LENGTH_SHORT).show()
                 }
@@ -200,7 +203,6 @@ fun MapViewScreen(
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var scaleBarInfo by remember { mutableStateOf<ScaleBarInfo?>(null) }
     val density = LocalDensity.current.density
-    var showLayersPanel by remember { mutableStateOf(false) }
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
@@ -614,7 +616,7 @@ fun MapViewScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            FloatingActionButton(
+            SmallFloatingActionButton(
                 onClick = {
                     fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
                 }
@@ -756,7 +758,7 @@ fun MapViewScreen(
         if (showGpxPoisSheet) {
             PullUpDrawer(
                 initialFraction = 0.5f,
-                snapFractions = listOf(0.15f, 0.50f)
+                snapFractions = listOf(0.15f, 0.50f, 1.00f)
             ) {
                 GpxPoisSheetContent(
                     poiItems = gpxPoiItems,

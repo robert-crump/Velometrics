@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
+import com.velometrics.app.data.dropbox.DropboxSyncResult
 import com.velometrics.app.data.dropbox.DropboxSyncService
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
@@ -207,12 +208,24 @@ class HomeViewModel @Inject constructor(
                     _dropboxSyncMessage.value = "Connect Dropbox in Settings to sync rides"
                     return@launch
                 }
-
-                val results = dropboxSyncService.sync()
-                if (results.any { it is ImportResult.Success }) {
-                    appScope.launch { routeClusteringService.runClustering() }
+                if (dropboxAuthRepository.needsReauth.value) {
+                    return@launch
                 }
-                _dropboxSyncMessage.value = buildSyncMessage(results)
+
+                when (val result = dropboxSyncService.sync()) {
+                    is DropboxSyncResult.Completed -> {
+                        if (result.importResults.any { it is ImportResult.Success }) {
+                            appScope.launch { routeClusteringService.runClustering() }
+                        }
+                        _dropboxSyncMessage.value = buildSyncMessage(result.importResults)
+                    }
+                    DropboxSyncResult.TransientFailure -> {
+                        // Fail silently; will retry on the next sync trigger.
+                    }
+                    DropboxSyncResult.NeedsReauth -> {
+                        dropboxAuthRepository.markNeedsReauth()
+                    }
+                }
             } finally {
                 _isSyncing.value = false
             }

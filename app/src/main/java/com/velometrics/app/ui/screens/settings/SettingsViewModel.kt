@@ -34,6 +34,7 @@ class SettingsViewModel @Inject constructor(
     val homeLon = userSettingsRepository.homeLon
     val dropboxSyncFolder = userSettingsRepository.dropboxSyncFolder
     val isDropboxConnected = dropboxAuthRepository.isConnected
+    val needsDropboxReauth = dropboxAuthRepository.needsReauth
 
     private val _recalcState = MutableStateFlow<RecalcState>(RecalcState.Idle)
     val recalcState: StateFlow<RecalcState> = _recalcState.asStateFlow()

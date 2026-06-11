@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ fun SettingsScreen(
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
     val pendingFtp by viewModel.pendingFtp.collectAsState()
     val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
+    val needsDropboxReauth by viewModel.needsDropboxReauth.collectAsState()
     val currentDropboxSyncFolder by viewModel.dropboxSyncFolder.collectAsState(
         initial = CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
     )
@@ -206,6 +208,32 @@ fun SettingsScreen(
                                 text = "Connected",
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                        }
+                        if (needsDropboxReauth) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Dropbox sync needs reauthorization",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { viewModel.connectDropbox() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Reconnect Dropbox")
+                            }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(

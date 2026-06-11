@@ -32,6 +32,11 @@ class DropboxAuthRepository @Inject constructor(
     private val _isConnected = MutableStateFlow(credentialStore.isConnected())
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    private val _needsReauth = MutableStateFlow(credentialStore.needsReauth())
+
+    /** True if a persistent auth failure was detected and the user needs to reconnect Dropbox. */
+    val needsReauth: StateFlow<Boolean> = _needsReauth.asStateFlow()
+
     /** Launches the browser/Custom Tab authorization flow. */
     fun startAuthFlow() {
         Auth.startOAuth2PKCE(context, BuildConfig.DROPBOX_APP_KEY, requestConfig, SCOPES)
@@ -45,6 +50,8 @@ class DropboxAuthRepository @Inject constructor(
     fun handleAuthResult() {
         val credential = Auth.getDbxCredential() ?: return
         credentialStore.saveCredential(credential)
+        credentialStore.setNeedsReauth(false)
+        _needsReauth.value = false
         _isConnected.value = true
     }
 
@@ -60,5 +67,12 @@ class DropboxAuthRepository @Inject constructor(
         }
         credentialStore.clear()
         _isConnected.value = false
+        _needsReauth.value = false
+    }
+
+    /** Marks the connection as needing reauthorization after a persistent auth failure during sync. */
+    fun markNeedsReauth() {
+        credentialStore.setNeedsReauth(true)
+        _needsReauth.value = true
     }
 }

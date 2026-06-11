@@ -25,6 +25,7 @@ class DropboxCredentialStore @Inject constructor(
         private const val KEY_APP_KEY = "app_key"
         private const val KEY_SYNC_CURSOR = "sync_cursor"
         private const val KEY_SYNC_CURSOR_FOLDER = "sync_cursor_folder"
+        private const val KEY_NEEDS_REAUTH = "needs_reauth"
     }
 
     private val masterKey = MasterKey.Builder(context)
@@ -79,4 +80,12 @@ class DropboxCredentialStore @Inject constructor(
         if (prefs.getString(KEY_SYNC_CURSOR_FOLDER, null) != folder) return null
         return prefs.getString(KEY_SYNC_CURSOR, null)
     }
+
+    /** Marks (or clears) the connection as needing the user to reconnect Dropbox. */
+    fun setNeedsReauth(value: Boolean) {
+        prefs.edit().putBoolean(KEY_NEEDS_REAUTH, value).apply()
+    }
+
+    /** Whether a persistent auth failure was detected and not yet resolved by reconnecting. */
+    fun needsReauth(): Boolean = prefs.getBoolean(KEY_NEEDS_REAUTH, false)
 }

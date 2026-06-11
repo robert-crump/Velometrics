@@ -148,3 +148,52 @@ near-instant no-op after the first run.
 
 ### Tests
 All unit tests pass. `compileDebugKotlin` and `compileDebugUnitTestKotlin` succeed.
+
+## Issue #23 — Surface 'Reconnect Dropbox' prompt on persistent auth failure
+Completed: 2026-06-11 | Closed: pending
+
+### What was done
+
+Distinguishes transient sync failures from persistent Dropbox auth failures
+(revoked/invalid refresh token), since retrying the latter can never succeed
+without the user reconnecting.
+
+- `data/dropbox/DropboxSyncService.kt`: `sync()` now returns a new sealed
+  `DropboxSyncResult` (`Completed`, `TransientFailure`, `NeedsReauth`) instead
+  of a bare `List<ImportResult>`. The single `catch (e: DbxException)` around
+  the list/download loop is classified via the new internal
+  `isPersistentAuthFailure()`: `InvalidAccessTokenException` or a
+  `DbxOAuthException` with `DbxOAuthError.INVALID_GRANT` (revoked refresh
+  token) → `NeedsReauth`; everything else (network, rate limiting, server
+  errors) → `TransientFailure` if no results were produced yet, otherwise the
+  partial `Completed(results)` is still returned. The cursor is only saved for
+  pages that completed successfully, so transient/auth failures leave sync
+  state untouched for the next attempt. `downloadAndImport()` now rethrows
+  persistent-auth `DbxException`s (instead of swallowing them as a per-file
+  `ImportResult.Error`) so a token revoked mid-sync is still classified
+  correctly by the outer catch.
+- `data/dropbox/DropboxCredentialStore.kt`: added `setNeedsReauth()` /
+  `needsReauth()` backed by the same `EncryptedSharedPreferences`, cleared
+  together by the existing `clear()` on disconnect.
+- `data/dropbox/DropboxAuthRepository.kt`: added `needsReauth: StateFlow<Boolean>`
+  (seeded from the credential store) and `markNeedsReauth()`. Cleared on a
+  successful `handleAuthResult()` (reconnect) and on `disconnect()`.
+- `ui/screens/home/HomeViewModel.kt`: `syncDropbox()` now switches on
+  `DropboxSyncResult` — `Completed` builds the existing snackbar message and
+  triggers re-clustering as before, `TransientFailure` does nothing (silent
+  retry next sync), `NeedsReauth` calls `markNeedsReauth()`. Also skips
+  syncing entirely while already in the "needs reconnect" state, to avoid
+  repeatedly hitting the failing token-refresh endpoint.
+- `ui/screens/settings/SettingsViewModel.kt`: exposed
+  `needsDropboxReauth = dropboxAuthRepository.needsReauth`.
+- `ui/screens/settings/SettingsScreen.kt`: when connected and
+  `needsDropboxReauth` is true, shows a warning row ("Dropbox sync needs
+  reauthorization") plus a "Reconnect Dropbox" button above the existing
+  "Disconnect" button. Tapping it reuses `connectDropbox()` (the same OAuth
+  flow from #20); the prompt clears once `handleAuthResult()` succeeds.
+
+### Tests
+Added `DropboxSyncServiceTest` covering `isPersistentAuthFailure()` for
+`InvalidAccessTokenException`, `DbxOAuthException` (`INVALID_GRANT` vs.
+`INVALID_REQUEST`), `NetworkIOException`, `RetryException`, and
+`ServerException`. `compileDebugKotlin` and `testDebugUnitTest` both pass.

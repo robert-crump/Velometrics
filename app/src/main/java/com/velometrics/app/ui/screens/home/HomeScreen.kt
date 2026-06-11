@@ -30,8 +30,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -45,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import kotlin.math.roundToInt
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.util.FormatUtils
@@ -98,6 +102,16 @@ fun HomeScreen(
     val selectedMonthSummary by viewModel.selectedMonthSummary.collectAsState()
     val isInitialLoading by viewModel.isInitialLoading.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
+    val dropboxSyncMessage by viewModel.dropboxSyncMessage.collectAsState()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(dropboxSyncMessage) {
+        dropboxSyncMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearDropboxSyncMessage()
+        }
+    }
 
     val listState = rememberLazyListState()
     var showScrollBar by remember { mutableStateOf(false) }
@@ -134,6 +148,7 @@ fun HomeScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = { filePickerLauncher.launch("*/*") }) {
                 Icon(Icons.Default.Add, contentDescription = "Import .fit file")
@@ -285,44 +300,79 @@ private fun ScrollBarOverlay(
     }
 }
 
+// Estimate total content height from the average visible-item size.
+// Using pixel heights keeps the thumb height stable when a partially-visible
+// item enters or leaves the visible set (which would flip visibleCount ± 1).
+private class ScrollBarMetrics(
+    val avgItemPx: Float,
+    val estimatedTotalPx: Float,
+    val viewportPx: Float
+)
+
+private fun scrollBarMetrics(layoutInfo: LazyListLayoutInfo): ScrollBarMetrics? {
+    val visItems = layoutInfo.visibleItemsInfo
+    if (layoutInfo.totalItemsCount == 0 || visItems.isEmpty()) return null
+    val avgItemPx = visItems.sumOf { it.size }.toFloat() / visItems.size
+    val estimatedTotalPx = avgItemPx * layoutInfo.totalItemsCount
+    val viewportPx = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).toFloat()
+    if (viewportPx >= estimatedTotalPx) return null
+    return ScrollBarMetrics(avgItemPx, estimatedTotalPx, viewportPx)
+}
+
 @Composable
 private fun ScrollBarIndicator(
     listState: LazyListState,
     modifier: Modifier = Modifier
 ) {
     val thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
-    Canvas(
+    val coroutineScope = rememberCoroutineScope()
+
+    fun scrollToFraction(fraction: Float) {
+        val metrics = scrollBarMetrics(listState.layoutInfo) ?: return
+        val maxScrollPx = metrics.estimatedTotalPx - metrics.viewportPx
+        val targetPx = fraction.coerceIn(0f, 1f) * maxScrollPx
+        val totalItems = listState.layoutInfo.totalItemsCount
+        val targetIndex = (targetPx / metrics.avgItemPx).toInt().coerceIn(0, totalItems - 1)
+        val targetOffset = (targetPx - targetIndex * metrics.avgItemPx).toInt()
+        coroutineScope.launch {
+            listState.scrollToItem(targetIndex, targetOffset)
+        }
+    }
+
+    Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(4.dp)
+            .width(24.dp)
             .padding(vertical = 8.dp)
+            .pointerInput(listState) {
+                detectDragGestures(
+                    onDragStart = { offset -> scrollToFraction(offset.y / size.height) }
+                ) { change, _ ->
+                    change.consume()
+                    scrollToFraction(change.position.y / size.height)
+                }
+            },
+        contentAlignment = Alignment.CenterEnd
     ) {
-        val layoutInfo = listState.layoutInfo
-        val visItems = layoutInfo.visibleItemsInfo
-        if (layoutInfo.totalItemsCount == 0 || visItems.isEmpty()) return@Canvas
+        Canvas(modifier = Modifier.fillMaxHeight().width(4.dp)) {
+            val metrics = scrollBarMetrics(listState.layoutInfo) ?: return@Canvas
 
-        // Estimate total content height from the average visible-item size.
-        // Using pixel heights keeps the thumb height stable when a partially-visible
-        // item enters or leaves the visible set (which would flip visibleCount ± 1).
-        val avgItemPx = visItems.sumOf { it.size }.toFloat() / visItems.size
-        val estimatedTotalPx = avgItemPx * layoutInfo.totalItemsCount
-        val viewportPx = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).toFloat()
-        if (viewportPx >= estimatedTotalPx) return@Canvas
+            val thumbHeight = (size.height * metrics.viewportPx / metrics.estimatedTotalPx)
+                .coerceIn(24f, size.height)
 
-        val thumbHeight = (size.height * viewportPx / estimatedTotalPx).coerceIn(24f, size.height)
-
-        // Smooth position: convert to a pixel-based fraction of the scrollable range
-        val scrolledPx = listState.firstVisibleItemIndex * avgItemPx +
-                listState.firstVisibleItemScrollOffset
-        val maxScrollPx = estimatedTotalPx - viewportPx
-        val fraction = if (maxScrollPx > 0f) (scrolledPx / maxScrollPx).coerceIn(0f, 1f) else 0f
-        val thumbTop = fraction * (size.height - thumbHeight)
-        drawRoundRect(
-            color = thumbColor,
-            topLeft = Offset(0f, thumbTop),
-            size = androidx.compose.ui.geometry.Size(size.width, thumbHeight),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width / 2f)
-        )
+            // Smooth position: convert to a pixel-based fraction of the scrollable range
+            val scrolledPx = listState.firstVisibleItemIndex * metrics.avgItemPx +
+                    listState.firstVisibleItemScrollOffset
+            val maxScrollPx = metrics.estimatedTotalPx - metrics.viewportPx
+            val fraction = if (maxScrollPx > 0f) (scrolledPx / maxScrollPx).coerceIn(0f, 1f) else 0f
+            val thumbTop = fraction * (size.height - thumbHeight)
+            drawRoundRect(
+                color = thumbColor,
+                topLeft = Offset(0f, thumbTop),
+                size = androidx.compose.ui.geometry.Size(size.width, thumbHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width / 2f)
+            )
+        }
     }
 }
 
@@ -600,19 +650,12 @@ private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
                     text = FormatUtils.formatSpeed(avgSpeed),
                     style = MaterialTheme.typography.bodyMedium
                 )
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-            if (session.hasPower && session.averagePower != null) {
-                Text(
-                    text = FormatUtils.formatPower(session.averagePower),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            } else {
-                Text(
-                    text = "No power",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
+                if (session.hasPower && session.averagePower != null) {
+                    Text(
+                        text = FormatUtils.formatPower(session.averagePower),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
         }
     }

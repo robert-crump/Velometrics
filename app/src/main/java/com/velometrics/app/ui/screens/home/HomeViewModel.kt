@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncService
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
@@ -60,6 +61,7 @@ class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val fitImportService: FitImportService,
     private val dropboxSyncService: DropboxSyncService,
+    private val dropboxAuthRepository: DropboxAuthRepository,
     private val routeClusteringService: RouteClusteringService,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
@@ -187,21 +189,59 @@ class HomeViewModel @Inject constructor(
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
-    /** Pull-to-refresh entry point: syncs new .fit files from Dropbox's Apps/Wahoo folder. */
+    private val _dropboxSyncMessage = MutableStateFlow<String?>(null)
+    val dropboxSyncMessage: StateFlow<String?> = _dropboxSyncMessage.asStateFlow()
+
+    fun clearDropboxSyncMessage() {
+        _dropboxSyncMessage.value = null
+    }
+
+    /** Pull-to-refresh entry point: syncs new .fit files from the configured Dropbox folder. */
     fun syncDropbox() {
         if (_isSyncing.value) return
 
         viewModelScope.launch(Dispatchers.IO) {
             _isSyncing.value = true
             try {
+                if (!dropboxAuthRepository.isConnected.value) {
+                    _dropboxSyncMessage.value = "Connect Dropbox in Settings to sync rides"
+                    return@launch
+                }
+
                 val results = dropboxSyncService.sync()
                 if (results.any { it is ImportResult.Success }) {
                     appScope.launch { routeClusteringService.runClustering() }
                 }
+                _dropboxSyncMessage.value = buildSyncMessage(results)
             } finally {
                 _isSyncing.value = false
             }
         }
+    }
+
+    /** Auto-sync entry point: silently syncs Dropbox on app open, if connected. */
+    private fun autoSyncDropbox() {
+        if (!dropboxAuthRepository.isConnected.value) return
+        syncDropbox()
+    }
+
+    private fun buildSyncMessage(results: List<ImportResult>): String {
+        val successCount = results.count { it is ImportResult.Success }
+        val errors = results.filterIsInstance<ImportResult.Error>()
+        val smallFileCount = results.count { it is ImportResult.SmallFile }
+
+        val parts = mutableListOf<String>()
+        if (successCount > 0) {
+            parts.add("Imported $successCount new ride${if (successCount == 1) "" else "s"}")
+        }
+        if (errors.isNotEmpty()) {
+            parts.add("${errors.size} failed: ${errors.first().message}")
+        }
+        if (smallFileCount > 0) {
+            parts.add("$smallFileCount skipped (too short)")
+        }
+
+        return if (parts.isEmpty()) "No new rides found in Dropbox" else parts.joinToString(", ")
     }
 
     private fun getFileName(uri: Uri): String? {
@@ -212,5 +252,9 @@ class HomeViewModel @Inject constructor(
                 if (nameIndex >= 0) it.getString(nameIndex) else null
             } else null
         }
+    }
+
+    init {
+        autoSyncDropbox()
     }
 }

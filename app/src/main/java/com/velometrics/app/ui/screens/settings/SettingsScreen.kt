@@ -32,9 +32,17 @@ fun SettingsScreen(
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
     val pendingFtp by viewModel.pendingFtp.collectAsState()
     val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
+    val currentDropboxSyncFolder by viewModel.dropboxSyncFolder.collectAsState(
+        initial = CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
+    )
 
     // Local edit state for FTP text field
     var ftpFieldValue by remember(currentFtp) { mutableStateOf(currentFtp.toString()) }
+
+    // Local edit state for Dropbox sync folder text field
+    var dropboxFolderFieldValue by remember(currentDropboxSyncFolder) {
+        mutableStateOf(currentDropboxSyncFolder)
+    }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showFtpInfo by remember { mutableStateOf(false) }
 
@@ -219,6 +227,36 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Connect Dropbox")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Folder to sync .fit files from",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = dropboxFolderFieldValue,
+                            onValueChange = { dropboxFolderFieldValue = it },
+                            label = { Text("Dropbox folder") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                val trimmed = dropboxFolderFieldValue.trim().trimEnd('/')
+                                if (trimmed.isNotEmpty() && trimmed != currentDropboxSyncFolder) {
+                                    viewModel.saveDropboxSyncFolder(trimmed)
+                                }
+                            }
+                        ) {
+                            Text("Save")
                         }
                     }
                 }

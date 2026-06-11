@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_FTP = intPreferencesKey("ftp")
         private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
         private val KEY_HOME_LON = doublePreferencesKey("home_lon")
+        private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
     }
 
     val ftp: Flow<Int> = context.dataStore.data.map { prefs ->
@@ -38,6 +40,10 @@ class UserSettingsRepository @Inject constructor(
         prefs[KEY_HOME_LON] ?: CyclingConstants.HOME_LON
     }
 
+    val dropboxSyncFolder: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_DROPBOX_SYNC_FOLDER] ?: CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
+    }
+
     suspend fun saveFtp(ftp: Int) {
         context.dataStore.edit { prefs ->
             prefs[KEY_FTP] = ftp
@@ -48,6 +54,12 @@ class UserSettingsRepository @Inject constructor(
         context.dataStore.edit { prefs ->
             prefs[KEY_HOME_LAT] = lat
             prefs[KEY_HOME_LON] = lon
+        }
+    }
+
+    suspend fun saveDropboxSyncFolder(path: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_DROPBOX_SYNC_FOLDER] = path
         }
     }
 }

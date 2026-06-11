@@ -37,6 +37,9 @@ object CyclingConstants {
     const val HOME_LAT = 50.78117
     const val HOME_LON = 6.07261
 
+    // Dropbox sync
+    const val DEFAULT_DROPBOX_SYNC_FOLDER = "/Apps/WahooFitness"
+
     // Bounding box (approximate cycling area)
     const val BBOX_SW_LAT = 50.57
     const val BBOX_SW_LON = 5.63

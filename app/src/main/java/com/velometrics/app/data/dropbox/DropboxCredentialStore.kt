@@ -24,6 +24,7 @@ class DropboxCredentialStore @Inject constructor(
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_APP_KEY = "app_key"
         private const val KEY_SYNC_CURSOR = "sync_cursor"
+        private const val KEY_SYNC_CURSOR_FOLDER = "sync_cursor_folder"
     }
 
     private val masterKey = MasterKey.Builder(context)
@@ -62,9 +63,20 @@ class DropboxCredentialStore @Inject constructor(
     fun isConnected(): Boolean = prefs.contains(KEY_REFRESH_TOKEN)
 
     /** Persists the cursor returned by `list_folder`/`list_folder/continue` for delta syncs. */
-    fun saveSyncCursor(cursor: String) {
-        prefs.edit().putString(KEY_SYNC_CURSOR, cursor).apply()
+    fun saveSyncCursor(folder: String, cursor: String) {
+        prefs.edit()
+            .putString(KEY_SYNC_CURSOR, cursor)
+            .putString(KEY_SYNC_CURSOR_FOLDER, folder)
+            .apply()
     }
 
-    fun getSyncCursor(): String? = prefs.getString(KEY_SYNC_CURSOR, null)
+    /**
+     * Returns the saved cursor, but only if it was generated for [folder]. If the
+     * configured sync folder has changed since the last sync, the old cursor is
+     * invalid and `null` is returned so a fresh `list_folder` is performed.
+     */
+    fun getSyncCursor(folder: String): String? {
+        if (prefs.getString(KEY_SYNC_CURSOR_FOLDER, null) != folder) return null
+        return prefs.getString(KEY_SYNC_CURSOR, null)
+    }
 }

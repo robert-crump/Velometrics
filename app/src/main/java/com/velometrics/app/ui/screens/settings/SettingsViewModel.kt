@@ -32,6 +32,7 @@ class SettingsViewModel @Inject constructor(
     val ftp = userSettingsRepository.ftp
     val homeLat = userSettingsRepository.homeLat
     val homeLon = userSettingsRepository.homeLon
+    val dropboxSyncFolder = userSettingsRepository.dropboxSyncFolder
     val isDropboxConnected = dropboxAuthRepository.isConnected
 
     private val _recalcState = MutableStateFlow<RecalcState>(RecalcState.Idle)
@@ -69,6 +70,12 @@ class SettingsViewModel @Inject constructor(
 
     fun clearRecalcState() {
         _recalcState.value = RecalcState.Idle
+    }
+
+    fun saveDropboxSyncFolder(path: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            userSettingsRepository.saveDropboxSyncFolder(path)
+        }
     }
 
     fun connectDropbox() {

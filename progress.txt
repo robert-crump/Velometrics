@@ -1,3 +1,18 @@
+## Issue #22 — Automatic Dropbox sync on app open
+Completed: 2026-06-11 | Closed: pending
+
+### What was done
+
+- Added an `init` block in `HomeViewModel` that calls a new private
+  `autoSyncDropbox()` on first creation (app open).
+- `autoSyncDropbox()` checks `dropboxAuthRepository.isConnected.value` and,
+  if connected, calls the existing `syncDropbox()` — reusing the identical
+  sync function, `isSyncing` flow, and `PullRefreshIndicator` from #21.
+- If not connected, it does nothing — no sync attempt, no message, no
+  indicator.
+- No new UI/indicator added; the app remains fully interactive while the
+  background sync runs.
+
 ## Issue #50 — Safe removal of legacy code (RoutePlanner, stop-detection data)
 Completed: 2026-06-10 | Closed: pending
 
@@ -97,239 +112,6 @@ Completed: 2026-06-10 | Closed: pending
 
 ### Tests
 `compileDebugKotlin` and `testDebugUnitTest` both pass.
-
-## Issue #49 — [Map] FABs overshadow POI popups
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-**Re-center on POI tap** (`MapViewScreen.kt`, map click listener)
-- After `viewModel.selectPoiFromMap(poi)`, the camera now animates to
-  `CameraUpdateFactory.newLatLng(LatLng(poi.lat, poi.lon))`, re-centering the map on the
-  tapped POI without changing the current zoom level.
-
-**Repositioned `PoiPopupCard`**
-- Moved out of the bottom-aligned `Box` slot (`Alignment.BottomCenter`, `bottom = 80.dp`,
-  which overlapped the bottom-right FAB stack) and into the top-aligned `Column` that holds
-  the POI category chip row, the GPX "POIs along .gpx" chip, and the Fast Way Home card.
-- The popup card now renders as the last item in that column, so it naturally sits beneath
-  the category chips, or beneath the "POIs along .gpx" chip when a .gpx track is loaded
-  (existing layout order already places that chip before the popup's new position).
-
-### Tests
-All unit tests pass. `compileDebugKotlin` succeeds.
-
-## Issue #47 — Fastest Way Home: Redesign to find shortest path home
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-**`FastWayHomeService.kt` rewrite**
-- `aStarToHome` now does a pure shortest-path search: cost = `edge.lengthM`, heuristic =
-  haversine distance (meters) from an edge's end point to home — both in the same unit, so
-  the heuristic stays admissible. No longer depends on `speedP50` or
-  `GPS_IMPLIED_MAX_SPEED_KMH`.
-- `findFastWayHome` now takes `currentLocation: StateFlow<LatLng?>` and
-  `locationAccuracy: StateFlow<Float?>` (sourced from `MapViewViewModel`). Uses
-  `combine` + `withTimeoutOrNull(FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS = 5_000)` to wait until
-  accuracy ≤ `FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M` (20m), then proceeds with whatever
-  location is current at that point (falling back to `currentLocation.value`); returns `null`
-  if there's no fix at all.
-- `buildConnectivity` simplified — no longer computes edge bearings or per-edge `EdgeStats`,
-  just raw `MapEdge` speed/power fields.
-- `FastWayHomeResult` reshaped: adds `totalDistanceM` and `coveragePercent` (length of edges
-  with all three speed percentiles ÷ total path length, rounded); `slow`/`avg`/`fast` become
-  `RideEstimate?`.
-
-**`EdgeStatsEstimator` removed entirely**
-- Deleted `EdgeStatsEstimator.kt` and `EdgeStatsEstimatorTest.kt`, the
-  `EDGE_STATS_NEAREST_K`/`EDGE_STATS_SEARCH_RADIUS_M`/`EDGE_STATS_FALLBACK_SPEED_KMH`/
-  `EDGE_STATS_MAX_BEARING_DIFF_DEG` constants (including the flat 15 km/h fallback), and the
-  stale `MapMatcher.kt` doc reference to it.
-
-**`RideEstimator.kt` rewrite**
-- `ScoredSegment`'s speed fields are now nullable (`speedP25/50/75: Double?`); `isEstimated`
-  removed.
-- Per percentile: average speed = length-weighted avg of `speedPxx` over edges where that
-  field is non-null; total duration = total path length ÷ that average speed; average power =
-  duration-weighted avg of `powerPxx` over edges where both `speedPxx` and `powerPxx` are
-  non-null.
-- `estimateRide` now returns `RideEstimate?` — `null` when zero segments carry speed data for
-  that percentile (`anyEstimatedSegments` removed).
-
-**UI (`FastWayHomeOverlay.kt`, `FastWayHomeViewModel.kt`, `MapViewScreen.kt`)**
-- Card title: `"Fast way home"` while loading/message; `"Fast way home: X km"`
-  (X = `Math.round(totalDistanceM / 1000.0)`) once a result exists.
-- Loading text changed to a single `"Finding fast way home…"` (covers the GPS-accuracy wait
-  + search); `"Waiting for GPS signal…"` still shown by `FastWayHomeViewModel` when there's no
-  fix at all.
-- Always show `"Data coverage: X%"` footnote when a result exists, replacing the old
-  "Some segments use estimated speeds" text.
-- `FastWayHomeEstimateRow` shows `"—"` for duration/power when that percentile's
-  `RideEstimate` is `null`.
-- `FastWayHomeViewModel.findFastWayHome` now takes `(currentLocation, locationAccuracy)`
-  StateFlows; `MapViewScreen`'s FAB passes `viewModel.currentLocation` /
-  `viewModel.locationAccuracy`.
-
-### Tests
-135 unit tests pass. `RideEstimatorTest` rewritten for nullable estimates;
-`FastWayHomeServiceTest` rewritten for the new constructor/signature, plus new cases:
-shortest-vs-faster-route preference, null estimates with no speed data, no-GPS-fix, and
-GPS-accuracy-wait timeout fallback.
-
-## Issue #44 — Open GPX files from external apps directly into the Map tab
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-- `MainActivity.kt` — when a pending GPX URI is set, navigate to `Screen.MapView.route`
-  instead of the now-removed `Screen.Navigation.route` target.
-- `MapViewScreen.kt` — injects `GpxIntentViewModel` (Activity-scoped via
-  `hiltViewModel(LocalContext.current as ComponentActivity)`, same pattern as
-  `GpxSharedViewModel`). A new `LaunchedEffect(pendingGpxUri)` calls
-  `gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)` to load the track/POIs
-  onto the map, then `gpxIntentViewModel.consumePendingUri()` so it isn't reloaded on
-  recomposition or re-navigation.
-- Opening a `.gpx` file via `ACTION_VIEW`/`ACTION_SEND` now lands on the Map tab with the
-  track and its POIs loaded, same as the in-app "Load GPX" picker.
-
-## Issue #43 — Add Fast Way Home to the Map tab
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-**New files** (`ui/screens/mapview/`)
-- `FastWayHomeViewModel.kt` — ported from `NavigationViewModel`, dropping the dead
-  `offTrackDialogKm` state. `findFastWayHome()` now takes the current location as a
-  parameter (`LatLng?`) instead of taking its own GPS fix, so it reuses
-  `MapViewViewModel.currentLocation`.
-- `FastWayHomeOverlay.kt` — `FastWayHomeCard` / `FastWayHomeEstimateRow` composables plus
-  `renderHomeMarker` / `removeHomeMarker` helpers and the `FAST_WAY_HOME_TRACK_ID` constant,
-  ported from `NavigationScreen.kt` (made non-private so `MapViewScreen` can use them).
-
-**`MapViewScreen.kt`**
-- Injects `FastWayHomeViewModel` alongside the existing `MapViewViewModel`.
-- New FAB (Home icon) in the bottom-right stack, ordered locate-me → fast-way-home → layers.
-- New `LaunchedEffect` mirrors the Navigate tab's route+marker rendering: draws the FWH
-  polyline and home marker (`FAST_WAY_HOME_TRACK_*` constants) and eases the camera to fit.
-- `FastWayHomeCard` placed at `BottomCenter` (loading / result / message states); while
-  showing, it takes priority and hides `PoiPopupCard`. Dismissing (X) clears both the card
-  and the map overlay; no other map interaction auto-clears it.
-- Navigate tab (`NavigationScreen`/`NavigationViewModel`) left unchanged, to be removed in a
-  follow-up issue.
-
-## Issue #42 — Modify Repeated Interval Detail Screen
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-**New shared component** (`ui/components/MetricCell.kt`)
-- Extracted `MetricCell` (label/value pair with optional trend arrow vs. a median) and its
-  private `getArrow` helper out of `SessionDetailScreen.kt` so both the Ride Detail and
-  Repeated Interval Detail screens can use the same stat layout.
-- `SessionDetailScreen.kt`'s `RideSummaryGrid` now relies on the shared component (picked up
-  via the existing `com.velometrics.app.ui.components.*` wildcard import); unused
-  arrow/icon/`abs`/`ImageVector` imports removed.
-
-**`RepeatedIntervalDetailScreen` rebuilt to mirror `SessionDetailScreen`**
-- Replaced the small non-interactive preview map + scrolling column with a full-screen
-  zoomable/pannable `RepeatedIntervalDetailMap` (same `ComposableMapView` + bounds-fit +
-  drawer-aware re-centering pattern as `SessionDetailMap`, minus the interval overlay/legend).
-- Stats and history now live in a `PullUpDrawer` (`initialFraction = 0.5f`), matching the Ride
-  Detail Screen's drawer behaviour.
-- New `RepeatedIntervalSummaryGrid` renders the five stats (Times, Distance, Avg duration,
-  Avg speed, Avg power) via `MetricCell` in the same two-column layout as `RideSummaryGrid`
-  (no median/arrow comparisons — repeated intervals have no baseline to compare against; no
-  power-zone/fat-efficiency/duration-estimate cards, per the issue).
-- "Occurrences" card renamed to "History" (unchanged content/behaviour — tap a row to open
-  the originating ride session).
-
-**Rename cursor fix** (`RepeatedIntervalDetailScreen` + `RepeatedRouteDetailScreen`)
-- `editName` changed from `String` to `TextFieldValue`. Tapping the pen icon now sets
-  `TextFieldValue(name, TextRange(name.length))` so the cursor starts at the end of the
-  existing name instead of the beginning.
-
-### Build fix (carried over from uncommitted work picked up at session start)
-- `app/src/test/java/.../RoutePlannerTest.kt`, `MapViewViewModelTest.kt`,
-  `EdgeStatsEstimatorTest.kt`, `FastWayHomeServiceTest.kt`, `MapMatcherTest.kt`: added
-  `getEdgesByNodePairs` overrides to `FakeMapGraphRepository`/anonymous repo implementations
-  so the test sources compile against the new `MapGraphRepository` member added in commit
-  463ff47.
-
-### Tests
-All unit tests pass. `compileDebugKotlin` succeeds. (Pre-existing `lintDebug` failure in
-`MapViewScreen.kt` — `LocalContext as ComponentActivity` — predates this change and is out of
-scope.)
-
-## Issue #31 — Repeated Routes and Repeated Intervals loading slowly
-Completed: 2026-06-09 | Closed: pending
-
-### What was done
-
-**Root cause**: `RepeatedRoutesCache` and `RepeatedIntervalsCache` are `@Singleton` classes with `SharingStarted.Eagerly`, but Hilt instantiates `@Singleton` components lazily — collection never started until the first `RepeatedRoutesViewModel` was created (i.e. when the user tapped the Routes tab). At that point the upstream DB flows (2 flows for routes, 3 flows for intervals) had to run cold, causing the ~2-second blank screen.
-
-**Fix**: Injected both caches into `VelometricsApplication` via `@Inject lateinit var`. Hilt satisfies field injection during `Application.onCreate()`, so both singletons are created at app startup. Their `SharingStarted.Eagerly` collection then begins immediately, and data is ready (or nearly ready) by the time the user navigates to the tab — eliminating the blank delay without any UI shimmer changes.
-
-### Tests
-All unit tests pass (unchanged count).
-## Issue #55 — [Map] Layers panel: convert bottom sheet to dialog overlay
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-`MapViewScreen.kt` — the "Layers" toggle (formerly the "Overlays" `ModalBottomSheet`) is now an
-in-screen overlay confined to the `MapViewScreen` content `Box`:
-
-- Replaced the `ModalBottomSheet`/`rememberModalBottomSheetState` with a `Box(fillMaxSize)` scrim
-  (32% black, `Color.Black.copy(alpha = 0.32f)`) inside the existing content `Box`, so the
-  bottom navigation bar outside `MapViewScreen` stays tappable while the panel is open.
-- The panel is a `Card` centered via `Alignment.Center` with horizontal padding, so the map
-  remains visible around it.
-- Header changed from "Overlays" to "Layers", with a new `Icons.Default.Close` `IconButton` in
-  the top-right corner to dismiss.
-- Tapping the scrim (`clickable` on the outer `Box`) or the X both set `showLayersPanel = false`.
-  A no-op `clickable` on the `Card` (with `indication = null` and a fresh
-  `MutableInteractionSource`) prevents taps on the panel itself from reaching the scrim.
-- Renamed the `showBottomSheet` state variable to `showLayersPanel` for clarity.
-- The existing GPX POIs `BottomSheetScaffold`/`ModalBottomSheet` (shown via "POIs along .gpx")
-  is untouched.
-
-### Tests
-All unit tests pass. `compileDebugKotlin` succeeds.
-
-## Issue #57 — Dead code sweep: find and remove other unused files/functions
-Completed: 2026-06-10 | Closed: pending
-
-### What was done
-
-Follow-up to #50. Ran a search-agent sweep plus manual grep verification across all
-132 main-source Kotlin files for zero-reference classes/functions, excluding Hilt DI,
-Compose nav, and Room false positives. Removed:
-
-- `util/FormatUtils.kt`: removed unused `formatDateShort()` and its private
-  `dateShortFormatter`.
-- `util/GeoUtils.kt`: removed unused `latToMeters()`, `lonToMeters()`, and
-  `compassDirection()`.
-- `ui/components/CaloriesCard.kt`: deleted — composable with zero call sites.
-- `ui/components/ComparisonCard.kt`: deleted — composable with zero call sites
-  (session comparison is now rendered inline in `RideSummaryGrid` in
-  `SessionDetailScreen.kt` via `SessionComparison` directly).
-- `ui/components/SpeedHistogramChart.kt`: removed unused `SpeedHistogramChart()`
-  overload (only `SpeedHistogramChartAvg()` is used, by `RepeatedRouteDetailScreen`).
-- `data/graphimport/GraphJsonImporter.kt`, `data/graphimport/PoiJsonImporter.kt`:
-  deleted — `@Singleton @Inject` scaffolding classes with an `import()` method that
-  was never called from anywhere.
-- `di/GraphBuilderModule.kt`: deleted — empty file containing only a stale comment
-  referencing the removed `RoutePlanner` (#50) and the two importers above; not a
-  real Hilt `@Module` and not referenced anywhere.
-
-Verified `RTreeSpatialIndex`, `TrackIndex`, `SessionComparator`, `IntervalSimilarity`,
-`SprintDetector`, `RouteClusteringService`, `IntervalClusteringService`,
-`IntervalMatcher`, `NominatimService`/`NominatimResult`, `OpeningHoursUtils`, and the
-chart/renderer composables are all still in use — kept as-is.
-
-### Tests
-All unit tests pass. `compileDebugKotlin` and `compileDebugUnitTestKotlin` succeed.
 
 ## Issue #21 — Manual Dropbox sync via pull-to-refresh
 Completed: 2026-06-11 | Closed: pending

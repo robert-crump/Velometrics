@@ -22,6 +22,8 @@ gson = "2.11.0"
 rtree2 = "0.9.3"
 lifecycleViewmodelCompose = "2.8.7"
 datastore = "1.1.1"
+dropboxCoreSdk = "7.0.0"
+securityCrypto = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -80,6 +82,13 @@ androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "l
 
 # DataStore
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+# Dropbox
+dropbox-core-sdk = { group = "com.dropbox.core", name = "dropbox-core-sdk", version.ref = "dropboxCoreSdk" }
+dropbox-android-sdk = { group = "com.dropbox.core", name = "dropbox-android-sdk", version.ref = "dropboxCoreSdk" }
+
+# Security (encrypted storage)
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

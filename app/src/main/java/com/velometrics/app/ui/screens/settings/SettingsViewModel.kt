@@ -2,6 +2,7 @@
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.SessionComparator
@@ -24,12 +25,14 @@ sealed class RecalcState {
 class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val sessionRepository: CyclingSessionRepository,
-    private val sessionComparator: SessionComparator
+    private val sessionComparator: SessionComparator,
+    private val dropboxAuthRepository: DropboxAuthRepository
 ) : ViewModel() {
 
     val ftp = userSettingsRepository.ftp
     val homeLat = userSettingsRepository.homeLat
     val homeLon = userSettingsRepository.homeLon
+    val isDropboxConnected = dropboxAuthRepository.isConnected
 
     private val _recalcState = MutableStateFlow<RecalcState>(RecalcState.Idle)
     val recalcState: StateFlow<RecalcState> = _recalcState.asStateFlow()
@@ -66,5 +69,15 @@ class SettingsViewModel @Inject constructor(
 
     fun clearRecalcState() {
         _recalcState.value = RecalcState.Idle
+    }
+
+    fun connectDropbox() {
+        dropboxAuthRepository.startAuthFlow()
+    }
+
+    fun disconnectDropbox() {
+        viewModelScope.launch(Dispatchers.IO) {
+            dropboxAuthRepository.disconnect()
+        }
     }
 }

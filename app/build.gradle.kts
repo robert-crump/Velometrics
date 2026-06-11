@@ -18,6 +18,11 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Dropbox OAuth2 PKCE app key (public client identifier, not a secret)
+        val dropboxAppKey = "91vlvyjz1nhumjl"
+        manifestPlaceholders["dropboxAppKey"] = dropboxAppKey
+        buildConfigField("String", "DROPBOX_APP_KEY", "\"$dropboxAppKey\"")
     }
 
     buildTypes {
@@ -38,6 +43,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -101,6 +107,13 @@ dependencies {
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+
+    // Dropbox
+    implementation(libs.dropbox.core.sdk)
+    implementation(libs.dropbox.android.sdk)
+
+    // Encrypted storage (Keystore-backed)
+    implementation(libs.androidx.security.crypto)
 
     // Testing
     testImplementation("net.sf.kxml:kxml2:2.3.0")

@@ -31,6 +31,7 @@ fun SettingsScreen(
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
     val pendingFtp by viewModel.pendingFtp.collectAsState()
+    val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
 
     // Local edit state for FTP text field
     var ftpFieldValue by remember(currentFtp) { mutableStateOf(currentFtp.toString()) }
@@ -168,6 +169,58 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Latitude: ${"%.5f".format(currentHomeLat)}")
                     Text("Longitude: ${"%.5f".format(currentHomeLon)}")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Dropbox sync
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Dropbox Sync",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (isDropboxConnected) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Connected",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.disconnectDropbox() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Disconnect")
+                        }
+                    } else {
+                        Text(
+                            text = "Connect your Dropbox account to automatically import rides " +
+                                "synced by Wahoo.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.connectDropbox() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Connect Dropbox")
+                        }
+                    }
                 }
             }
 

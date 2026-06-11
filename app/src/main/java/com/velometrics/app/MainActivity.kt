@@ -16,17 +16,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
+import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.ui.components.BottomNavBar
 import com.velometrics.app.ui.intent.GpxIntentViewModel
 import com.velometrics.app.ui.navigation.VelometricsNavHost
 import com.velometrics.app.ui.navigation.Screen
 import com.velometrics.app.ui.theme.VelometricsTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val gpxIntentViewModel: GpxIntentViewModel by viewModels()
+
+    @Inject
+    lateinit var dropboxAuthRepository: DropboxAuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +63,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        dropboxAuthRepository.handleAuthResult()
     }
 
     override fun onNewIntent(intent: Intent) {

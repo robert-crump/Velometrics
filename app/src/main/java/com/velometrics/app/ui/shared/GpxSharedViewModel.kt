@@ -70,17 +70,16 @@ class GpxSharedViewModel @Inject constructor(
         _selectedPoiItem.value = item
     }
 
-    fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver) {
-        viewModelScope.launch {
-            _gpxPois.value = emptyList()
-            val track = withContext(Dispatchers.IO) {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    GpxParser.parse(stream).getOrNull()
-                }
-            } ?: return@launch
-            _gpxTrack.value = track
-            fetchPoisForTrack(track)
-        }
+    suspend fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver): Boolean {
+        _gpxPois.value = emptyList()
+        val track = withContext(Dispatchers.IO) {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                GpxParser.parse(stream).getOrNull()
+            }
+        } ?: return false
+        _gpxTrack.value = track
+        fetchPoisForTrack(track)
+        return true
     }
 
     fun clearGpx() {

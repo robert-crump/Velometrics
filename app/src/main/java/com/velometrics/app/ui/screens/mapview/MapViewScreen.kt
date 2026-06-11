@@ -3,6 +3,7 @@
 import android.Manifest
 import android.content.Context
 import android.graphics.PointF
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,10 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,13 +22,10 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +46,7 @@ import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.PoiIcons
+import com.velometrics.app.ui.components.PullUpDrawer
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.intent.GpxIntentViewModel
@@ -77,6 +74,7 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -170,10 +168,33 @@ fun MapViewScreen(
 
     var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
     var showGpxPoisSheet by remember { mutableStateOf(false) }
+    var gpxToggleActive by remember { mutableStateOf(false) }
+    var gpxPoiMode by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     val gpxLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
+        if (uri != null) {
+            coroutineScope.launch {
+                val success = gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
+                if (!success) {
+                    gpxToggleActive = false
+                    Toast.makeText(context, "Failed to load GPX file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            gpxToggleActive = false
+        }
+    }
+
+    // Reset gpx-related UI state when the track is cleared
+    LaunchedEffect(gpxTrack) {
+        if (gpxTrack != null) {
+            gpxToggleActive = true
+        } else {
+            showGpxPoisSheet = false
+            gpxPoiMode = false
+        }
     }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
@@ -185,15 +206,6 @@ fun MapViewScreen(
     var gpxSegmentRendered by remember { mutableStateOf(false) }
     var fastWayHomeRendered by remember { mutableStateOf(false) }
     var fineLocationZoomedIn by remember { mutableStateOf(false) }
-
-    val gpxPoisListState = rememberLazyListState()
-
-    val peekHeightDp = (LocalConfiguration.current.screenHeightDp * 0.10f).dp
-    val gpxBottomSheetState = rememberStandardBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        skipHiddenState = false
-    )
-    val gpxScaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = gpxBottomSheetState)
 
     // Device heading (compass direction the phone is facing), shown as an arrow on the
     // user location marker. Null if the rotation vector sensor is unavailable.
@@ -365,34 +377,16 @@ fun MapViewScreen(
         ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 800)
     }
 
-    // GPX POIs sheet scaffold state control
-    LaunchedEffect(showGpxPoisSheet, selectedPoiItem) {
-        when {
-            !showGpxPoisSheet -> gpxBottomSheetState.hide()
-            selectedPoiItem != null -> gpxBottomSheetState.partialExpand()
-            else -> gpxBottomSheetState.expand()
-        }
-    }
-
-    // Detect sheet state changes driven by user gestures
-    val gpxSheetValue by remember { derivedStateOf { gpxBottomSheetState.currentValue } }
-    LaunchedEffect(gpxSheetValue) {
-        when (gpxSheetValue) {
-            SheetValue.Hidden -> if (showGpxPoisSheet) {
-                showGpxPoisSheet = false
-                gpxSharedViewModel.selectPoi(null)
-            }
-            SheetValue.Expanded -> gpxSharedViewModel.selectPoi(null)
-            else -> {}
-        }
-    }
-
-    // POI layer sync
-    LaunchedEffect(showPoiLayer, visiblePois, mapAndStyle) {
+    // POI layer sync — gpx-POI mode (only POIs along the loaded .gpx track) takes
+    // precedence over the regular category-chip-filtered POI layer.
+    LaunchedEffect(showPoiLayer, visiblePois, gpxPoiMode, gpxPois, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapPoiRenderer.removePois(ms.second)
-        if (showPoiLayer && visiblePois.isNotEmpty()) {
-            MapPoiRenderer.addPois(context, ms.second, visiblePois)
+        when {
+            gpxPoiMode -> if (gpxPois.isNotEmpty()) {
+                MapPoiRenderer.addPois(context, ms.second, gpxPois.map { it.poi })
+            }
+            showPoiLayer && visiblePois.isNotEmpty() -> MapPoiRenderer.addPois(context, ms.second, visiblePois)
         }
     }
 
@@ -479,26 +473,6 @@ fun MapViewScreen(
         }
     }
 
-    BottomSheetScaffold(
-        scaffoldState = gpxScaffoldState,
-        sheetPeekHeight = peekHeightDp,
-        sheetContainerColor = MaterialTheme.colorScheme.surface,
-        sheetContent = {
-            if (showGpxPoisSheet) {
-                GpxPoisSheetContent(
-                    poiItems = gpxPoiItems,
-                    isLoading = isLoadingPois,
-                    locationAvailable = locationAvailable,
-                    lazyListState = gpxPoisListState,
-                    onPoiSelected = { item ->
-                        gpxSharedViewModel.selectPoi(item)
-                    },
-                    context = context
-                )
-            }
-        },
-        containerColor = Color.Transparent
-    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Full-screen map
         ComposableMapView(
@@ -530,7 +504,10 @@ fun MapViewScreen(
                 item {
                     FilterChip(
                         selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
-                        onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
+                        onClick = {
+                            gpxPoiMode = false
+                            viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
+                        },
                         label = { Text(MapViewViewModel.ALL_POIS_CHIP) },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -541,7 +518,10 @@ fun MapViewScreen(
                 items(availablePoiCategories) { category ->
                     FilterChip(
                         selected = activePoiChip == category,
-                        onClick = { viewModel.selectPoiChip(category) },
+                        onClick = {
+                            gpxPoiMode = false
+                            viewModel.selectPoiChip(category)
+                        },
                         label = { Text(FormatUtils.categoryDisplayName(category)) },
                         leadingIcon = {
                             Icon(
@@ -558,18 +538,36 @@ fun MapViewScreen(
                 }
             }
 
-            // GPX POI chip — only visible when a track is loaded
-            if (gpxTrack != null) {
-                Row(modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) {
-                    FilterChip(
-                        selected = false,
-                        onClick = { showGpxPoisSheet = true },
-                        label = { Text("POIs along .gpx") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            // GPX POI chip (left) and Layers FAB (right) — top-aligned in a shared row so
+            // the FAB stays vertically aligned with the chip when it's shown
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    if (gpxTrack != null) {
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                showGpxPoisSheet = true
+                                gpxPoiMode = true
+                                viewModel.clearPoiChip()
+                            },
+                            label = { Text("POIs along .gpx") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            ),
+                            modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
                         )
-                    )
+                    }
+                }
+                SmallFloatingActionButton(
+                    onClick = { showLayersPanel = true },
+                    modifier = Modifier.padding(end = 16.dp)
+                ) {
+                    Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
                 }
             }
 
@@ -637,18 +635,6 @@ fun MapViewScreen(
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "Locate me")
             }
-        }
-
-        // Layers FAB - fixed position below the POI category chip row, right-aligned
-        // with the bottom-right FAB stack. Does not reflow with the GPX POI chip row.
-        SmallFloatingActionButton(
-            onClick = { showLayersPanel = true },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 56.dp, end = 16.dp)
-        ) {
-            Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
         }
 
         // Layers panel overlay — scrim + centered card, confined to this content area so the
@@ -736,11 +722,13 @@ fun MapViewScreen(
                         ) {
                             Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
                             Switch(
-                                checked = gpxTrack != null,
+                                checked = gpxToggleActive,
                                 onCheckedChange = { checked ->
                                     if (checked) {
+                                        gpxToggleActive = true
                                         showLoadGpxConfirmDialog = true
                                     } else {
+                                        gpxToggleActive = false
                                         gpxSharedViewModel.clearGpx()
                                     }
                                 }
@@ -763,12 +751,32 @@ fun MapViewScreen(
                 }
             }
         }
+
+        // "POIs along .gpx" pull-up drawer — opens at 50% screen height
+        if (showGpxPoisSheet) {
+            PullUpDrawer(
+                initialFraction = 0.5f,
+                snapFractions = listOf(0.15f, 0.50f)
+            ) {
+                GpxPoisSheetContent(
+                    poiItems = gpxPoiItems,
+                    isLoading = isLoadingPois,
+                    locationAvailable = locationAvailable,
+                    onPoiSelected = { item ->
+                        gpxSharedViewModel.selectPoi(item)
+                    },
+                    context = context
+                )
+            }
+        }
     }
-    } // BottomSheetScaffold content
 
     if (showLoadGpxConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { showLoadGpxConfirmDialog = false },
+            onDismissRequest = {
+                showLoadGpxConfirmDialog = false
+                gpxToggleActive = false
+            },
             title = { Text("Load .gpx file?") },
             text = { Text("Browse for a .gpx file to load onto the map.") },
             confirmButton = {
@@ -778,7 +786,10 @@ fun MapViewScreen(
                 }) { Text("Yes") }
             },
             dismissButton = {
-                TextButton(onClick = { showLoadGpxConfirmDialog = false }) { Text("Cancel") }
+                TextButton(onClick = {
+                    showLoadGpxConfirmDialog = false
+                    gpxToggleActive = false
+                }) { Text("Cancel") }
             }
         )
     }
@@ -881,7 +892,6 @@ private fun GpxPoisSheetContent(
     poiItems: List<GpxPoiItem>,
     isLoading: Boolean,
     locationAvailable: Boolean,
-    lazyListState: LazyListState,
     onPoiSelected: (GpxPoiItem) -> Unit,
     context: android.content.Context
 ) {
@@ -953,33 +963,29 @@ private fun GpxPoisSheetContent(
             ) {
                 CircularProgressIndicator()
             }
-            else -> LazyColumn(state = lazyListState) {
+            else -> Column {
                 if (!locationAvailable) {
-                    item {
-                        Text(
-                            text = "Your location could not be determined. Distances are measured from the GPX starting point.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
+                    Text(
+                        text = "Your location could not be determined. Distances are measured from the GPX starting point.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
                 }
-                if (aheadItems.isEmpty() && !isLoading) {
-                    item {
-                        Text(
-                            text = "No POIs found along this track",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 32.dp)
-                        )
-                    }
+                if (aheadItems.isEmpty()) {
+                    Text(
+                        text = "No POIs found along this track",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 32.dp)
+                    )
                 } else {
-                    items(aheadItems, key = { it.poiWD.poi.poiId }) { item ->
+                    aheadItems.forEach { item ->
                         GpxPoiRow(item = item, isBehind = false, context = context, onClick = { onPoiSelected(item) })
                     }
                 }
-                if (includePassed && behindItems.isNotEmpty()) {
-                    items(behindItems, key = { "behind_${it.poiWD.poi.poiId}" }) { item ->
+                if (includePassed) {
+                    behindItems.forEach { item ->
                         GpxPoiRow(item = item, isBehind = true, context = context, onClick = { onPoiSelected(item) })
                     }
                 }

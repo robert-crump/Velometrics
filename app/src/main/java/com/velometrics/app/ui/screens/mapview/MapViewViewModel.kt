@@ -153,6 +153,10 @@ class MapViewViewModel @Inject constructor(
         _activePoiChip.value = if (_activePoiChip.value == chipLabel) null else chipLabel
     }
 
+    fun clearPoiChip() {
+        _activePoiChip.value = null
+    }
+
     init {
         viewModelScope.launch {
             _allPois.value = mapGraphRepository.getAllPois().first()

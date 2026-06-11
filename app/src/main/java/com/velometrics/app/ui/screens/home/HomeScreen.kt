@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -105,13 +107,27 @@ fun HomeScreen(
     val dropboxSyncMessage by viewModel.dropboxSyncMessage.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    var isSnackbarVisible by remember { mutableStateOf(false) }
+    var snackbarHeightPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
 
     LaunchedEffect(dropboxSyncMessage) {
         dropboxSyncMessage?.let { message ->
+            isSnackbarVisible = true
             snackbarHostState.showSnackbar(message)
+            isSnackbarVisible = false
             viewModel.clearDropboxSyncMessage()
         }
     }
+
+    val fabOffset by animateDpAsState(
+        targetValue = if (isSnackbarVisible) {
+            with(density) { -(snackbarHeightPx.toDp() + 8.dp) }
+        } else {
+            0.dp
+        },
+        label = "fabOffset"
+    )
 
     val listState = rememberLazyListState()
     var showScrollBar by remember { mutableStateOf(false) }
@@ -148,19 +164,22 @@ fun HomeScreen(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { filePickerLauncher.launch("*/*") }) {
-                Icon(Icons.Default.Add, contentDescription = "Import .fit file")
-            }
+        snackbarHost = {
+            SnackbarHost(
+                snackbarHostState,
+                modifier = Modifier.onSizeChanged { snackbarHeightPx = it.height }
+            )
         }
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isSyncing,
-            onRefresh = { viewModel.syncDropbox() },
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+        ) {
+        PullToRefreshBox(
+            isRefreshing = isSyncing,
+            onRefresh = { viewModel.syncDropbox() },
+            modifier = Modifier.fillMaxSize()
         ) {
             Column(
                 modifier = Modifier
@@ -253,6 +272,18 @@ fun HomeScreen(
                 }
             }
         }
+
+            FloatingActionButton(
+                onClick = { filePickerLauncher.launch("*/*") },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .offset(y = fabOffset)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Import .fit file")
+            }
+        }
+
 
         // Small-file warning dialog: shown when an imported file has fewer than 60 GPS points
         val currentState = importState
@@ -354,11 +385,11 @@ private fun ScrollBarIndicator(
             },
         contentAlignment = Alignment.CenterEnd
     ) {
-        Canvas(modifier = Modifier.fillMaxHeight().width(4.dp)) {
+        Canvas(modifier = Modifier.fillMaxHeight().width(8.dp)) {
             val metrics = scrollBarMetrics(listState.layoutInfo) ?: return@Canvas
 
             val thumbHeight = (size.height * metrics.viewportPx / metrics.estimatedTotalPx)
-                .coerceIn(24f, size.height)
+                .coerceIn(32f, size.height)
 
             // Smooth position: convert to a pixel-based fraction of the scrollable range
             val scrolledPx = listState.firstVisibleItemIndex * metrics.avgItemPx +

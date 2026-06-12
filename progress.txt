@@ -1,3 +1,50 @@
+## Issue #61 — Map-matching: perpendicular-distance snapping + direction-aware bearing gate
+Completed: 2026-06-12 | Closed: pending
+
+### What was done
+
+**Perpendicular-distance snapping (`RTreeSpatialIndex.kt`)**
+- `rebuildIndex` now decodes each edge's polyline once (falling back to the
+  straight fromNode-toNode line when `geometryEncoded` is empty/short) and
+  caches it in `edgeGeometries`, indexed by edge index/key.
+- `queryEdgesNear` ranks candidates by true minimum point-to-segment
+  (perpendicular) distance to the cached polyline via the new
+  `nearestSegment`, instead of distance to the edge's bbox center.
+- `EdgeCandidate` gained a `bearingDeg` field: the bearing of the polyline
+  segment nearest the query point (computed in the same `nearestSegment`
+  pass).
+- `createBoundingBox` now takes the decoded geometry directly (no longer
+  needs the edge/nodes map at query time).
+
+**Direction-aware bearing gate (`MapMatcher.kt`)**
+- New `computeHeadings(points)`: GPS heading per point as the bearing across
+  a +/-2 point window (damps 1Hz jitter); returns null if the window
+  collapses to a single coordinate.
+- New `selectSnapCandidate(candidates, heading)`: from distance-sorted
+  candidates, picks the nearest one within
+  `INTERVAL_SNAP_BEARING_MAX_DIFF_DEG` (45deg) of `heading`; falls back to
+  the nearest candidate overall if `heading` is null or none qualify (a
+  point is never dropped purely due to heading noise). Both helpers are
+  `internal` for direct unit testing.
+- `snapPoints` now combines per-point candidates from `queryEdgesNear` with
+  `computeHeadings` via `selectSnapCandidate`.
+- `GeoUtils` gained `pointToSegmentDistance` (local equirectangular
+  point-to-segment projection, meters) and `bearingDifference` (circular
+  angle difference, 0-180).
+
+### Tests
+- New `RTreeSpatialIndexTest`: a point lying on a long edge ranks above a
+  shorter edge whose bbox-center is closer; candidate `bearingDeg` matches
+  the nearest segment's direction.
+- New `MapMatcherTest` cases: a perpendicular dead-end spur near a junction
+  is rejected in favor of the along-travel edge even though it's
+  geometrically nearer; `selectSnapCandidate` falls back to nearest when no
+  candidate matches heading and otherwise prefers the heading-matching
+  candidate over a closer mismatch; `computeHeadings` uses a multi-point
+  window.
+- All existing `MapMatcherTest`/`IntervalClusteringServiceTest` cases still
+  pass. `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #22 — Automatic Dropbox sync on app open
 Completed: 2026-06-11 | Closed: pending
 

@@ -71,6 +71,32 @@ object GeoUtils {
     }
 
     /**
+     * Perpendicular (point-to-segment) distance from a point to the segment (lat1,lon1)-(lat2,lon2),
+     * using a local equirectangular projection (accurate for short segments).
+     * @return distance in meters
+     */
+    fun pointToSegmentDistance(lat: Double, lon: Double, lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val mPerLon = metersPerDegLon(lat1)
+        val px = (lon - lon1) * mPerLon
+        val py = (lat - lat1) * METERS_PER_DEG_LAT
+        val dx = (lon2 - lon1) * mPerLon
+        val dy = (lat2 - lat1) * METERS_PER_DEG_LAT
+        val lenSq = dx * dx + dy * dy
+        val t = if (lenSq == 0.0) 0.0 else ((px * dx + py * dy) / lenSq).coerceIn(0.0, 1.0)
+        val ddx = px - t * dx
+        val ddy = py - t * dy
+        return sqrt(ddx * ddx + ddy * ddy)
+    }
+
+    /**
+     * Smallest angular difference between two bearings, in [0, 180].
+     */
+    fun bearingDifference(a: Double, b: Double): Double {
+        val diff = abs(a - b) % 360
+        return if (diff > 180) 360 - diff else diff
+    }
+
+    /**
      * Calculate fat burn rate in kcal per second based on power
      * Uses polynomial: (a*W² + b*W + c) / 3600, clamped >= 0
      */

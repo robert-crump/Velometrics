@@ -73,10 +73,56 @@ class MapMatcher @Inject constructor(
         return adj
     }
 
-    private suspend fun snapPoints(points: List<LatLng>): List<Int?> = points.map { point ->
-        spatialIndex.queryEdgesNear(
-            point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
-        ).firstOrNull()?.edgeKey?.toInt()
+    /**
+     * Snaps each point to the nearest in-radius edge whose direction is within
+     * [CyclingConstants.INTERVAL_SNAP_BEARING_MAX_DIFF_DEG] of the GPS heading at that point
+     * (rejecting perpendicular side streets and reverse twins on two-way roads). If no
+     * candidate qualifies, falls back to the nearest candidate by distance so a point is never
+     * dropped purely due to heading noise.
+     */
+    private suspend fun snapPoints(points: List<LatLng>): List<Int?> {
+        val headings = computeHeadings(points)
+        return points.mapIndexed { i, point ->
+            val candidates = spatialIndex.queryEdgesNear(
+                point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
+            )
+            selectSnapCandidate(candidates, headings[i])?.edgeKey?.toInt()
+        }
+    }
+
+    /**
+     * Picks the nearest [candidates] (pre-sorted by distance) whose bearing is within
+     * [CyclingConstants.INTERVAL_SNAP_BEARING_MAX_DIFF_DEG] of [heading] (rejecting perpendicular
+     * side streets and reverse twins on two-way roads). If [heading] is undefined or no
+     * candidate qualifies, falls back to the nearest candidate by distance so a point is never
+     * dropped purely due to heading noise.
+     */
+    internal fun selectSnapCandidate(
+        candidates: List<RTreeSpatialIndex.EdgeCandidate>,
+        heading: Double?
+    ): RTreeSpatialIndex.EdgeCandidate? {
+        val withinBearing = heading?.let { h ->
+            candidates.firstOrNull { GeoUtils.bearingDifference(it.bearingDeg, h) <= CyclingConstants.INTERVAL_SNAP_BEARING_MAX_DIFF_DEG }
+        }
+        return withinBearing ?: candidates.firstOrNull()
+    }
+
+    /**
+     * Computes the GPS heading at each point as the bearing across a small surrounding window,
+     * damping single-point (1 Hz) jitter. Returns null where the window collapses to a single
+     * coordinate (e.g. the track is stationary at that point).
+     */
+    internal fun computeHeadings(points: List<LatLng>): List<Double?> {
+        val windowRadius = 2
+        return points.indices.map { i ->
+            val start = points[maxOf(0, i - windowRadius)]
+            val end = points[minOf(points.lastIndex, i + windowRadius)]
+            if (start.latitude == end.latitude && start.longitude == end.longitude) {
+                null
+            } else {
+                GeoUtils.computeBearing(start.latitude, start.longitude, end.latitude, end.longitude)
+            }
+        }
     }
 
     private fun collapseConsecutive(snapped: List<Int?>): List<Run> {

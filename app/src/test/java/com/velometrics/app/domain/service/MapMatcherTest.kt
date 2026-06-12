@@ -6,6 +6,7 @@ import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.GeoUtils
+import org.maplibre.android.geometry.LatLng
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -98,6 +99,90 @@ class MapMatcherTest {
         val result = matcher.matchTrack(track)
 
         assertEquals(listOf(edge0, edge1, edge2), result)
+    }
+
+    @Test
+    fun `snap rejects a perpendicular spur near a junction and keeps the along-travel edge`() = runTest {
+        val n0 = MapNode(0, 50.7800, 6.0800)
+        val n1 = MapNode(1, 50.7810, 6.0800)
+        val n2 = MapNode(2, 50.7820, 6.0800)
+        val n3 = MapNode(3, 50.7830, 6.0800)
+        // Dead-end spur running east from n1, very close to the track but perpendicular to travel.
+        val nSpur = MapNode(4, 50.7810, 6.0801)
+
+        val edge0 = edge(n0, n1)
+        val edge1 = edge(n1, n2)
+        val edge2 = edge(n2, n3)
+        val edgeSpur = edge(n1, nSpur)
+
+        val repository = fakeRepository(
+            listOf(edge0, edge1, edge2, edgeSpur),
+            listOf(n0, n1, n2, n3, nSpur)
+        )
+        val matcher = MapMatcher(repository)
+
+        // Travels north along edge0/edge1/edge2. The two points near n1 sit closer to the
+        // perpendicular spur than to edge1, but the GPS heading is northbound throughout.
+        val track = listOf(
+            pt(50.7802), pt(50.7805), pt(50.7808),
+            listOf(50.781005, 6.080020), listOf(50.781010, 6.080020),
+            pt(50.7815), pt(50.7818),
+            pt(50.7822), pt(50.7825), pt(50.7828)
+        )
+
+        val result = matcher.matchTrack(track)
+
+        assertEquals(listOf(edge0, edge1, edge2), result)
+    }
+
+    @Test
+    fun `selectSnapCandidate falls back to nearest when no candidate matches heading`() = runTest {
+        val repository = fakeRepository(emptyList(), emptyList())
+        val matcher = MapMatcher(repository)
+
+        val nearest = RTreeSpatialIndex.EdgeCandidate(edgeKey = 1L, distanceM = 5.0, bearingDeg = 90.0)
+        val farther = RTreeSpatialIndex.EdgeCandidate(edgeKey = 2L, distanceM = 15.0, bearingDeg = 95.0)
+        val candidates = listOf(nearest, farther)
+
+        // Heading is due north (0deg); neither candidate is within 45deg of it.
+        val chosen = matcher.selectSnapCandidate(candidates, heading = 0.0)
+
+        assertEquals(nearest, chosen)
+    }
+
+    @Test
+    fun `selectSnapCandidate picks the nearest candidate matching heading over a closer mismatch`() = runTest {
+        val repository = fakeRepository(emptyList(), emptyList())
+        val matcher = MapMatcher(repository)
+
+        val perpendicular = RTreeSpatialIndex.EdgeCandidate(edgeKey = 1L, distanceM = 1.0, bearingDeg = 90.0)
+        val alongTravel = RTreeSpatialIndex.EdgeCandidate(edgeKey = 2L, distanceM = 5.0, bearingDeg = 0.0)
+        val candidates = listOf(perpendicular, alongTravel)
+
+        val chosen = matcher.selectSnapCandidate(candidates, heading = 0.0)
+
+        assertEquals(alongTravel, chosen)
+    }
+
+    @Test
+    fun `computeHeadings uses a multi-point window rather than adjacent points`() = runTest {
+        val repository = fakeRepository(emptyList(), emptyList())
+        val matcher = MapMatcher(repository)
+
+        // Straight northbound track, evenly spaced.
+        val points = listOf(
+            LatLng(50.7800, 6.0800),
+            LatLng(50.7802, 6.0800),
+            LatLng(50.7804, 6.0800),
+            LatLng(50.7806, 6.0800),
+            LatLng(50.7808, 6.0800)
+        )
+
+        val headings = matcher.computeHeadings(points)
+
+        // The middle point's heading spans points[0]..points[4] (window radius 2), not just
+        // its immediate neighbors - still due north either way here.
+        assertEquals(0.0, headings[2]!!, 0.5)
     }
 
     @Test

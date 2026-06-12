@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.domain.service
+package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -10,6 +10,7 @@ import com.github.davidmoten.rtree2.geometry.Geometries
 import com.github.davidmoten.rtree2.geometry.Rectangle
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,20 +20,24 @@ class RTreeSpatialIndex @Inject constructor() {
     private var tree: RTree<Long, Rectangle> = RTree.create()
     private val mutex = Mutex()
 
-    // Store edge index by fromNode-toNode key for lookup
-    private var edgeIndex = 0L
+    // Decoded polyline geometry per edge, indexed by edgeKey (== edge index). Decoded once per
+    // rebuildIndex so per-point queries don't re-decode the same polylines repeatedly.
+    private var edgeGeometries: List<List<LatLng>> = emptyList()
 
     data class EdgeCandidate(
         val edgeKey: Long,
-        val distanceM: Double
+        val distanceM: Double,
+        val bearingDeg: Double
     )
 
     suspend fun rebuildIndex(edges: List<MapEdge>, nodes: Map<Long, MapNode>) {
         mutex.withLock {
+            edgeGeometries = edges.map { edge -> decodeGeometry(edge, nodes) }
+
             // Bulk-load via STR rather than sequential .add() calls: the latter clones and
             // re-splits the immutable tree on every insert, which OOMs on large road graphs.
-            val entries = edges.mapIndexed { index, edge ->
-                Entries.entry(index.toLong(), createBoundingBox(edge, nodes))
+            val entries = edgeGeometries.mapIndexed { index, geometry ->
+                Entries.entry(index.toLong(), createBoundingBox(geometry))
             }
             tree = RTree.create(entries)
         }
@@ -53,44 +58,54 @@ class RTreeSpatialIndex @Inject constructor() {
             tree.search(searchBox)
                 .map { entry ->
                     val edgeKey = entry.value()
-                    val bbox = entry.geometry()
-                    val edgeCenterLat = (bbox.y1() + bbox.y2()) / 2
-                    val edgeCenterLon = (bbox.x1() + bbox.x2()) / 2
-                    val distance = GeoUtils.haversineDistance(lat, lon, edgeCenterLat, edgeCenterLon)
-                    EdgeCandidate(edgeKey, distance)
+                    val geometry = edgeGeometries[edgeKey.toInt()]
+                    val (distance, bearing) = nearestSegment(lat, lon, geometry)
+                    EdgeCandidate(edgeKey, distance, bearing)
                 }
                 .toList()
                 .sortedBy { it.distanceM }
         }
     }
 
-    private fun createBoundingBox(edge: MapEdge, nodes: Map<Long, MapNode>): Rectangle {
-        val decoded = PolylineDecoder.decode(edge.geometryEncoded)
-
-        var minLat: Double
-        var maxLat: Double
-        var minLon: Double
-        var maxLon: Double
-
-        if (decoded.size >= 2) {
-            minLat = decoded.minOf { it.latitude }
-            maxLat = decoded.maxOf { it.latitude }
-            minLon = decoded.minOf { it.longitude }
-            maxLon = decoded.maxOf { it.longitude }
-        } else {
-            // Fallback to node coordinates
-            val fromNode = nodes[edge.fromNode]
-            val toNode = nodes[edge.toNode]
-            if (fromNode != null && toNode != null) {
-                minLat = minOf(fromNode.lat, toNode.lat)
-                maxLat = maxOf(fromNode.lat, toNode.lat)
-                minLon = minOf(fromNode.lon, toNode.lon)
-                maxLon = maxOf(fromNode.lon, toNode.lon)
-            } else {
-                // Should not happen, but provide a default
-                minLat = 0.0; maxLat = 0.0; minLon = 0.0; maxLon = 0.0
+    /**
+     * Finds the segment of [geometry] closest to (lat, lon) and returns its perpendicular
+     * distance and bearing. [geometry] always has at least 2 points (see [decodeGeometry]).
+     */
+    private fun nearestSegment(lat: Double, lon: Double, geometry: List<LatLng>): Pair<Double, Double> {
+        var bestDist = Double.MAX_VALUE
+        var bestBearing = 0.0
+        for (i in 0 until geometry.size - 1) {
+            val p1 = geometry[i]
+            val p2 = geometry[i + 1]
+            val dist = GeoUtils.pointToSegmentDistance(lat, lon, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+            if (dist < bestDist) {
+                bestDist = dist
+                bestBearing = GeoUtils.computeBearing(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
             }
         }
+        return bestDist to bestBearing
+    }
+
+    /** Decodes an edge's polyline geometry, falling back to the straight fromNode-toNode line. */
+    private fun decodeGeometry(edge: MapEdge, nodes: Map<Long, MapNode>): List<LatLng> {
+        val decoded = PolylineDecoder.decode(edge.geometryEncoded)
+        if (decoded.size >= 2) return decoded
+
+        val fromNode = nodes[edge.fromNode]
+        val toNode = nodes[edge.toNode]
+        return if (fromNode != null && toNode != null) {
+            listOf(LatLng(fromNode.lat, fromNode.lon), LatLng(toNode.lat, toNode.lon))
+        } else {
+            // Should not happen, but provide a default
+            listOf(LatLng(0.0, 0.0), LatLng(0.0, 0.0))
+        }
+    }
+
+    private fun createBoundingBox(geometry: List<LatLng>): Rectangle {
+        val minLat = geometry.minOf { it.latitude }
+        val maxLat = geometry.maxOf { it.latitude }
+        val minLon = geometry.minOf { it.longitude }
+        val maxLon = geometry.maxOf { it.longitude }
 
         // Ensure non-zero area
         val epsilon = 0.00001

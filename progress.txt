@@ -1,3 +1,37 @@
+## Issue #62 — Map-matching: anchor-by-GPS-order pruning + undirected leaf-peel safety net
+Completed: 2026-06-12 | Closed: pending
+
+### What was done
+
+**Anchor-by-GPS-order pruning (`MapMatcher.kt`, `Constants.kt`)**
+- Replaced `dropIsolatedOutliers`/`INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS` with
+  `INTERVAL_MATCH_MIN_ANCHOR_POINTS = 2`. `matchTrack` now filters
+  `collapseConsecutive(snapped)` runs to those with `pointCount >=
+  INTERVAL_MATCH_MIN_ANCHOR_POINTS` — the high-confidence "anchors" actually
+  ridden, in GPS time order — and feeds the deduped anchor sequence straight
+  into `repairGaps`. Dropped low-count runs are restored by `repairGaps` as
+  zero-count bridges only when needed for connectivity; genuine forks/spurs
+  stay gone. Removed the redundant second `repairGaps` pass after
+  `pruneLeafEdges`.
+
+**Undirected leaf-peel safety net (`MapMatcher.kt`)**
+- `pruneLeafEdges` now computes node degree via the new `undirectedDegree`,
+  which collapses each edge to an unordered `(fromNode, toNode)` pair before
+  counting — an anti-parallel out-and-back pair (A->B and B->A) collapses to
+  one connection, so a dead-end node touched only by such a pair is correctly
+  degree-1 and the whole pair is peeled in one pass. Degree is recomputed each
+  iteration of the existing fixed-point loop. Start/end-node protection is
+  unchanged.
+
+### Tests
+Added to `MapMatcherTest`: a single-point lateral spur dropped entirely; a
+single-point connector dropped by the anchor floor and restored as a bridge
+via `repairGaps`; a fork where the high-count branch is kept and a low-count
+branch dropped; an out-and-back anti-parallel pair to a dead-end node
+collapsing to a degree-1 leaf and being peeled. All existing
+`MapMatcherTest`/`IntervalClusteringServiceTest` cases still pass.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #61 — Map-matching: perpendicular-distance snapping + direction-aware bearing gate
 Completed: 2026-06-12 | Closed: pending
 

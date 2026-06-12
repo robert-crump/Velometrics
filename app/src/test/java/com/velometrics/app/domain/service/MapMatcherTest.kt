@@ -186,6 +186,134 @@ class MapMatcherTest {
     }
 
     @Test
+    fun `single-point lateral spur is dropped from the matched sequence`() = runTest {
+        val n0 = MapNode(0, 50.7800, 6.0800)
+        val n1 = MapNode(1, 50.7810, 6.0800)
+        val n2 = MapNode(2, 50.7820, 6.0800)
+        val n3 = MapNode(3, 50.7830, 6.0800)
+        // Dead-end node far enough east that only the spur edge is within snap radius there.
+        val nSpur = MapNode(4, 50.7810, 6.0810)
+
+        val edge0 = edge(n0, n1)
+        val edge1 = edge(n1, n2)
+        val edge2 = edge(n2, n3)
+        val edgeSpur = edge(n1, nSpur)
+
+        val repository = fakeRepository(
+            listOf(edge0, edge1, edge2, edgeSpur),
+            listOf(n0, n1, n2, n3, nSpur)
+        )
+        val matcher = MapMatcher(repository)
+
+        // A single point sits right on the spur, isolated from the rest of the track.
+        val track = listOf(
+            pt(50.7802), pt(50.7805), pt(50.7808),
+            listOf(50.7810, 6.0810),
+            pt(50.7812), pt(50.7815), pt(50.7818),
+            pt(50.7822), pt(50.7825), pt(50.7828)
+        )
+
+        val result = matcher.matchTrack(track)
+
+        assertEquals(listOf(edge0, edge1, edge2), result)
+    }
+
+    @Test
+    fun `a single-point connector dropped by the anchor floor is restored as a bridge`() = runTest {
+        val n0 = MapNode(0, 50.7800, 6.0800)
+        val n1 = MapNode(1, 50.7810, 6.0800)
+        val n2 = MapNode(2, 50.7820, 6.0800)
+        val n3 = MapNode(3, 50.7830, 6.0800)
+        val edge0 = edge(n0, n1)
+        val edge1 = edge(n1, n2)
+        val edge2 = edge(n2, n3)
+
+        val repository = fakeRepository(listOf(edge0, edge1, edge2), listOf(n0, n1, n2, n3))
+        val matcher = MapMatcher(repository)
+
+        // edge1 gets exactly one snapped point (below INTERVAL_MATCH_MIN_ANCHOR_POINTS), so it's
+        // dropped as an anchor — but repairGaps must re-insert it to bridge edge0 -> edge2.
+        val track = listOf(
+            pt(50.7802), pt(50.7805), pt(50.7808),
+            pt(50.7815),
+            pt(50.7822), pt(50.7825), pt(50.7828)
+        )
+
+        val result = matcher.matchTrack(track)
+
+        assertEquals(listOf(edge0, edge1, edge2), result)
+    }
+
+    @Test
+    fun `at a fork the high-count branch is kept and the low-count branch is dropped`() = runTest {
+        val n0 = MapNode(0, 50.7800, 6.0800)
+        val n1 = MapNode(1, 50.7810, 6.0800)
+        val n2 = MapNode(2, 50.7820, 6.0800)
+        val n3 = MapNode(3, 50.7830, 6.0800)
+        // A low-count branch off n1, nearly parallel to edge1 but geometrically closer to one
+        // of the GPS points near the fork.
+        val nLow = MapNode(4, 50.7820, 6.0803)
+
+        val edge0 = edge(n0, n1)
+        val edge1 = edge(n1, n2)
+        val edge2 = edge(n2, n3)
+        val edgeLow = edge(n1, nLow)
+
+        val repository = fakeRepository(
+            listOf(edge0, edge1, edge2, edgeLow),
+            listOf(n0, n1, n2, n3, nLow)
+        )
+        val matcher = MapMatcher(repository)
+
+        // One point near the fork sits closer to edgeLow's line than to edge1's, but edge1
+        // collects far more points overall, so it's kept as the anchor and edgeLow is dropped.
+        val track = listOf(
+            pt(50.7802), pt(50.7805), pt(50.7808),
+            listOf(50.7813, 6.08015),
+            pt(50.7815), pt(50.7817), pt(50.7818),
+            pt(50.7822), pt(50.7825), pt(50.7828)
+        )
+
+        val result = matcher.matchTrack(track)
+
+        assertEquals(listOf(edge0, edge1, edge2), result)
+    }
+
+    @Test
+    fun `an out-and-back spur collapses to a degree-1 leaf and is peeled`() = runTest {
+        val n0 = MapNode(0, 50.7800, 6.0800)
+        val n1 = MapNode(1, 50.7810, 6.0800)
+        val n2 = MapNode(2, 50.7820, 6.0800)
+        // Dead-end node reached and left along the same physical edge (out-and-back).
+        val nDead = MapNode(3, 50.7805, 6.0820)
+
+        val edge0 = edge(n0, n1)
+        val edge1 = edge(n1, n2)
+        val edgeOut = edge(n1, nDead)
+        val edgeBack = edge(nDead, n1)
+
+        val repository = fakeRepository(
+            listOf(edge0, edge1, edgeOut, edgeBack),
+            listOf(n0, n1, n2, nDead)
+        )
+        val matcher = MapMatcher(repository)
+
+        // North along edge0, out to nDead and back (anti-parallel pair, each with >=2 points),
+        // then continue north along edge1. nDead has no other connections, so the out-and-back
+        // pair should collapse to a degree-1 leaf and be peeled, leaving edge0 -> edge1.
+        val track = listOf(
+            pt(50.7802), pt(50.7805), pt(50.7808),
+            listOf(50.7809, 6.0805), listOf(50.7808, 6.0810), listOf(50.7807, 6.0815),
+            listOf(50.7806, 6.0816), listOf(50.7808, 6.0808), listOf(50.7809, 6.0802),
+            pt(50.7812), pt(50.7815), pt(50.7818)
+        )
+
+        val result = matcher.matchTrack(track)
+
+        assertEquals(listOf(edge0, edge1), result)
+    }
+
+    @Test
     fun `track jumping between disconnected components is rejected cleanly`() = runTest {
         // Component A (south) and component B (north) share no nodes/edges
         val a0 = MapNode(0, 50.7800, 6.0800)

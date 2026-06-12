@@ -14,10 +14,12 @@ import javax.inject.Singleton
  * graph, producing a single connected, ordered [MapEdge] sequence — the representation
  * `RepeatedInterval` clustering uses to compare and render archetypes (#10/#25).
  *
- * Algorithm: greedy nearest-edge snapping via [RTreeSpatialIndex],
- * then repair of small gaps between non-adjacent snapped edges via bounded local
- * adjacency-graph search (the same edge-indexing/successor-map pattern as [FastWayHomeService]).
- * Isolated single-point mis-snaps are dropped; gaps too large to repair reject the whole track.
+ * Algorithm: greedy nearest-edge snapping via [RTreeSpatialIndex], then anchor-by-GPS-order
+ * pruning — only runs of consecutive snaps with at least
+ * [CyclingConstants.INTERVAL_MATCH_MIN_ANCHOR_POINTS] points are kept as ordered anchors — and
+ * repair of gaps between consecutive anchors via bounded local adjacency-graph search (the same
+ * edge-indexing/successor-map pattern as [FastWayHomeService]). Gaps too large to repair reject
+ * the whole track.
  */
 @Singleton
 class MapMatcher @Inject constructor(
@@ -47,17 +49,17 @@ class MapMatcher @Inject constructor(
         spatialIndex.rebuildIndex(edges, nodes)
 
         val snapped = snapPoints(points)
-        val runs = dropIsolatedOutliers(collapseConsecutive(snapped), adj)
-        if (runs.isEmpty()) return null
+        val anchors = collapseConsecutive(snapped)
+            .filter { it.pointCount >= CyclingConstants.INTERVAL_MATCH_MIN_ANCHOR_POINTS }
+        if (anchors.isEmpty()) return null
 
-        val sequence = dedupeConsecutive(runs.map { it.edgeIdx })
+        val sequence = dedupeConsecutive(anchors.map { it.edgeIdx })
         val repaired = repairGaps(sequence, adj, edges)?.let(::dedupeConsecutive) ?: return null
 
         val pruned = pruneLeafEdges(repaired, edges, nodes, points.first(), points.last())
         if (pruned.isEmpty()) return null
-        val finalSequence = repairGaps(pruned, adj, edges)?.let(::dedupeConsecutive) ?: return null
 
-        return finalSequence.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
+        return pruned.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
     }
 
     private fun buildAdjacency(edges: List<MapEdge>): Map<Int, List<Int>> {
@@ -148,34 +150,6 @@ class MapMatcher @Inject constructor(
     }
 
     /**
-     * Drops single-point runs that are sandwiched between two runs which are themselves
-     * mutually adjacent — a classic GPS-noise mis-snap rather than a genuine excursion.
-     */
-    private fun dropIsolatedOutliers(runsIn: List<Run>, adj: Map<Int, List<Int>>): List<Run> {
-        val runs = runsIn.toMutableList()
-        var i = 1
-        while (i < runs.size - 1) {
-            val prev = runs[i - 1]
-            val current = runs[i]
-            val next = runs[i + 1]
-            val prevAdjToNext = areAdjacent(prev.edgeIdx, next.edgeIdx, adj)
-            val currentFitsBetween = areAdjacent(prev.edgeIdx, current.edgeIdx, adj) &&
-                areAdjacent(current.edgeIdx, next.edgeIdx, adj)
-            if (current.pointCount <= CyclingConstants.INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS &&
-                prevAdjToNext && !currentFitsBetween
-            ) {
-                runs.removeAt(i)
-            } else {
-                i++
-            }
-        }
-        return runs
-    }
-
-    private fun areAdjacent(fromIdx: Int, toIdx: Int, adj: Map<Int, List<Int>>): Boolean =
-        fromIdx == toIdx || adj[fromIdx]?.contains(toIdx) == true
-
-    /**
      * Walks the snapped sequence, splicing in a short connecting path (via [findConnectingPath])
      * wherever consecutive edges aren't graph-adjacent. Returns null if any gap can't be
      * bridged within [CyclingConstants.INTERVAL_MATCH_MAX_REPAIR_DEPTH] hops.
@@ -244,9 +218,11 @@ class MapMatcher @Inject constructor(
 
     /**
      * Removes edges that are topological "leaves" — one endpoint connects to no other edge in the
-     * matched set, forming a dead-end branch. The nodes nearest to the GPS track's first and last
-     * points are protected so the interval's true start/end is never pruned. Runs iteratively
-     * until stable, then hands back to the caller for a BFS safety-net pass.
+     * matched set, forming a dead-end branch. Degree is counted over the undirected graph (an
+     * anti-parallel pair, e.g. an out-and-back spur, collapses to a single connection), so a
+     * dead-end node touched only by such a pair is still recognized as degree-1. The nodes
+     * nearest to the GPS track's first and last points are protected so the interval's true
+     * start/end is never pruned. Runs iteratively until stable.
      */
     private fun pruneLeafEdges(
         sequence: List<Int>,
@@ -256,13 +232,6 @@ class MapMatcher @Inject constructor(
         endPoint: LatLng
     ): List<Int> {
         if (sequence.size <= 1) return sequence
-
-        val degree = mutableMapOf<Long, Int>()
-        for (idx in sequence) {
-            val edge = edges[idx]
-            degree[edge.fromNode] = (degree[edge.fromNode] ?: 0) + 1
-            degree[edge.toNode] = (degree[edge.toNode] ?: 0) + 1
-        }
 
         val matchedNodeIds = sequence.flatMapTo(mutableSetOf()) { idx ->
             listOf(edges[idx].fromNode, edges[idx].toNode)
@@ -276,6 +245,7 @@ class MapMatcher @Inject constructor(
         var changed = true
         while (changed) {
             changed = false
+            val degree = undirectedDegree(kept, edges)
             val iter = kept.iterator()
             while (iter.hasNext()) {
                 val idx = iter.next()
@@ -284,13 +254,29 @@ class MapMatcher @Inject constructor(
                 val toLeaf = (degree[edge.toNode] ?: 0) == 1 && edge.toNode !in protectedNodes
                 if (fromLeaf || toLeaf) {
                     iter.remove()
-                    degree[edge.fromNode] = maxOf(0, (degree[edge.fromNode] ?: 0) - 1)
-                    degree[edge.toNode] = maxOf(0, (degree[edge.toNode] ?: 0) - 1)
                     changed = true
                 }
             }
         }
         return kept
+    }
+
+    /**
+     * Node degree over the undirected graph formed by [sequence]: each edge's endpoints are
+     * collapsed to an unordered pair, so an anti-parallel pair (A->B and B->A) counts as a single
+     * connection between A and B.
+     */
+    private fun undirectedDegree(sequence: List<Int>, edges: List<MapEdge>): Map<Long, Int> {
+        val pairs = sequence.mapTo(mutableSetOf()) { idx ->
+            val edge = edges[idx]
+            if (edge.fromNode <= edge.toNode) edge.fromNode to edge.toNode else edge.toNode to edge.fromNode
+        }
+        val degree = mutableMapOf<Long, Int>()
+        for ((a, b) in pairs) {
+            degree[a] = (degree[a] ?: 0) + 1
+            degree[b] = (degree[b] ?: 0) + 1
+        }
+        return degree
     }
 
     private fun nearestNodeId(point: LatLng, nodeIds: Set<Long>, nodes: Map<Long, MapNode>): Long? =

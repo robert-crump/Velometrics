@@ -128,7 +128,10 @@ object CyclingConstants {
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
-    const val INTERVAL_MATCH_MAX_OUTLIER_RUN_POINTS = 1
+    // Minimum consecutive GPS points snapped to the same edge for that edge to be kept as an
+    // "anchor" (a high-confidence edge actually ridden). Runs below this are dropped; repairGaps
+    // re-inserts them as zero-count bridges if connectivity requires it.
+    const val INTERVAL_MATCH_MIN_ANCHOR_POINTS = 2
     // Max bearing difference between GPS heading and edge direction for a snap to be preferred.
     // Among in-radius candidates, the nearest one within this bearing of the GPS heading is
     // chosen; if none qualify, falls back to the nearest candidate by distance so a point is

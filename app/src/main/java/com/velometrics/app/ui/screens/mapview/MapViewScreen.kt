@@ -58,6 +58,7 @@ import com.velometrics.app.ui.components.PullUpDrawer
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.intent.GpxIntentViewModel
+import com.velometrics.app.ui.shared.DiscoveryScoreResult
 import com.velometrics.app.ui.shared.GpxSharedViewModel
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
@@ -150,6 +151,7 @@ fun MapViewScreen(
     }
 
     val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
+    val gpxDiscoveryScore by gpxSharedViewModel.discoveryScore.collectAsState()
     val gpxPois by gpxSharedViewModel.gpxPois.collectAsState()
     val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
     val gpxPoiItems by gpxSharedViewModel.gpxPoiItems.collectAsState()
@@ -800,6 +802,7 @@ fun MapViewScreen(
         GpxAnalysisOverlay(
             gpxTrack = gpxTrack,
             gpxPois = gpxPois,
+            discoveryScore = gpxDiscoveryScore,
             onClose = { showGpxAnalysisOverlay = false }
         )
     }
@@ -841,7 +844,7 @@ fun MapViewScreen(
 @Preview
 @Composable
 private fun GpxAnalysisOverlayPreview() {
-    GpxAnalysisOverlay(gpxTrack = null, gpxPois = emptyList(), onClose = {})
+    GpxAnalysisOverlay(gpxTrack = null, gpxPois = emptyList(), discoveryScore = null, onClose = {})
 }
 
 /**
@@ -852,6 +855,7 @@ private fun GpxAnalysisOverlayPreview() {
 private fun GpxAnalysisOverlay(
     gpxTrack: GpxTrack?,
     gpxPois: List<PoiWithDistances>,
+    discoveryScore: DiscoveryScoreResult?,
     onClose: () -> Unit
 ) {
     Dialog(
@@ -890,8 +894,43 @@ private fun GpxAnalysisOverlay(
                     )
 
                     if (gpxTrack != null) {
+                        DiscoveryScoreSection(discoveryScore = discoveryScore)
                         PoiDensitySection(gpxTrack = gpxTrack, gpxPois = gpxPois)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryScoreSection(discoveryScore: DiscoveryScoreResult?) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Discovery score", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            when (discoveryScore) {
+                null -> Text(
+                    text = "Analyzing route...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                is DiscoveryScoreResult.Unavailable -> Text(
+                    text = "Couldn't analyze this route",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                is DiscoveryScoreResult.Score -> {
+                    Text(
+                        text = "Discovery Score: ${discoveryScore.value}/100",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "The percentage of this route's roads you haven't ridden before.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

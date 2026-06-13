@@ -9,10 +9,12 @@ import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.GpxTrack
 import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.domain.service.MapMatcher
 import com.velometrics.app.domain.service.TrackGeometryUtils
 import com.velometrics.app.domain.service.TrackIndex
 import com.velometrics.app.domain.service.TrackProjection
 import com.velometrics.app.util.GeoUtils
+import com.velometrics.app.util.GpxAnalysisUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +32,8 @@ import kotlin.math.abs
 
 @HiltViewModel
 class GpxSharedViewModel @Inject constructor(
-    private val mapGraphRepository: MapGraphRepository
+    private val mapGraphRepository: MapGraphRepository,
+    private val mapMatcher: MapMatcher
 ) : ViewModel() {
 
     private val _gpxTrack = MutableStateFlow<GpxTrack?>(null)
@@ -41,6 +44,9 @@ class GpxSharedViewModel @Inject constructor(
 
     private val _isLoadingPois = MutableStateFlow(false)
     val isLoadingPois: StateFlow<Boolean> = _isLoadingPois.asStateFlow()
+
+    private val _discoveryScore = MutableStateFlow<DiscoveryScoreResult?>(null)
+    val discoveryScore: StateFlow<DiscoveryScoreResult?> = _discoveryScore.asStateFlow()
 
     private val _userLocation = MutableStateFlow<LatLng?>(null)
     val locationAvailable: StateFlow<Boolean> = _userLocation
@@ -72,6 +78,7 @@ class GpxSharedViewModel @Inject constructor(
 
     suspend fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver): Boolean {
         _gpxPois.value = emptyList()
+        _discoveryScore.value = null
         val track = withContext(Dispatchers.IO) {
             contentResolver.openInputStream(uri)?.use { stream ->
                 GpxParser.parse(stream).getOrNull()
@@ -79,6 +86,7 @@ class GpxSharedViewModel @Inject constructor(
         } ?: return false
         _gpxTrack.value = track
         fetchPoisForTrack(track)
+        fetchDiscoveryScore(track)
         return true
     }
 
@@ -86,6 +94,7 @@ class GpxSharedViewModel @Inject constructor(
         _gpxTrack.value = null
         _gpxPois.value = emptyList()
         _selectedPoiItem.value = null
+        _discoveryScore.value = null
         cachedTrack = emptyList()
         cachedTrackIndex = null
         poiPerpDistances = emptyMap()
@@ -152,6 +161,21 @@ class GpxSharedViewModel @Inject constructor(
         }
     }
 
+    private fun fetchDiscoveryScore(track: GpxTrack) {
+        viewModelScope.launch {
+            if (track.points.size < 2) {
+                _discoveryScore.value = DiscoveryScoreResult.Unavailable
+                return@launch
+            }
+            val gpsTrack = track.points.map { listOf(it.latitude, it.longitude) }
+            val matchedEdges = mapMatcher.matchTrack(gpsTrack)
+            _discoveryScore.value = matchedEdges
+                ?.let { GpxAnalysisUtils.discoveryScore(it) }
+                ?.let { DiscoveryScoreResult.Score(it) }
+                ?: DiscoveryScoreResult.Unavailable
+        }
+    }
+
     private fun computeSegmentPoints(item: GpxPoiItem?, userLoc: LatLng?): List<LatLng> {
         if (item == null) return emptyList()
         val track = cachedTrack
@@ -177,4 +201,10 @@ class GpxSharedViewModel @Inject constructor(
     companion object {
         private const val CORRIDOR_M = 200.0
     }
+}
+
+/** Result of matching the loaded .gpx track to the road graph and scoring it. */
+sealed interface DiscoveryScoreResult {
+    data class Score(val value: Int) : DiscoveryScoreResult
+    object Unavailable : DiscoveryScoreResult
 }

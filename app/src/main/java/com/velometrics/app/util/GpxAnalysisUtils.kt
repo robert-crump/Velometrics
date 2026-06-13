@@ -1,7 +1,9 @@
 package com.velometrics.app.util
 
+import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.PoiWithDistances
 import org.maplibre.android.geometry.LatLng
+import kotlin.math.roundToInt
 
 object GpxAnalysisUtils {
 
@@ -31,5 +33,17 @@ object GpxAnalysisUtils {
             counts[bucket]++
         }
         return counts
+    }
+
+    /**
+     * Discovery score (0-100): the percentage of [matchedEdges]' total length where
+     * `isTraversed == false`, i.e. roads not yet ridden according to the graph metadata. Returns
+     * null if [matchedEdges] is empty or has zero total length (nothing to score).
+     */
+    fun discoveryScore(matchedEdges: List<MapEdge>): Int? {
+        val totalLengthM = matchedEdges.sumOf { it.lengthM }
+        if (totalLengthM <= 0.0) return null
+        val untraversedLengthM = matchedEdges.filterNot { it.isTraversed }.sumOf { it.lengthM }
+        return (100 * untraversedLengthM / totalLengthM).roundToInt().coerceIn(0, 100)
     }
 }

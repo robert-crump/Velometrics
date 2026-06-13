@@ -1,3 +1,29 @@
+## Issue #70 — ScoreGpxTrack: Discovery score section
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+Added the "Discovery score" section to the .gpx analysis overlay (#69).
+
+- `util/GpxAnalysisUtils.kt`: new `discoveryScore(matchedEdges: List<MapEdge>): Int?`
+  computes `100 * (length of edges with isTraversed == false / total matched length)`,
+  rounded to an integer 0-100. Returns null for an empty edge list or zero total length.
+- `ui/shared/GpxSharedViewModel.kt`: injected `MapMatcher`. New
+  `DiscoveryScoreResult` sealed interface (`Score(value: Int)` / `Unavailable`) exposed
+  via `discoveryScore: StateFlow<DiscoveryScoreResult?>` (null while analyzing). On
+  `loadGpxFromUri`, `fetchDiscoveryScore` matches the track via `mapMatcher.matchTrack`
+  and maps the result through `GpxAnalysisUtils.discoveryScore` — `Unavailable` if
+  matching fails or returns null/empty. Reset on `clearGpx`.
+- `ui/screens/mapview/MapViewScreen.kt`: new `DiscoveryScoreSection` composable, shown
+  above `PoiDensitySection` in `GpxAnalysisOverlay`. Shows "Analyzing route..." while
+  null, "Couldn't analyze this route" for `Unavailable`, and "Discovery Score: X/100"
+  with a short explanation for `Score`.
+
+### Tests
+Added `GpxAnalysisUtilsTest` cases for `discoveryScore`: all-traversed (0), all-untraversed
+(100), length-weighted mixed (75), and empty list (null). `compileDebugKotlin` and
+`testDebugUnitTest` both pass.
+
 ## Issue #65 — POI active state resets to inactive after switching tabs
 Completed: 2026-06-13 | Closed: pending
 

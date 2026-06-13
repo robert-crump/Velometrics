@@ -166,7 +166,6 @@ fun MapViewScreen(
         gpxIntentViewModel.consumePendingUri()
     }
 
-    var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
     var showRemoveGpxConfirmDialog by remember { mutableStateOf(false) }
     var showGpxPoisSheet by remember { mutableStateOf(false) }
     var gpxToggleActive by remember { mutableStateOf(false) }
@@ -729,7 +728,7 @@ fun MapViewScreen(
                                 onCheckedChange = { checked ->
                                     if (checked) {
                                         gpxToggleActive = true
-                                        showLoadGpxConfirmDialog = true
+                                        gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
                                     } else {
                                         showRemoveGpxConfirmDialog = true
                                     }
@@ -771,29 +770,6 @@ fun MapViewScreen(
                 )
             }
         }
-    }
-
-    if (showLoadGpxConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showLoadGpxConfirmDialog = false
-                gpxToggleActive = false
-            },
-            title = { Text("Load .gpx file?") },
-            text = { Text("Browse for a .gpx file to load onto the map.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showLoadGpxConfirmDialog = false
-                    gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
-                }) { Text("Yes") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showLoadGpxConfirmDialog = false
-                    gpxToggleActive = false
-                }) { Text("Cancel") }
-            }
-        )
     }
 
     if (showRemoveGpxConfirmDialog) {

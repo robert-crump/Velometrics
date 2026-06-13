@@ -29,16 +29,17 @@ Completed: 2026-06-13 | Closed: pending
 ### What was done
 
 **`MapViewScreen.kt`**
-- Added `showRemoveGpxConfirmDialog` state alongside the existing
-  `showLoadGpxConfirmDialog`.
+- Added `showRemoveGpxConfirmDialog` state.
 - Turning the ".gpx track" layer switch off no longer calls
   `gpxSharedViewModel.clearGpx()` directly — it now sets
   `showRemoveGpxConfirmDialog = true`. The switch stays visually "on"
   (`gpxToggleActive` unchanged) until the user confirms.
-- New `AlertDialog` ("Remove .gpx track?") mirrors the existing "Load .gpx
-  file?" dialog's structure: confirming clears the track (`clearGpx()`) and
-  sets `gpxToggleActive = false`; cancelling/dismissing just closes the
-  dialog and leaves the track and toggle untouched.
+- New `AlertDialog` ("Remove .gpx track?"): confirming clears the track
+  (`clearGpx()`) and sets `gpxToggleActive = false`; cancelling/dismissing
+  just closes the dialog and leaves the track and toggle untouched.
+- Turning the switch on no longer shows a "Load .gpx file?" confirmation —
+  it now launches the file picker (`gpxLauncher`) directly. Removed the
+  now-unused `showLoadGpxConfirmDialog` state and its `AlertDialog`.
 
 ### Tests
 `compileDebugKotlin` and `testDebugUnitTest` both pass. No existing tests

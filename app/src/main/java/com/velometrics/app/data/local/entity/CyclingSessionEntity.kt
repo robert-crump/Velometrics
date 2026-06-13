@@ -33,5 +33,7 @@ data class CyclingSessionEntity(
     val fatEfficiencyHistogram: String? = null,  // JSON map
     val fatEfficiencyScore: Int? = null,
     val sprintCount: Int = 0,
-    val sprintHistogram: String? = null          // JSON map
+    val sprintHistogram: String? = null,         // JSON map
+    val avgHeartRate: Int? = null,
+    val elevationGainM: Double? = null
 )

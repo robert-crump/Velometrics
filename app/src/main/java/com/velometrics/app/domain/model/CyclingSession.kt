@@ -27,5 +27,7 @@ data class CyclingSession(
     val fatEfficiencyHistogram: Map<String, Int>? = null,
     val fatEfficiencyScore: Int? = null,
     val sprintCount: Int = 0,
-    val sprintHistogram: Map<String, Int>? = null
+    val sprintHistogram: Map<String, Int>? = null,
+    val avgHeartRate: Int? = null,
+    val elevationGainM: Double? = null
 )

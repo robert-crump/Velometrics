@@ -321,6 +321,12 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
 
     val fatEffScore: Int? = session.fatEfficiencyScore
 
+    val cardiacEfficiency: Double? = if (session.hasPower) {
+        val power = session.averagePower
+        val hr = session.avgHeartRate
+        if (power != null && hr != null && hr != 0) power.toDouble() / hr else null
+    } else null
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,6 +374,14 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     median = null,
                     higherIsBetter = false
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(
+                    label = "Elevation gain",
+                    value = session.elevationGainM?.let { FormatUtils.formatElevationGain(it) } ?: "—",
+                    current = null,
+                    median = null,
+                    higherIsBetter = false
+                )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -403,6 +417,14 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     current = null,
                     median = null,
                     higherIsBetter = false
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(
+                    label = "Cardiac Eff.",
+                    value = cardiacEfficiency?.let { FormatUtils.formatCardiacEfficiency(it) } ?: "—",
+                    current = cardiacEfficiency,
+                    median = comparison?.medianCardiacEfficiency,
+                    higherIsBetter = true
                 )
             }
         }

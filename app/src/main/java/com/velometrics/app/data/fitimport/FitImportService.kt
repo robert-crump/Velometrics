@@ -203,6 +203,8 @@ class FitImportService @Inject constructor(
             val speedKmh = speedMps?.let { it * CyclingConstants.MTS_PER_SEC_TO_KMH }
 
             val power: Int? = mesg.getPower()
+            val heartRate: Int? = mesg.getHeartRate()?.toInt()
+            val altitude: Double? = (mesg.getEnhancedAltitude() ?: mesg.getAltitude())?.toDouble()
 
             val fitTimestamp = mesg.getTimestamp() ?: return@RecordMesgListener
             val timestamp = fitTimestamp.date.toInstant()
@@ -213,7 +215,9 @@ class FitImportService @Inject constructor(
                     lon = lon,
                     speedKmh = speedKmh?.toDouble(),
                     power = power,
-                    timestamp = timestamp
+                    timestamp = timestamp,
+                    heartRate = heartRate,
+                    altitude = altitude
                 )
             )
         })

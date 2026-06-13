@@ -32,6 +32,7 @@ object CyclingConstants {
     const val NORMALIZED_POWER_WINDOW = 29          // rolling window size for normalized power (30-sec)
     const val MINIMUM_GPS_DATAPOINTS = 60           // min GPS points required to import a ride
     const val POWER_DATA_COVERAGE_THRESHOLD = 0.10  // fraction of points needing power to count as power ride
+    const val ELEVATION_GAIN_THRESHOLD_M = 3.0       // hysteresis threshold for cumulative elevation gain
 
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117

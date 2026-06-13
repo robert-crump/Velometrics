@@ -14,5 +14,7 @@ data class Datapoint(
     val timestamp: Instant,
     val vectorX: Float? = null,
     val vectorY: Float? = null,
-    val angleDeg: Double? = null
+    val angleDeg: Double? = null,
+    val heartRate: Int? = null,
+    val altitude: Double? = null
 )

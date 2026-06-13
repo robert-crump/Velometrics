@@ -301,8 +301,8 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Re-runs session comparisons. Power zone histograms and sprint data " +
-                            "require re-importing FIT files.",
+                        text = "Re-runs session comparisons. Power zone histograms, sprint data, " +
+                            "heart-rate, and elevation stats require re-importing FIT files.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

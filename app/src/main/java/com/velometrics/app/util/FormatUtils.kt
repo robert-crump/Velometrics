@@ -43,6 +43,10 @@ object FormatUtils {
 
     fun formatPower(watts: Int): String = "$watts W"
 
+    fun formatElevationGain(meters: Double): String = "%.0f m".format(Locale.US, meters)
+
+    fun formatCardiacEfficiency(wattsPerBpm: Double): String = "%.2f W/bpm".format(Locale.US, wattsPerBpm)
+
     fun formatDate(instant: Instant): String = dateFormatter.format(instant)
 
     fun formatComparison(

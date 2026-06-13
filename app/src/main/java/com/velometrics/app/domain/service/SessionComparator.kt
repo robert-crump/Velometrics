@@ -12,6 +12,7 @@ data class SessionComparison(
     val medianNormalizedPower: Int?,
     val medianIntervalTimeSec: Int?,
     val medianFatEfficiency: Double?,
+    val medianCardiacEfficiency: Double?,
     val previousSessionCount: Int
 )
 
@@ -41,6 +42,12 @@ class SessionComparator @Inject constructor(
             session.fatEfficiencyScore?.toDouble()
         }
 
+        val cardiacEfficiencies = powerSessions.mapNotNull { session ->
+            val hr = session.avgHeartRate
+            val power = session.averagePower
+            if (hr != null && hr != 0 && power != null) power.toDouble() / hr else null
+        }
+
         return SessionComparison(
             medianNetDurationSec = median(durations)?.toInt(),
             medianDistanceKm = median(distances),
@@ -49,6 +56,7 @@ class SessionComparator @Inject constructor(
             medianNormalizedPower = if (normPowers.isNotEmpty()) median(normPowers)?.toInt() else null,
             medianIntervalTimeSec = median(intervalTimes)?.toInt(),
             medianFatEfficiency = if (fatEffScores.isNotEmpty()) median(fatEffScores) else null,
+            medianCardiacEfficiency = if (cardiacEfficiencies.isNotEmpty()) median(cardiacEfficiencies) else null,
             previousSessionCount = previous.size
         )
     }

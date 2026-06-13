@@ -27,7 +27,8 @@ class SessionComparatorTest {
         hasPower: Boolean = false,
         averagePower: Int? = null,
         normalizedPower: Int? = null,
-        intervalTotalTimeSec: Int = 0
+        intervalTotalTimeSec: Int = 0,
+        avgHeartRate: Int? = null
     ): CyclingSession {
         val start = Instant.now().minusSeconds(daysAgo * 86400)
         return CyclingSession(
@@ -51,7 +52,8 @@ class SessionComparatorTest {
             gpsQualityPercent = 95.0,
             powerQualityPercent = if (hasPower) 90.0 else null,
             hasPower = hasPower,
-            gpsTrack = null
+            gpsTrack = null,
+            avgHeartRate = avgHeartRate
         )
     }
 
@@ -128,5 +130,35 @@ class SessionComparatorTest {
         // Non-power medians should still exist
         assertNotNull(result.medianNetDurationSec)
         assertNotNull(result.medianDistanceKm)
+    }
+
+    @Test
+    fun `median cardiac efficiency computed from sessions with both power and heart rate`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, hasPower = true, averagePower = 250, avgHeartRate = 140)
+        // cardiac efficiency = 240/120 = 2.0
+        val prev1 = makeSession(2, 1, 3400, 28.0, hasPower = true, averagePower = 240, avgHeartRate = 120)
+        // no heart rate -> excluded
+        val prev2 = makeSession(3, 2, 3600, 30.0, hasPower = true, averagePower = 250, avgHeartRate = null)
+        // cardiac efficiency = 260/130 = 2.0
+        val prev3 = makeSession(4, 3, 3800, 32.0, hasPower = true, averagePower = 260, avgHeartRate = 130)
+        repository.sessions.addAll(listOf(current, prev1, prev2, prev3))
+
+        val result = comparator.computeComparison(current)
+        assertNotNull(result)
+        // Median of [2.0, 2.0] = 2.0
+        assertEquals(2.0, result!!.medianCardiacEfficiency!!, 0.001)
+    }
+
+    @Test
+    fun `no previous sessions with both power and heart rate yields null median cardiac efficiency`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, hasPower = true, averagePower = 250, avgHeartRate = 140)
+        val prev1 = makeSession(2, 1, 3400, 28.0, hasPower = true, averagePower = 240, avgHeartRate = null)
+        val prev2 = makeSession(3, 2, 3600, 30.0, hasPower = false)
+        val prev3 = makeSession(4, 3, 3800, 32.0, hasPower = true, averagePower = 260, avgHeartRate = null)
+        repository.sessions.addAll(listOf(current, prev1, prev2, prev3))
+
+        val result = comparator.computeComparison(current)
+        assertNotNull(result)
+        assertNull(result!!.medianCardiacEfficiency)
     }
 }

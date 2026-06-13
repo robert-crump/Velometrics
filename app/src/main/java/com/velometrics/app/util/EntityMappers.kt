@@ -42,7 +42,9 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         fatEfficiencyHistogram = fatEffHist,
         fatEfficiencyScore = fatEfficiencyScore,
         sprintCount = sprintCount,
-        sprintHistogram = sprintHist
+        sprintHistogram = sprintHist,
+        avgHeartRate = avgHeartRate,
+        elevationGainM = elevationGainM
     )
 }
 
@@ -72,7 +74,9 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         fatEfficiencyHistogram = fatEfficiencyHistogram?.let { gson.toJson(it) },
         fatEfficiencyScore = fatEfficiencyScore,
         sprintCount = sprintCount,
-        sprintHistogram = sprintHistogram?.let { gson.toJson(it) }
+        sprintHistogram = sprintHistogram?.let { gson.toJson(it) },
+        avgHeartRate = avgHeartRate,
+        elevationGainM = elevationGainM
     )
 }
 

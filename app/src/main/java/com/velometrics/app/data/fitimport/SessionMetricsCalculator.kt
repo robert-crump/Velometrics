@@ -75,6 +75,12 @@ class SessionMetricsCalculator @Inject constructor() {
         // 11. GPS track
         val gpsTrack = downsampleAndSerialize(datapoints)
 
+        // 12. Cardiac efficiency input (avg heart rate)
+        val avgHeartRate = computeAvgHeartRate(datapoints)
+
+        // 13. Elevation gain
+        val elevationGainM = computeElevationGain(datapoints)
+
         return CyclingSession(
             fileName = fileName,
             fileSha1 = fileSha1,
@@ -97,8 +103,48 @@ class SessionMetricsCalculator @Inject constructor() {
             hasPower = hasPower,
             gpsTrack = gpsTrack,
             fatEfficiencyHistogram = fatEfficiencyHistogram,
-            fatEfficiencyScore = fatEfficiencyScore
+            fatEfficiencyScore = fatEfficiencyScore,
+            avgHeartRate = avgHeartRate,
+            elevationGainM = elevationGainM
         )
+    }
+
+    /**
+     * Mean of non-null, non-zero heart rate readings, gated on
+     * [CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD] coverage of the session's datapoints.
+     */
+    private fun computeAvgHeartRate(datapoints: List<Datapoint>): Int? {
+        if (datapoints.isEmpty()) return null
+        val hrValues = datapoints.mapNotNull { it.heartRate }.filter { it > 0 }
+        val hasHeartRate = hrValues.size >= (datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD)
+        if (!hasHeartRate) return null
+        return hrValues.average().roundToInt()
+    }
+
+    /**
+     * Cumulative positive elevation gain using a hysteresis algorithm: tracks a running
+     * reference low point, banking a gain (and raising the reference) once altitude rises
+     * at least [CyclingConstants.ELEVATION_GAIN_THRESHOLD_M] above it, and lowering the
+     * reference on descents. Rejects GPS/barometric sensor jitter.
+     */
+    private fun computeElevationGain(datapoints: List<Datapoint>): Double? {
+        val altitudes = datapoints.mapNotNull { it.altitude }
+        if (altitudes.size < 2) return null
+
+        var referenceLow = altitudes.first()
+        var totalGain = 0.0
+
+        for (i in 1 until altitudes.size) {
+            val alt = altitudes[i]
+            if (alt - referenceLow >= CyclingConstants.ELEVATION_GAIN_THRESHOLD_M) {
+                totalGain += alt - referenceLow
+                referenceLow = alt
+            } else if (alt < referenceLow) {
+                referenceLow = alt
+            }
+        }
+
+        return totalGain
     }
 
     private fun computePauseDuration(timerEvents: List<TimerEvent>): Int {

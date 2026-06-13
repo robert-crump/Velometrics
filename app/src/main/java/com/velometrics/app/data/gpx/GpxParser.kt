@@ -16,6 +16,8 @@ object GpxParser {
 
         val trackPoints = mutableListOf<LatLng>()
         val routePoints = mutableListOf<LatLng>()
+        val trackElevations = mutableListOf<Double?>()
+        val routeElevations = mutableListOf<Double?>()
         var trackName: String? = null
         var metadataName: String? = null
 
@@ -24,6 +26,9 @@ object GpxParser {
         var inRoute = false
         var inMetadata = false
         var inName = false
+        var inTrkPt = false
+        var inRtePt = false
+        var inEle = false
         var currentTag = ""
 
         var event = parser.eventType
@@ -37,14 +42,23 @@ object GpxParser {
                         "trkseg" -> inTrkSeg = true
                         "rte" -> inRoute = true
                         "name" -> inName = true
+                        "ele" -> inEle = true
                         "trkpt" -> {
                             if (inTrkSeg) {
-                                parseLatLon(parser)?.let { trackPoints.add(it) }
+                                parseLatLon(parser)?.let {
+                                    trackPoints.add(it)
+                                    trackElevations.add(null)
+                                    inTrkPt = true
+                                }
                             }
                         }
                         "rtept" -> {
                             if (inRoute) {
-                                parseLatLon(parser)?.let { routePoints.add(it) }
+                                parseLatLon(parser)?.let {
+                                    routePoints.add(it)
+                                    routeElevations.add(null)
+                                    inRtePt = true
+                                }
                             }
                         }
                     }
@@ -60,6 +74,17 @@ object GpxParser {
                             }
                         }
                     }
+                    if (inEle) {
+                        val elevation = parser.text?.trim()?.toDoubleOrNull()
+                        if (elevation != null) {
+                            when {
+                                inTrkPt && trackElevations.isNotEmpty() ->
+                                    trackElevations[trackElevations.lastIndex] = elevation
+                                inRtePt && routeElevations.isNotEmpty() ->
+                                    routeElevations[routeElevations.lastIndex] = elevation
+                            }
+                        }
+                    }
                 }
                 XmlPullParser.END_TAG -> {
                     when (parser.name) {
@@ -68,6 +93,9 @@ object GpxParser {
                         "trkseg" -> inTrkSeg = false
                         "rte" -> inRoute = false
                         "name" -> inName = false
+                        "ele" -> inEle = false
+                        "trkpt" -> inTrkPt = false
+                        "rtept" -> inRtePt = false
                     }
                 }
             }
@@ -75,11 +103,12 @@ object GpxParser {
         }
 
         val points = trackPoints.ifEmpty { routePoints }
+        val elevations = if (trackPoints.isNotEmpty()) trackElevations else routeElevations
         val name = trackName ?: metadataName
 
         require(points.isNotEmpty()) { "GPX file contains no track or route points" }
 
-        GpxTrack(name = name, points = points)
+        GpxTrack(name = name, points = points, elevations = elevations.takeIf { it.any { e -> e != null } })
     }
 
     private fun parseLatLon(parser: XmlPullParser): LatLng? {

@@ -5,6 +5,7 @@ import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.model.PoiWithDistances
 import org.junit.Assert.*
 import org.junit.Test
+import org.maplibre.android.geometry.LatLng
 
 class GpxAnalysisUtilsTest {
 
@@ -106,5 +107,76 @@ class GpxAnalysisUtilsTest {
     @Test
     fun `discovery score is null for an empty edge list`() {
         assertNull(GpxAnalysisUtils.discoveryScore(emptyList()))
+    }
+
+    @Test
+    fun `elevationProfile pairs cumulative distance with non-null elevations`() {
+        val points = listOf(
+            LatLng(0.0, 0.0),
+            LatLng(0.0, 0.001),
+            LatLng(0.0, 0.002)
+        )
+        val elevations = listOf(100.0, 110.0, 120.0)
+        val profile = GpxAnalysisUtils.elevationProfile(points, elevations)
+
+        assertEquals(3, profile.size)
+        assertEquals(0.0, profile[0].first, 1e-6)
+        assertEquals(100.0, profile[0].second, 1e-6)
+        assertEquals(120.0, profile[2].second, 1e-6)
+        assertTrue(profile[1].first > 0.0)
+    }
+
+    @Test
+    fun `elevationProfile skips points with null elevation`() {
+        val points = listOf(LatLng(0.0, 0.0), LatLng(0.0, 0.001), LatLng(0.0, 0.002))
+        val elevations = listOf(100.0, null, 120.0)
+        val profile = GpxAnalysisUtils.elevationProfile(points, elevations)
+
+        assertEquals(2, profile.size)
+        assertEquals(100.0, profile[0].second, 1e-6)
+        assertEquals(120.0, profile[1].second, 1e-6)
+    }
+
+    @Test
+    fun `smoothElevations averages within a centered window`() {
+        val raw = listOf(100.0, 200.0, 100.0, 200.0, 100.0)
+        val smoothed = GpxAnalysisUtils.smoothElevations(raw, windowSize = 3)
+
+        assertEquals(5, smoothed.size)
+        // middle point averages itself with both neighbours
+        assertEquals((100.0 + 200.0 + 100.0) / 3, smoothed[1], 1e-6)
+        // first point only has itself and its single right neighbour
+        assertEquals((100.0 + 200.0) / 2, smoothed[0], 1e-6)
+    }
+
+    @Test
+    fun `smoothElevations returns empty for empty input`() {
+        assertEquals(emptyList<Double>(), GpxAnalysisUtils.smoothElevations(emptyList()))
+    }
+
+    @Test
+    fun `elevationGainLoss sums positive and negative deltas separately`() {
+        val smoothed = listOf(100.0, 150.0, 120.0, 180.0)
+        val (gain, loss) = GpxAnalysisUtils.elevationGainLoss(smoothed)
+
+        assertEquals(110, gain) // +50, +60
+        assertEquals(30, loss)  // -30
+    }
+
+    @Test
+    fun `elevationGainLoss is zero for a flat profile`() {
+        val (gain, loss) = GpxAnalysisUtils.elevationGainLoss(listOf(100.0, 100.0, 100.0))
+        assertEquals(0, gain)
+        assertEquals(0, loss)
+    }
+
+    @Test
+    fun `elevationGainPer100km scales gain to a 100km distance`() {
+        assertEquals(1000, GpxAnalysisUtils.elevationGainPer100km(gainM = 100, totalDistanceM = 10_000.0))
+    }
+
+    @Test
+    fun `elevationGainPer100km is zero for a zero-distance track`() {
+        assertEquals(0, GpxAnalysisUtils.elevationGainPer100km(gainM = 100, totalDistanceM = 0.0))
     }
 }

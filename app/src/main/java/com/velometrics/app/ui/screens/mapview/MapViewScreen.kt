@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -895,6 +897,7 @@ private fun GpxAnalysisOverlay(
 
                     if (gpxTrack != null) {
                         DiscoveryScoreSection(discoveryScore = discoveryScore)
+                        ElevationProfileSection(gpxTrack = gpxTrack)
                         PoiDensitySection(gpxTrack = gpxTrack, gpxPois = gpxPois)
                     }
                 }
@@ -932,6 +935,60 @@ private fun DiscoveryScoreSection(discoveryScore: DiscoveryScoreResult?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ElevationProfileSection(gpxTrack: GpxTrack) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Elevation profile", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val elevations = gpxTrack.elevations
+            val profile = remember(gpxTrack) {
+                elevations?.let { GpxAnalysisUtils.elevationProfile(gpxTrack.points, it) }
+            }
+
+            if (profile == null || profile.size < 2) {
+                Text(
+                    text = "No elevation data in this file",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                val smoothed = remember(profile) {
+                    GpxAnalysisUtils.smoothElevations(profile.map { it.second })
+                }
+                val (gainM, lossM) = remember(smoothed) { GpxAnalysisUtils.elevationGainLoss(smoothed) }
+                val gainPer100km = remember(gainM, profile) {
+                    GpxAnalysisUtils.elevationGainPer100km(gainM, profile.last().first)
+                }
+                val minEle = smoothed.min()
+                val maxEle = smoothed.max()
+                val eleRange = (maxEle - minEle).coerceAtLeast(1.0)
+                val maxDistance = profile.last().first.coerceAtLeast(1.0)
+                val lineColor = MaterialTheme.colorScheme.primary
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                ) {
+                    val path = Path()
+                    smoothed.forEachIndexed { index, elevation ->
+                        val x = (profile[index].first / maxDistance).toFloat() * size.width
+                        val y = size.height - ((elevation - minEle) / eleRange).toFloat() * size.height
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path = path, color = lineColor, style = Stroke(width = 2.dp.toPx()))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Elevation gain: $gainM m", style = MaterialTheme.typography.bodyMedium)
+                Text(text = "Elevation loss: $lossM m", style = MaterialTheme.typography.bodyMedium)
+                Text(text = "Gain per 100km: $gainPer100km m", style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

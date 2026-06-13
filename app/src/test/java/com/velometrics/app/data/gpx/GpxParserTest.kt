@@ -123,6 +123,54 @@ class GpxParserTest {
     }
 
     @Test
+    fun `parses elevation per track point`() {
+        val gpx = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1">
+              <trk><trkseg>
+                <trkpt lat="50.78" lon="6.07"><ele>100.5</ele></trkpt>
+                <trkpt lat="50.79" lon="6.08"><ele>110.2</ele></trkpt>
+              </trkseg></trk>
+            </gpx>
+        """.trimIndent()
+
+        val track = parse(gpx).getOrThrow()
+        assertEquals(listOf(100.5, 110.2), track.elevations)
+    }
+
+    @Test
+    fun `elevations is null when file has no ele data`() {
+        val gpx = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1">
+              <trk><trkseg>
+                <trkpt lat="50.78" lon="6.07"/>
+                <trkpt lat="50.79" lon="6.08"/>
+              </trkseg></trk>
+            </gpx>
+        """.trimIndent()
+
+        val track = parse(gpx).getOrThrow()
+        assertNull(track.elevations)
+    }
+
+    @Test
+    fun `parses elevation for rte format`() {
+        val gpx = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1">
+              <rte>
+                <rtept lat="50.78" lon="6.07"><ele>200</ele></rtept>
+                <rtept lat="50.79" lon="6.08"><ele>205</ele></rtept>
+              </rte>
+            </gpx>
+        """.trimIndent()
+
+        val track = parse(gpx).getOrThrow()
+        assertEquals(listOf(200.0, 205.0), track.elevations)
+    }
+
+    @Test
     fun `extracts name from metadata if no track name`() {
         val gpx = """
             <?xml version="1.0" encoding="UTF-8"?>

@@ -408,3 +408,47 @@ tracks <= 5km, multi-bucket distribution across segment boundaries, null
 `trackDistanceM` POIs being ignored, and clamping a POI at the track's exact
 total distance into the last bucket. `compileDebugKotlin` and
 `testDebugUnitTest` both pass.
+
+## Issue #71 — ScoreGpxTrack: Elevation profile section
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+Added the "Elevation profile" section to the .gpx analysis overlay (#69).
+
+- `data/gpx/GpxParser.kt`: now captures `<ele>` text inside `trkpt`/`rtept`
+  elements via new `inEle`/`inTrkPt`/`inRtePt` flags, building
+  `trackElevations`/`routeElevations` lists parallel to the existing
+  `trackPoints`/`routePoints`. `domain/model/GpxTrack.kt` gains an additive
+  nullable `elevations: List<Double?>?` field (same size as `points`),
+  populated only when at least one point has a parsed `<ele>` value;
+  otherwise `null`. Existing consumers (Home import flow,
+  `GpxSharedViewModel`, Map tab loading) are unaffected since the field
+  defaults to `null` and is purely additive.
+- New functions in `util/GpxAnalysisUtils.kt`:
+  - `elevationProfile(points, elevations)`: pairs cumulative haversine
+    distance (m) with each point's non-null elevation, skipping points
+    with null elevation.
+  - `smoothElevations(elevations, windowSize = ELEVATION_SMOOTHING_WINDOW)`:
+    centered moving-average smoothing (window of 5) to reduce GPS altitude
+    jitter before gain/loss calculations.
+  - `elevationGainLoss(smoothed)`: sums positive/negative deltas between
+    consecutive smoothed points into total gain/loss (m, rounded to Int).
+  - `elevationGainPer100km(gainM, totalDistanceM)`: normalizes gain to a
+    per-100km figure (Int), returning 0 for a zero-distance track.
+- `ui/screens/mapview/MapViewScreen.kt`: new `ElevationProfileSection`
+  composable, added between `DiscoveryScoreSection` and `PoiDensitySection`
+  in `GpxAnalysisOverlay`. Renders a line chart (distance vs. smoothed
+  elevation) via `Canvas`/`Path`/`Stroke` following the existing chart
+  patterns (e.g. `HomeScreen`'s monthly ride chart), plus gain/loss/gain-per-
+  100km stats. Shows "No elevation data in this file" when
+  `gpxTrack.elevations` is null or the profile has fewer than 2 points.
+
+### Tests
+Added to `data/gpx/GpxParserTest.kt`: parsing `<ele>` per `trkpt`, `<ele>`
+per `rtept`, and `elevations == null` when no `<ele>` data is present.
+Added to `util/GpxAnalysisUtilsTest.kt`: `elevationProfile` pairing/skipping
+null elevations, `smoothElevations` centered-window averaging (incl. empty
+input), and `elevationGainLoss`/`elevationGainPer100km` calculations
+(including flat-profile and zero-distance edge cases). `compileDebugKotlin`
+and `testDebugUnitTest` both pass.

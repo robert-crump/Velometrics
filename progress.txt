@@ -353,3 +353,32 @@ Added the entry point for the ScoreGpxTrack feature set (#15, #70-73).
 ### Tests
 `compileDebugKotlin` and `testDebugUnitTest` both pass (no existing tests
 touch the Map tab toolbar; new code is UI-only scaffolding).
+
+## Issue #73 — ScoreGpxTrack: POI density per 5km section
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+Added the "POI density" section to the .gpx analysis overlay (#69).
+
+- New `util/GpxAnalysisUtils.kt`: `totalTrackDistanceM(points)` sums
+  haversine distances over consecutive `GpxTrack.points`; and
+  `poiCountsPer5kmBucket(pois, totalDistanceM)` buckets
+  `List<PoiWithDistances>` by `trackDistanceM` into 5km segments
+  (`POI_DENSITY_BUCKET_SIZE_M`), returning POI counts per bucket. Tracks
+  `<= 5km` produce a single bucket; POIs with a null `trackDistanceM` are
+  skipped; a POI exactly at the track's total distance is clamped into the
+  last bucket.
+- `ui/screens/mapview/MapViewScreen.kt`: `GpxAnalysisOverlay` now takes
+  `gpxTrack: GpxTrack?` and `gpxPois: List<PoiWithDistances>` (passed from
+  the existing `gpxTrack`/`gpxPois` state already collected in
+  `MapViewScreen`). When a track is loaded, a new `PoiDensitySection`
+  composable renders a bar chart (count per 5km segment, x-axis labelled in
+  km) following the existing `SpeedHistogramChart` bar-chart pattern.
+
+### Tests
+Added `util/GpxAnalysisUtilsTest.kt` covering: single-bucket behaviour for
+tracks <= 5km, multi-bucket distribution across segment boundaries, null
+`trackDistanceM` POIs being ignored, and clamping a POI at the track's exact
+total distance into the last bucket. `compileDebugKotlin` and
+`testDebugUnitTest` both pass.

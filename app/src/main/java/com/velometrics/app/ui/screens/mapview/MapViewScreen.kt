@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -43,7 +44,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.R
 import com.velometrics.app.domain.model.GpxPoiItem
+import com.velometrics.app.domain.model.GpxTrack
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapScaleBar
 import com.velometrics.app.ui.components.MapIntervalRenderer
@@ -68,6 +71,7 @@ import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
+import com.velometrics.app.util.GpxAnalysisUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
@@ -793,7 +797,11 @@ fun MapViewScreen(
     }
 
     if (showGpxAnalysisOverlay) {
-        GpxAnalysisOverlay(onClose = { showGpxAnalysisOverlay = false })
+        GpxAnalysisOverlay(
+            gpxTrack = gpxTrack,
+            gpxPois = gpxPois,
+            onClose = { showGpxAnalysisOverlay = false }
+        )
     }
 
     if (showRemoveGpxConfirmDialog) {
@@ -833,15 +841,19 @@ fun MapViewScreen(
 @Preview
 @Composable
 private fun GpxAnalysisOverlayPreview() {
-    GpxAnalysisOverlay(onClose = {})
+    GpxAnalysisOverlay(gpxTrack = null, gpxPois = emptyList(), onClose = {})
 }
 
 /**
  * Full-screen overlay hosting the .gpx track analysis sections (discovery score, elevation
- * profile, etc., added by follow-up issues). Currently an empty scrollable placeholder.
+ * profile, etc., added by follow-up issues).
  */
 @Composable
-private fun GpxAnalysisOverlay(onClose: () -> Unit) {
+private fun GpxAnalysisOverlay(
+    gpxTrack: GpxTrack?,
+    gpxPois: List<PoiWithDistances>,
+    onClose: () -> Unit
+) {
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -876,8 +888,77 @@ private fun GpxAnalysisOverlay(onClose: () -> Unit) {
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(vertical = 16.dp)
                     )
+
+                    if (gpxTrack != null) {
+                        PoiDensitySection(gpxTrack = gpxTrack, gpxPois = gpxPois)
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PoiDensitySection(gpxTrack: GpxTrack, gpxPois: List<PoiWithDistances>) {
+    val totalDistanceM = remember(gpxTrack) { GpxAnalysisUtils.totalTrackDistanceM(gpxTrack.points) }
+    val counts = remember(gpxPois, totalDistanceM) {
+        GpxAnalysisUtils.poiCountsPer5kmBucket(gpxPois, totalDistanceM)
+    }
+    val maxCount = (counts.maxOrNull() ?: 0).coerceAtLeast(1)
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "POI density", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "POIs found along the track, grouped into 5km segments",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                counts.forEachIndexed { index, count ->
+                    val fraction = count.toFloat() / maxCount.toFloat()
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        Text(
+                            text = count.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height((fraction * 80).dp.coerceAtLeast(2.dp))
+                        ) {
+                            drawRect(color = Color(0xFF4CAF50))
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${index * 5}-${(index + 1) * 5}",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Distance along track (km)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

@@ -28,19 +28,12 @@ fun BottomNavBar(navController: NavController) {
                 label = { Text(screen.title) },
                 selected = highlightedRoute == screen.route,
                 onClick = {
-                    when {
-                        screen is Screen.Home -> {
-                            navController.popBackStack(Screen.Home.route, inclusive = false)
+                    navController.navigate(screen.route) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
                         }
-                        else -> {
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
             )

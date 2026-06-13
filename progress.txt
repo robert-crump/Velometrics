@@ -1,3 +1,28 @@
+## Issue #65 — POI active state resets to inactive after switching tabs
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+**`BottomNavBar.kt`**
+- The Home tab's `onClick` used `navController.popBackStack(Screen.Home.route,
+  inclusive = false)`, which pops the Map tab's `NavBackStackEntry` off the
+  stack *without* `saveState = true`. That destroys `MapViewViewModel`'s
+  `ViewModelStore`, so when the user returns to the Map tab via the bottom
+  nav, the view model is recreated from scratch — `activePoiChip` resets to
+  `null`, the active POI category button shows unselected, and the rendered
+  POI layer disappears.
+- Replaced the special-cased `Home` branch with the same
+  `navigate(screen.route) { popUpTo(startDestinationId) { saveState = true };
+  launchSingleTop = true; restoreState = true }` pattern already used by the
+  other tabs. This is the standard bottom-nav back-stack pattern and works
+  for the start destination too, so every tab (including Home) now
+  saves/restores its back stack entry — and the associated `ViewModelStore` —
+  consistently on tab switches.
+
+### Tests
+`compileDebugKotlin` and `testDebugUnitTest` both pass. No existing tests
+reference `BottomNavBar`'s navigation behavior, so none required updating.
+
 ## Issue #64 — Add "Remove .gpx track?" confirmation dialog
 Completed: 2026-06-13 | Closed: pending
 

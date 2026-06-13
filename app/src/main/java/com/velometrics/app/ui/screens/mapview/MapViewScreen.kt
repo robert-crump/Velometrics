@@ -62,6 +62,7 @@ import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.intent.GpxIntentViewModel
 import com.velometrics.app.ui.shared.DiscoveryScoreResult
 import com.velometrics.app.ui.shared.GpxSharedViewModel
+import com.velometrics.app.ui.shared.SpeedPowerEstimateResult
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
@@ -154,6 +155,7 @@ fun MapViewScreen(
 
     val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
     val gpxDiscoveryScore by gpxSharedViewModel.discoveryScore.collectAsState()
+    val gpxSpeedPowerEstimate by gpxSharedViewModel.speedPowerEstimate.collectAsState()
     val gpxPois by gpxSharedViewModel.gpxPois.collectAsState()
     val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
     val gpxPoiItems by gpxSharedViewModel.gpxPoiItems.collectAsState()
@@ -805,6 +807,7 @@ fun MapViewScreen(
             gpxTrack = gpxTrack,
             gpxPois = gpxPois,
             discoveryScore = gpxDiscoveryScore,
+            speedPowerEstimate = gpxSpeedPowerEstimate,
             onClose = { showGpxAnalysisOverlay = false }
         )
     }
@@ -846,7 +849,13 @@ fun MapViewScreen(
 @Preview
 @Composable
 private fun GpxAnalysisOverlayPreview() {
-    GpxAnalysisOverlay(gpxTrack = null, gpxPois = emptyList(), discoveryScore = null, onClose = {})
+    GpxAnalysisOverlay(
+        gpxTrack = null,
+        gpxPois = emptyList(),
+        discoveryScore = null,
+        speedPowerEstimate = null,
+        onClose = {}
+    )
 }
 
 /**
@@ -858,6 +867,7 @@ private fun GpxAnalysisOverlay(
     gpxTrack: GpxTrack?,
     gpxPois: List<PoiWithDistances>,
     discoveryScore: DiscoveryScoreResult?,
+    speedPowerEstimate: SpeedPowerEstimateResult?,
     onClose: () -> Unit
 ) {
     Dialog(
@@ -897,6 +907,7 @@ private fun GpxAnalysisOverlay(
 
                     if (gpxTrack != null) {
                         DiscoveryScoreSection(discoveryScore = discoveryScore)
+                        SpeedPowerEstimateSection(speedPowerEstimate = speedPowerEstimate)
                         ElevationProfileSection(gpxTrack = gpxTrack)
                         PoiDensitySection(gpxTrack = gpxTrack, gpxPois = gpxPois)
                     }
@@ -935,6 +946,38 @@ private fun DiscoveryScoreSection(discoveryScore: DiscoveryScoreResult?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedPowerEstimateSection(speedPowerEstimate: SpeedPowerEstimateResult?) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Speed & power estimate", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            when (speedPowerEstimate) {
+                null -> Text(
+                    text = "Analyzing route...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                is SpeedPowerEstimateResult.Unavailable -> Text(
+                    text = "Couldn't analyze this route",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                is SpeedPowerEstimateResult.NoRideHistory -> Text(
+                    text = "No ride history on this route",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                is SpeedPowerEstimateResult.Estimate -> Text(
+                    text = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W — " +
+                        "based on ${speedPowerEstimate.coveragePercent}% of this route you've ridden before",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
     }

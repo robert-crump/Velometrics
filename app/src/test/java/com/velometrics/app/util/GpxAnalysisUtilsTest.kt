@@ -9,7 +9,12 @@ import org.maplibre.android.geometry.LatLng
 
 class GpxAnalysisUtilsTest {
 
-    private fun edgeOf(lengthM: Double, isTraversed: Boolean) = MapEdge(
+    private fun edgeOf(
+        lengthM: Double,
+        isTraversed: Boolean,
+        speedMean: Double? = null,
+        powerMean: Double? = null,
+    ) = MapEdge(
         fromNode = 1L,
         toNode = 2L,
         lengthM = lengthM,
@@ -18,13 +23,13 @@ class GpxAnalysisUtilsTest {
         isTraversed = isTraversed,
         geometryEncoded = "",
         speedMedian = null,
-        speedMean = null,
+        speedMean = speedMean,
         speedCount = null,
         speedP25 = null,
         speedP75 = null,
         speedP90 = null,
         powerMedian = null,
-        powerMean = null,
+        powerMean = powerMean,
         powerCount = null,
         powerP25 = null,
         powerP75 = null,
@@ -178,5 +183,36 @@ class GpxAnalysisUtilsTest {
     @Test
     fun `elevationGainPer100km is zero for a zero-distance track`() {
         assertEquals(0, GpxAnalysisUtils.elevationGainPer100km(gainM = 100, totalDistanceM = 0.0))
+    }
+
+    @Test
+    fun `speedPowerEstimate is null for an empty edge list`() {
+        assertNull(GpxAnalysisUtils.speedPowerEstimate(emptyList()))
+    }
+
+    @Test
+    fun `speedPowerEstimate reports zero coverage when no edges have ride history`() {
+        val edges = listOf(
+            edgeOf(1000.0, isTraversed = false),
+            edgeOf(1000.0, isTraversed = true, speedMean = null, powerMean = null)
+        )
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges)
+        assertEquals(SpeedPowerEstimate(avgSpeedKmh = 0, avgPowerW = 0, coveragePercent = 0), result)
+    }
+
+    @Test
+    fun `speedPowerEstimate computes length-weighted averages and coverage from ride-history edges`() {
+        val edges = listOf(
+            edgeOf(750.0, isTraversed = true, speedMean = 20.0, powerMean = 200.0),
+            edgeOf(250.0, isTraversed = true, speedMean = 30.0, powerMean = 240.0),
+            edgeOf(1000.0, isTraversed = false)
+        )
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges)
+
+        // weighted over the 1000m of ride-history coverage (750m @20km/h, 250m @30km/h)
+        assertEquals(23, result?.avgSpeedKmh) // (750*20 + 250*30) / 1000 = 22.5 -> 23
+        assertEquals(210, result?.avgPowerW) // (750*200 + 250*240) / 1000 = 210
+        // 1000m of ride-history coverage out of 2000m total matched length
+        assertEquals(50, result?.coveragePercent)
     }
 }

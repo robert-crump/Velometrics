@@ -1,3 +1,37 @@
+## Issue #72 — ScoreGpxTrack: Speed/power estimate section
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+Added the "Speed & power estimate" section to the .gpx analysis overlay (#69).
+
+- `util/GpxAnalysisUtils.kt`: new `speedPowerEstimate(matchedEdges: List<MapEdge>):
+  SpeedPowerEstimate?` and `data class SpeedPowerEstimate(avgSpeedKmh: Int, avgPowerW: Int,
+  coveragePercent: Int)`. Filters `matchedEdges` to those with `isTraversed == true` and
+  non-null `speedMean`/`powerMean` ("ride-history" edges), then computes
+  length-weighted average speed/power over just those edges, plus `coveragePercent` =
+  `100 * (ride-history edge length / total matched length)`, rounded. Returns null for an
+  empty edge list or zero total length; returns a zero-valued estimate (coverage 0) when no
+  edges have ride-history metadata.
+- `ui/shared/GpxSharedViewModel.kt`: new `SpeedPowerEstimateResult` sealed interface
+  (`Estimate(avgSpeedKmh, avgPowerW, coveragePercent)` / `NoRideHistory` / `Unavailable`)
+  exposed via `speedPowerEstimate: StateFlow<SpeedPowerEstimateResult?>` (null while
+  analyzing). On `loadGpxFromUri`, `fetchSpeedPowerEstimate` matches the track via
+  `mapMatcher.matchTrack` (duplicates the match done for #70's discovery score, per the
+  issue's acceptance of v1 duplication) and maps the result through
+  `GpxAnalysisUtils.speedPowerEstimate` — `NoRideHistory` if `coveragePercent <= 0`,
+  `Unavailable` if matching fails or returns null/empty. Reset on `clearGpx`.
+- `ui/screens/mapview/MapViewScreen.kt`: new `SpeedPowerEstimateSection` composable, shown
+  between `DiscoveryScoreSection` and `ElevationProfileSection` in `GpxAnalysisOverlay`.
+  Shows "Analyzing route...", "Couldn't analyze this route", "No ride history on this
+  route", or "Avg X km/h, YW — based on Z% of this route you've ridden before".
+
+### Tests
+Added `GpxAnalysisUtilsTest` cases for `speedPowerEstimate`: empty edge list (null), zero
+coverage when no edges have ride-history metadata, and length-weighted averages/coverage
+from a mix of ride-history and non-ride-history edges. `compileDebugKotlin` and
+`testDebugUnitTest` both pass.
+
 ## Issue #70 — ScoreGpxTrack: Discovery score section
 Completed: 2026-06-13 | Closed: pending
 

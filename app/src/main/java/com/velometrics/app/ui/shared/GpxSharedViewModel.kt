@@ -48,6 +48,9 @@ class GpxSharedViewModel @Inject constructor(
     private val _discoveryScore = MutableStateFlow<DiscoveryScoreResult?>(null)
     val discoveryScore: StateFlow<DiscoveryScoreResult?> = _discoveryScore.asStateFlow()
 
+    private val _speedPowerEstimate = MutableStateFlow<SpeedPowerEstimateResult?>(null)
+    val speedPowerEstimate: StateFlow<SpeedPowerEstimateResult?> = _speedPowerEstimate.asStateFlow()
+
     private val _userLocation = MutableStateFlow<LatLng?>(null)
     val locationAvailable: StateFlow<Boolean> = _userLocation
         .map { it != null }
@@ -79,6 +82,7 @@ class GpxSharedViewModel @Inject constructor(
     suspend fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver): Boolean {
         _gpxPois.value = emptyList()
         _discoveryScore.value = null
+        _speedPowerEstimate.value = null
         val track = withContext(Dispatchers.IO) {
             contentResolver.openInputStream(uri)?.use { stream ->
                 GpxParser.parse(stream).getOrNull()
@@ -87,6 +91,7 @@ class GpxSharedViewModel @Inject constructor(
         _gpxTrack.value = track
         fetchPoisForTrack(track)
         fetchDiscoveryScore(track)
+        fetchSpeedPowerEstimate(track)
         return true
     }
 
@@ -95,6 +100,7 @@ class GpxSharedViewModel @Inject constructor(
         _gpxPois.value = emptyList()
         _selectedPoiItem.value = null
         _discoveryScore.value = null
+        _speedPowerEstimate.value = null
         cachedTrack = emptyList()
         cachedTrackIndex = null
         poiPerpDistances = emptyMap()
@@ -176,6 +182,27 @@ class GpxSharedViewModel @Inject constructor(
         }
     }
 
+    private fun fetchSpeedPowerEstimate(track: GpxTrack) {
+        viewModelScope.launch {
+            if (track.points.size < 2) {
+                _speedPowerEstimate.value = SpeedPowerEstimateResult.Unavailable
+                return@launch
+            }
+            val gpsTrack = track.points.map { listOf(it.latitude, it.longitude) }
+            val matchedEdges = mapMatcher.matchTrack(gpsTrack)
+            _speedPowerEstimate.value = matchedEdges
+                ?.let { GpxAnalysisUtils.speedPowerEstimate(it) }
+                ?.let {
+                    if (it.coveragePercent <= 0) {
+                        SpeedPowerEstimateResult.NoRideHistory
+                    } else {
+                        SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent)
+                    }
+                }
+                ?: SpeedPowerEstimateResult.Unavailable
+        }
+    }
+
     private fun computeSegmentPoints(item: GpxPoiItem?, userLoc: LatLng?): List<LatLng> {
         if (item == null) return emptyList()
         val track = cachedTrack
@@ -207,4 +234,11 @@ class GpxSharedViewModel @Inject constructor(
 sealed interface DiscoveryScoreResult {
     data class Score(val value: Int) : DiscoveryScoreResult
     object Unavailable : DiscoveryScoreResult
+}
+
+/** Result of matching the loaded .gpx track to the road graph and estimating speed/power from ride history. */
+sealed interface SpeedPowerEstimateResult {
+    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int) : SpeedPowerEstimateResult
+    object NoRideHistory : SpeedPowerEstimateResult
+    object Unavailable : SpeedPowerEstimateResult
 }

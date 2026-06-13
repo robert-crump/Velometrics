@@ -167,6 +167,7 @@ fun MapViewScreen(
     }
 
     var showLoadGpxConfirmDialog by remember { mutableStateOf(false) }
+    var showRemoveGpxConfirmDialog by remember { mutableStateOf(false) }
     var showGpxPoisSheet by remember { mutableStateOf(false) }
     var gpxToggleActive by remember { mutableStateOf(false) }
     var gpxPoiMode by remember { mutableStateOf(false) }
@@ -730,8 +731,7 @@ fun MapViewScreen(
                                         gpxToggleActive = true
                                         showLoadGpxConfirmDialog = true
                                     } else {
-                                        gpxToggleActive = false
-                                        gpxSharedViewModel.clearGpx()
+                                        showRemoveGpxConfirmDialog = true
                                     }
                                 }
                             )
@@ -791,6 +791,28 @@ fun MapViewScreen(
                 TextButton(onClick = {
                     showLoadGpxConfirmDialog = false
                     gpxToggleActive = false
+                }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showRemoveGpxConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showRemoveGpxConfirmDialog = false
+            },
+            title = { Text("Remove .gpx track?") },
+            text = { Text("This will remove the loaded .gpx track and its POIs from the map.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRemoveGpxConfirmDialog = false
+                    gpxToggleActive = false
+                    gpxSharedViewModel.clearGpx()
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showRemoveGpxConfirmDialog = false
                 }) { Text("Cancel") }
             }
         )

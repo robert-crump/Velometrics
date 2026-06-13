@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -32,7 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -168,6 +173,7 @@ fun MapViewScreen(
 
     var showRemoveGpxConfirmDialog by remember { mutableStateOf(false) }
     var showGpxPoisSheet by remember { mutableStateOf(false) }
+    var showGpxAnalysisOverlay by remember { mutableStateOf(false) }
     var gpxToggleActive by remember { mutableStateOf(false) }
     var gpxPoiMode by remember { mutableStateOf(false) }
     var showLayersPanel by remember { mutableStateOf(false) }
@@ -197,6 +203,7 @@ fun MapViewScreen(
         } else {
             showGpxPoisSheet = false
             gpxPoiMode = false
+            showGpxAnalysisOverlay = false
         }
     }
 
@@ -549,20 +556,33 @@ fun MapViewScreen(
             ) {
                 Box(modifier = Modifier.weight(1f)) {
                     if (gpxTrack != null) {
-                        FilterChip(
-                            selected = false,
-                            onClick = {
-                                showGpxPoisSheet = true
-                                gpxPoiMode = true
-                                viewModel.clearPoiChip()
-                            },
-                            label = { Text("POIs along .gpx") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            ),
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
-                        )
+                        ) {
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    showGpxPoisSheet = true
+                                    gpxPoiMode = true
+                                    viewModel.clearPoiChip()
+                                },
+                                label = { Text("POIs along .gpx") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                )
+                            )
+                            FilterChip(
+                                selected = false,
+                                onClick = { showGpxAnalysisOverlay = true },
+                                label = { Text(".gpx analysis") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                )
+                            )
+                        }
                     }
                 }
                 SmallFloatingActionButton(
@@ -772,6 +792,10 @@ fun MapViewScreen(
         }
     }
 
+    if (showGpxAnalysisOverlay) {
+        GpxAnalysisOverlay(onClose = { showGpxAnalysisOverlay = false })
+    }
+
     if (showRemoveGpxConfirmDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -804,6 +828,58 @@ fun MapViewScreen(
         )
     }
 
+}
+
+@Preview
+@Composable
+private fun GpxAnalysisOverlayPreview() {
+    GpxAnalysisOverlay(onClose = {})
+}
+
+/**
+ * Full-screen overlay hosting the .gpx track analysis sections (discovery score, elevation
+ * profile, etc., added by follow-up issues). Currently an empty scrollable placeholder.
+ */
+@Composable
+private fun GpxAnalysisOverlay(onClose: () -> Unit) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, contentDescription = "Close .gpx analysis")
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        text = ".gpx analysis",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

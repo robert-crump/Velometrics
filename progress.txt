@@ -325,3 +325,31 @@ Added `DropboxSyncServiceTest` covering `isPersistentAuthFailure()` for
 `InvalidAccessTokenException`, `DbxOAuthException` (`INVALID_GRANT` vs.
 `INVALID_REQUEST`), `NetworkIOException`, `RetryException`, and
 `ServerException`. `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+## Issue #69 — ScoreGpxTrack: GPX analysis overlay scaffold
+Completed: 2026-06-13 | Closed: pending
+
+### What was done
+
+Added the entry point for the ScoreGpxTrack feature set (#15, #70-73).
+
+- `ui/screens/mapview/MapViewScreen.kt`: added a ".gpx analysis" `FilterChip`
+  next to the existing "POIs along .gpx" chip (both now in a shared `Row`),
+  visible only when `gpxTrack != null`. Tapping it sets
+  `showGpxAnalysisOverlay = true`, which is reset to `false` whenever the gpx
+  track is cleared (alongside the existing `showGpxPoisSheet`/`gpxPoiMode`
+  resets).
+- New private composable `GpxAnalysisOverlay(onClose)`: a full-screen
+  `Dialog` (`usePlatformDefaultWidth = false`) containing a top `Row` with a
+  single "X" `IconButton` (`Icons.Default.Close`) and a `Column` body wrapped
+  in `verticalScroll(rememberScrollState())`, currently showing just a
+  ".gpx analysis" title placeholder. Follow-up issues (#70-73) will append
+  sections to this Column.
+- Added a `@Preview` (`GpxAnalysisOverlayPreview`) since the project has no
+  Compose UI test infrastructure (`createComposeRule`) — this is the
+  lightest-weight way to visually confirm the overlay renders/closes per the
+  acceptance criteria.
+
+### Tests
+`compileDebugKotlin` and `testDebugUnitTest` both pass (no existing tests
+touch the Map tab toolbar; new code is UI-only scaffolding).

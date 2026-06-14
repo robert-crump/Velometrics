@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.GraphMetadata
@@ -160,18 +162,21 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
             Spacer(modifier = Modifier.height(12.dp))
             if (metadata != null) {
                 var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
+                var mapSize by remember { mutableStateOf(IntSize.Zero) }
                 val midLat = (metadata.bboxSouth + metadata.bboxNorth) / 2.0
                 val midLon = (metadata.bboxWest + metadata.bboxEast) / 2.0
                 ComposableMapView(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(280.dp),
+                        .height(280.dp)
+                        .onSizeChanged { mapSize = it },
                     initialCenter = LatLng(midLat, midLon),
                     initialZoom = 8.5,
                     gesturesEnabled = false,
                     onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
                 )
-                LaunchedEffect(metadata, mapAndStyle) {
+                LaunchedEffect(metadata, mapAndStyle, mapSize) {
+                    if (mapSize == IntSize.Zero) return@LaunchedEffect
                     val (map, style) = mapAndStyle ?: return@LaunchedEffect
 
                     val latMarginDeg = POI_COVERAGE_MARGIN_KM / KM_PER_DEGREE_LAT

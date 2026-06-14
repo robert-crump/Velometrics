@@ -26,7 +26,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.util.CyclingConstants
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -34,6 +37,7 @@ import org.maplibre.geojson.MultiPolygon
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -135,6 +139,9 @@ private fun FatEfficiencySectionCard() {
 
 private const val POI_COVERAGE_SOURCE = "poi-coverage-source"
 private const val POI_COVERAGE_LAYER = "poi-coverage-layer"
+private const val POI_COVERAGE_MARGIN_KM = 10.0
+private const val POI_COVERAGE_MAP_PADDING_PX = 24
+private const val KM_PER_DEGREE_LAT = 111.32
 
 @Composable
 private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
@@ -152,7 +159,7 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
             )
             Spacer(modifier = Modifier.height(12.dp))
             if (metadata != null) {
-                var mapStyle by remember { mutableStateOf<Style?>(null) }
+                var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
                 val midLat = (metadata.bboxSouth + metadata.bboxNorth) / 2.0
                 val midLon = (metadata.bboxWest + metadata.bboxEast) / 2.0
                 ComposableMapView(
@@ -162,10 +169,19 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
                     initialCenter = LatLng(midLat, midLon),
                     initialZoom = 8.5,
                     gesturesEnabled = false,
-                    onMapReady = { _, style -> mapStyle = style }
+                    onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
                 )
-                LaunchedEffect(metadata.coverageGeojson, mapStyle) {
-                    val style = mapStyle ?: return@LaunchedEffect
+                LaunchedEffect(metadata, mapAndStyle) {
+                    val (map, style) = mapAndStyle ?: return@LaunchedEffect
+
+                    val latMarginDeg = POI_COVERAGE_MARGIN_KM / KM_PER_DEGREE_LAT
+                    val lonMarginDeg = POI_COVERAGE_MARGIN_KM / (KM_PER_DEGREE_LAT * cos(Math.toRadians(midLat)))
+                    val bounds = LatLngBounds.Builder()
+                        .include(LatLng(metadata.bboxSouth - latMarginDeg, metadata.bboxWest - lonMarginDeg))
+                        .include(LatLng(metadata.bboxNorth + latMarginDeg, metadata.bboxEast + lonMarginDeg))
+                        .build()
+                    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, POI_COVERAGE_MAP_PADDING_PX))
+
                     val geojson = metadata.coverageGeojson ?: return@LaunchedEffect
                     val multiPolygon = MultiPolygon.fromJson(geojson)
                     val feature = Feature.fromGeometry(multiPolygon)

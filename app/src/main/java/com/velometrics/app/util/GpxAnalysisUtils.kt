@@ -8,6 +8,11 @@ import kotlin.math.roundToInt
 object GpxAnalysisUtils {
 
     const val POI_DENSITY_BUCKET_SIZE_M = 5_000.0
+    const val POI_DENSITY_TARGET_BUCKET_COUNT = 10
+    // "Nice" bucket sizes for longer routes, smallest first. The smallest size whose bucket count
+    // is within POI_DENSITY_TARGET_BUCKET_COUNT is used, so a 100km route gets ~10km bins instead
+    // of 20 cramped 5km bins.
+    val POI_DENSITY_NICE_SIZES_M = listOf(5_000.0, 10_000.0, 20_000.0, 25_000.0, 50_000.0, 100_000.0)
     const val ELEVATION_SMOOTHING_WINDOW = 5
 
     /** Sums haversine distances between consecutive track points. */
@@ -17,20 +22,29 @@ object GpxAnalysisUtils {
         }
 
     /**
-     * Buckets [pois] into 5km segments along the track based on `trackDistanceM`, returning the
-     * POI count per bucket across the track's full [totalDistanceM]. Tracks shorter than 5km
-     * produce a single bucket. POIs with a null `trackDistanceM` are ignored.
+     * Picks a bucket size for [poiCountsPerBucket] from [POI_DENSITY_NICE_SIZES_M]: the smallest
+     * size that keeps the bucket count within [POI_DENSITY_TARGET_BUCKET_COUNT], so long routes
+     * get coarser bins instead of dozens of 5km bins.
      */
-    fun poiCountsPer5kmBucket(pois: List<PoiWithDistances>, totalDistanceM: Double): List<Int> {
-        val bucketCount = if (totalDistanceM <= POI_DENSITY_BUCKET_SIZE_M) {
+    fun poiDensityBucketSizeM(totalDistanceM: Double): Double =
+        POI_DENSITY_NICE_SIZES_M.firstOrNull { kotlin.math.ceil(totalDistanceM / it) <= POI_DENSITY_TARGET_BUCKET_COUNT }
+            ?: POI_DENSITY_NICE_SIZES_M.last()
+
+    /**
+     * Buckets [pois] into [bucketSizeM] segments along the track based on `trackDistanceM`,
+     * returning the POI count per bucket across the track's full [totalDistanceM]. Tracks shorter
+     * than [bucketSizeM] produce a single bucket. POIs with a null `trackDistanceM` are ignored.
+     */
+    fun poiCountsPerBucket(pois: List<PoiWithDistances>, totalDistanceM: Double, bucketSizeM: Double): List<Int> {
+        val bucketCount = if (totalDistanceM <= bucketSizeM) {
             1
         } else {
-            kotlin.math.ceil(totalDistanceM / POI_DENSITY_BUCKET_SIZE_M).toInt()
+            kotlin.math.ceil(totalDistanceM / bucketSizeM).toInt()
         }
         val counts = MutableList(bucketCount) { 0 }
         for (poi in pois) {
             val distance = poi.trackDistanceM ?: continue
-            val bucket = (distance / POI_DENSITY_BUCKET_SIZE_M).toInt().coerceIn(0, bucketCount - 1)
+            val bucket = (distance / bucketSizeM).toInt().coerceIn(0, bucketCount - 1)
             counts[bucket]++
         }
         return counts

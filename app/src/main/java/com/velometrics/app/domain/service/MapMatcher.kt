@@ -8,6 +8,7 @@ import com.velometrics.app.util.GeoUtils
 import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToInt
 
 /**
  * Snaps a raw GPS track (`IntervalSession.gpsTrack`, decoded to lat/lon pairs) onto the road
@@ -21,6 +22,20 @@ import javax.inject.Singleton
  * edge-indexing/successor-map pattern as [FastWayHomeService]). Gaps too large to repair reject
  * the whole track.
  */
+/**
+ * Result of [MapMatcher.matchTrackChunked]: the edges matched across all chunks (deduped), plus
+ * the total and successfully-matched along-track distance, so callers can report the covered
+ * fraction of the route.
+ */
+data class ChunkedMatchResult(
+    val matchedEdges: List<MapEdge>,
+    val totalDistanceM: Double,
+    val matchedDistanceM: Double
+) {
+    val coveragePercent: Int
+        get() = if (totalDistanceM <= 0.0) 0 else (100 * matchedDistanceM / totalDistanceM).roundToInt().coerceIn(0, 100)
+}
+
 @Singleton
 class MapMatcher @Inject constructor(
     private val repository: MapGraphRepository
@@ -97,6 +112,61 @@ class MapMatcher @Inject constructor(
         // Query only the slice of the graph near this track's bounding box.
         val bbox = TrackGeometryUtils.computeBoundingBox(points, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M)
         return loadRegion(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)?.match(gpsTrack)
+    }
+
+    /**
+     * Matches an imported .gpx route (#15) against the road graph in [chunkSizeM]-long pieces
+     * instead of all at once. [matchTrack] is all-or-nothing: a single unmatchable section (e.g.
+     * part of the route lies outside the graph's coverage area) blanks the entire result. Here,
+     * each chunk is matched independently — chunks that fail simply don't contribute, while the
+     * rest still produce a score. Matched edges are deduped by node pair across chunk
+     * boundaries.
+     */
+    suspend fun matchTrackChunked(
+        gpsTrack: List<List<Double>>,
+        chunkSizeM: Double = CyclingConstants.GPX_ANALYSIS_MATCH_CHUNK_M
+    ): ChunkedMatchResult {
+        val points = gpsTrack.mapNotNull { coords -> if (coords.size >= 2) LatLng(coords[0], coords[1]) else null }
+        if (points.size < 2) return ChunkedMatchResult(emptyList(), 0.0, 0.0)
+
+        val matchedEdges = LinkedHashMap<Pair<Long, Long>, MapEdge>()
+        var totalDistanceM = 0.0
+        var matchedDistanceM = 0.0
+        for (chunk in splitIntoChunks(points, chunkSizeM)) {
+            val chunkDistanceM = chunk.zipWithNext().sumOf { (a, b) ->
+                GeoUtils.haversineDistance(a.latitude, a.longitude, b.latitude, b.longitude)
+            }
+            totalDistanceM += chunkDistanceM
+            val chunkGps = chunk.map { listOf(it.latitude, it.longitude) }
+            val edges = matchTrack(chunkGps)
+            if (!edges.isNullOrEmpty()) {
+                matchedDistanceM += chunkDistanceM
+                for (edge in edges) {
+                    matchedEdges.putIfAbsent(edge.fromNode to edge.toNode, edge)
+                }
+            }
+        }
+        return ChunkedMatchResult(matchedEdges.values.toList(), totalDistanceM, matchedDistanceM)
+    }
+
+    /** Splits [points] into consecutive runs whose along-track length is roughly [chunkSizeM]. */
+    private fun splitIntoChunks(points: List<LatLng>, chunkSizeM: Double): List<List<LatLng>> {
+        val chunks = mutableListOf<List<LatLng>>()
+        var current = mutableListOf(points.first())
+        var accumulated = 0.0
+        for (i in 1 until points.size) {
+            val prev = points[i - 1]
+            val curr = points[i]
+            current.add(curr)
+            accumulated += GeoUtils.haversineDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude)
+            if (accumulated >= chunkSizeM && i != points.lastIndex) {
+                chunks.add(current)
+                current = mutableListOf(curr)
+                accumulated = 0.0
+            }
+        }
+        if (current.size >= 2) chunks.add(current)
+        return chunks
     }
 
     private fun buildAdjacency(edges: List<MapEdge>): Map<Int, List<Int>> {

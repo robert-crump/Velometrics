@@ -90,8 +90,7 @@ class GpxSharedViewModel @Inject constructor(
         } ?: return false
         _gpxTrack.value = track
         fetchPoisForTrack(track)
-        fetchDiscoveryScore(track)
-        fetchSpeedPowerEstimate(track)
+        fetchRouteAnalysis(track)
         return true
     }
 
@@ -167,39 +166,43 @@ class GpxSharedViewModel @Inject constructor(
         }
     }
 
-    private fun fetchDiscoveryScore(track: GpxTrack) {
+    /**
+     * Matches the track against the road graph in chunks (#15 follow-up) and derives both the
+     * discovery score and speed/power estimate from the shared result, so a route that's only
+     * partially within the graph's coverage area still yields results for its covered portion.
+     */
+    private fun fetchRouteAnalysis(track: GpxTrack) {
         viewModelScope.launch {
             if (track.points.size < 2) {
                 _discoveryScore.value = DiscoveryScoreResult.Unavailable
-                return@launch
-            }
-            val gpsTrack = track.points.map { listOf(it.latitude, it.longitude) }
-            val matchedEdges = mapMatcher.matchTrack(gpsTrack)
-            _discoveryScore.value = matchedEdges
-                ?.let { GpxAnalysisUtils.discoveryScore(it) }
-                ?.let { DiscoveryScoreResult.Score(it) }
-                ?: DiscoveryScoreResult.Unavailable
-        }
-    }
-
-    private fun fetchSpeedPowerEstimate(track: GpxTrack) {
-        viewModelScope.launch {
-            if (track.points.size < 2) {
                 _speedPowerEstimate.value = SpeedPowerEstimateResult.Unavailable
                 return@launch
             }
             val gpsTrack = track.points.map { listOf(it.latitude, it.longitude) }
-            val matchedEdges = mapMatcher.matchTrack(gpsTrack)
-            _speedPowerEstimate.value = matchedEdges
-                ?.let { GpxAnalysisUtils.speedPowerEstimate(it) }
-                ?.let {
-                    if (it.coveragePercent <= 0) {
-                        SpeedPowerEstimateResult.NoRideHistory
-                    } else {
-                        SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent)
+            val match = mapMatcher.matchTrackChunked(gpsTrack)
+            val routeCoverage = RouteCoverage(match.matchedDistanceM, match.totalDistanceM, match.coveragePercent)
+
+            _discoveryScore.value = if (match.matchedEdges.isEmpty()) {
+                DiscoveryScoreResult.OutsideCoverage
+            } else {
+                GpxAnalysisUtils.discoveryScore(match.matchedEdges)
+                    ?.let { DiscoveryScoreResult.Score(it, routeCoverage) }
+                    ?: DiscoveryScoreResult.Unavailable
+            }
+
+            _speedPowerEstimate.value = if (match.matchedEdges.isEmpty()) {
+                SpeedPowerEstimateResult.OutsideCoverage
+            } else {
+                GpxAnalysisUtils.speedPowerEstimate(match.matchedEdges)
+                    ?.let {
+                        if (it.coveragePercent <= 0) {
+                            SpeedPowerEstimateResult.NoRideHistory
+                        } else {
+                            SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent, routeCoverage)
+                        }
                     }
-                }
-                ?: SpeedPowerEstimateResult.Unavailable
+                    ?: SpeedPowerEstimateResult.Unavailable
+            }
         }
     }
 
@@ -230,15 +233,30 @@ class GpxSharedViewModel @Inject constructor(
     }
 }
 
+/**
+ * How much of an imported .gpx route could be matched to the road graph, used to caveat
+ * [DiscoveryScoreResult.Score] and [SpeedPowerEstimateResult.Estimate] when part of the route is
+ * outside the graph's coverage area.
+ */
+data class RouteCoverage(val matchedDistanceM: Double, val totalDistanceM: Double, val percent: Int) {
+    val isFull: Boolean get() = percent >= 100
+}
+
 /** Result of matching the loaded .gpx track to the road graph and scoring it. */
 sealed interface DiscoveryScoreResult {
-    data class Score(val value: Int) : DiscoveryScoreResult
+    data class Score(val value: Int, val routeCoverage: RouteCoverage) : DiscoveryScoreResult
     object Unavailable : DiscoveryScoreResult
+
+    /** None of the route could be matched to the road graph (it's entirely outside the graph's coverage area). */
+    object OutsideCoverage : DiscoveryScoreResult
 }
 
 /** Result of matching the loaded .gpx track to the road graph and estimating speed/power from ride history. */
 sealed interface SpeedPowerEstimateResult {
-    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int) : SpeedPowerEstimateResult
+    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int, val routeCoverage: RouteCoverage) : SpeedPowerEstimateResult
     object NoRideHistory : SpeedPowerEstimateResult
     object Unavailable : SpeedPowerEstimateResult
+
+    /** None of the route could be matched to the road graph (it's entirely outside the graph's coverage area). */
+    object OutsideCoverage : SpeedPowerEstimateResult
 }

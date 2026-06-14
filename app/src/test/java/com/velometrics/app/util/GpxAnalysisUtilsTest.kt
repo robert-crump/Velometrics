@@ -57,7 +57,7 @@ class GpxAnalysisUtilsTest {
     @Test
     fun `tracks shorter than 5km produce a single bucket`() {
         val pois = listOf(poiAt(500.0), poiAt(2000.0))
-        val counts = GpxAnalysisUtils.poiCountsPer5kmBucket(pois, totalDistanceM = 3000.0)
+        val counts = GpxAnalysisUtils.poiCountsPerBucket(pois, totalDistanceM = 3000.0, bucketSizeM = 5000.0)
         assertEquals(listOf(2), counts)
     }
 
@@ -70,22 +70,33 @@ class GpxAnalysisUtilsTest {
             poiAt(9000.0),
             poiAt(12000.0)
         )
-        val counts = GpxAnalysisUtils.poiCountsPer5kmBucket(pois, totalDistanceM = 13000.0)
+        val counts = GpxAnalysisUtils.poiCountsPerBucket(pois, totalDistanceM = 13000.0, bucketSizeM = 5000.0)
         assertEquals(listOf(2, 2, 1), counts)
     }
 
     @Test
     fun `pois with null trackDistanceM are ignored`() {
         val pois = listOf(poiAt(1000.0), poiAt(null))
-        val counts = GpxAnalysisUtils.poiCountsPer5kmBucket(pois, totalDistanceM = 6000.0)
+        val counts = GpxAnalysisUtils.poiCountsPerBucket(pois, totalDistanceM = 6000.0, bucketSizeM = 5000.0)
         assertEquals(listOf(1, 0), counts)
     }
 
     @Test
     fun `poi exactly at total distance is clamped to last bucket`() {
         val pois = listOf(poiAt(10000.0))
-        val counts = GpxAnalysisUtils.poiCountsPer5kmBucket(pois, totalDistanceM = 10000.0)
+        val counts = GpxAnalysisUtils.poiCountsPerBucket(pois, totalDistanceM = 10000.0, bucketSizeM = 5000.0)
         assertEquals(listOf(0, 1), counts)
+    }
+
+    @Test
+    fun `bucket size stays 5km for routes up to 50km`() {
+        assertEquals(5_000.0, GpxAnalysisUtils.poiDensityBucketSizeM(50_000.0), 0.0)
+    }
+
+    @Test
+    fun `bucket size scales up for longer routes to keep around 10 buckets`() {
+        assertEquals(10_000.0, GpxAnalysisUtils.poiDensityBucketSizeM(100_000.0), 0.0)
+        assertEquals(25_000.0, GpxAnalysisUtils.poiDensityBucketSizeM(250_000.0), 0.0)
     }
 
     @Test

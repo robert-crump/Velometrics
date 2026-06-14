@@ -133,6 +133,11 @@ object CyclingConstants {
     // never dropped purely due to heading noise.
     const val INTERVAL_SNAP_BEARING_MAX_DIFF_DEG = 45.0
 
+    // .gpx route analysis (ScoreGpxTrack, #15): chunk size for matching long routes against the
+    // road graph piece by piece, so sections outside the graph's coverage area don't blank the
+    // whole result.
+    const val GPX_ANALYSIS_MATCH_CHUNK_M = 5_000.0
+
     // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
     const val INTERVAL_LENGTH_TOLERANCE_M = 100.0
     const val INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8

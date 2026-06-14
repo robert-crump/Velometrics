@@ -41,10 +41,7 @@ class MapMatcherTest {
             override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filterNot { it.isTraversed })
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
             override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) = emptyList<Poi>()
-            override fun getMetadata(): GraphMetadata? = null
-            override suspend fun loadGraph(nodes: List<MapNode>, edges: List<MapEdge>, metadata: GraphMetadata) {}
-            override suspend fun loadPois(pois: List<Poi>) {}
-            override fun isLoaded(): Boolean = true
+            override suspend fun getMetadata(): GraphMetadata? = null
         }
 
     /** A point at the given latitude, fixed longitude — used to build tracks along a north-bound chain. */

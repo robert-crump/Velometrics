@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.data.repository
 
 import com.velometrics.app.data.local.dao.MapEdgeDao
+import com.velometrics.app.data.local.dao.MapMetadataDao
 import com.velometrics.app.data.local.dao.MapNodeDao
 import com.velometrics.app.data.local.dao.PoiDao
 import com.velometrics.app.data.local.entity.*
@@ -18,7 +19,8 @@ import javax.inject.Singleton
 class MapGraphRepositoryImpl @Inject constructor(
     private val nodeDao: MapNodeDao,
     private val edgeDao: MapEdgeDao,
-    private val poiDao: PoiDao
+    private val poiDao: PoiDao,
+    private val metadataDao: MapMetadataDao
 ) : MapGraphRepository {
 
     override fun getAllEdges(): Flow<List<MapEdge>> =
@@ -54,15 +56,5 @@ class MapGraphRepositoryImpl @Inject constructor(
     override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi> =
         poiDao.getInBoundingBox(minLat, maxLat, minLon, maxLon).mapNotNull { it.toDomain() }
 
-    override fun getMetadata(): GraphMetadata? = null
-
-    override suspend fun loadGraph(nodes: List<MapNode>, edges: List<MapEdge>, metadata: GraphMetadata) {
-        // no-op: data is always available from Room
-    }
-
-    override suspend fun loadPois(pois: List<Poi>) {
-        // no-op: data is always available from Room
-    }
-
-    override fun isLoaded(): Boolean = true
+    override suspend fun getMetadata(): GraphMetadata? = metadataDao.getMetadata()?.toDomain()
 }

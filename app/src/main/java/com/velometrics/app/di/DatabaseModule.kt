@@ -172,4 +172,7 @@ object DatabaseModule {
 
     @Provides
     fun providePoiDao(db: CyclingAssetDatabase): PoiDao = db.poiDao()
+
+    @Provides
+    fun provideMapMetadataDao(db: CyclingAssetDatabase): MapMetadataDao = db.mapMetadataDao()
 }

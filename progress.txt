@@ -536,3 +536,47 @@ null elevations, `smoothElevations` centered-window averaging (incl. empty
 input), and `elevationGainLoss`/`elevationGainPer100km` calculations
 (including flat-profile and zero-distance edge cases). `compileDebugKotlin`
 and `testDebugUnitTest` both pass.
+
+## Issue #75 — Adopt new cycling_graph.db schema (v2->v3): node priority, edge flow data, metadata table
+Completed: 2026-06-14 | Closed: pending
+
+### What was done
+
+Brought the Room schema for `CyclingAssetDatabase` in line with the new
+`cycling_graph.db` asset (already shipped in `app/src/main/assets/`,
+gitignored), bumping the asset DB version 2 -> 3.
+
+- `data/local/entity/MapNodeEntity.kt` / `domain/model/MapNode.kt`: added
+  `priority: String?` (defaults to `null`), raw passthrough of the
+  `map_nodes.priority` column (`traffic_signals`/`give_way`/`stop`/null).
+- `data/local/entity/MapEdgeEntity.kt` / `domain/model/MapEdge.kt`: added
+  `avgStopCount: Double?` (defaults to `null`), parsed from the new
+  `avg_stop_count` field in `map_edges.metadata` JSON via `EdgeMetadataJson`.
+- New `data/local/entity/MapMetadataEntity.kt` (table `metadata`, single row
+  with `@PrimaryKey val id: Int`) + `toDomain()` mapping to `GraphMetadata`,
+  and new `data/local/dao/MapMetadataDao.kt` with a suspend
+  `getMetadata(): MapMetadataEntity?` query (`SELECT * FROM metadata LIMIT 1`).
+- `domain/model/GraphMetadata.kt`: replaced the unused `bbox: List<Double>`
+  with `bboxSouth/bboxWest/bboxNorth/bboxEast: Double` (matching the new
+  `metadata` table columns) and added `coverageGeojson: String?` (raw
+  MultiPolygon GeoJSON string, parsed to `MultiPolygon` only at render time
+  by the future #76 consumer).
+- `domain/repository/MapGraphRepository.kt` /
+  `data/repository/MapGraphRepositoryImpl.kt`: `getMetadata()` is now
+  `suspend` and backed by `MapMetadataDao` (previously hardcoded to return
+  `null`). Removed the dead no-op `loadGraph()`, `loadPois()`, `isLoaded()`
+  (zero callers anywhere in the codebase).
+- `data/local/CyclingAssetDatabase.kt`: registered `MapMetadataEntity`,
+  bumped `version = 3`, added `mapMetadataDao()`.
+- `di/DatabaseModule.kt`: added `provideMapMetadataDao`.
+- Updated test doubles (`MapMatcherTest`, `FastWayHomeServiceTest`,
+  `MapViewViewModelTest`) implementing `MapGraphRepository` to match the
+  trimmed interface.
+
+### Tests
+New `data/local/entity/MapEdgeEntityTest.kt`: `avg_stop_count` parsing from
+edge metadata JSON (present, absent, null metadata). New
+`data/local/entity/MapMetadataEntityTest.kt`: `MapMetadataEntity.toDomain()`
+mapping of bbox fields and `coverage_geojson` (present and absent).
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and `testDebugUnitTest`
+all pass.

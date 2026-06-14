@@ -8,7 +8,8 @@ import com.velometrics.app.domain.model.MapNode
 data class MapNodeEntity(
     @PrimaryKey val id: Long,
     val lat: Double,
-    val lon: Double
+    val lon: Double,
+    val priority: String?
 )
 
-fun MapNodeEntity.toDomain(): MapNode = MapNode(id, lat, lon)
+fun MapNodeEntity.toDomain(): MapNode = MapNode(id, lat, lon, priority)

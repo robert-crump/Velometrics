@@ -3,5 +3,6 @@
 data class MapNode(
     val id: Long,
     val lat: Double,
-    val lon: Double
+    val lon: Double,
+    val priority: String? = null
 )

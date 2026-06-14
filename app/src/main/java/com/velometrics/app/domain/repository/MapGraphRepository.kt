@@ -16,8 +16,5 @@ interface MapGraphRepository {
     fun getUntraversedEdges(): Flow<List<MapEdge>>
     fun getAllPois(): Flow<List<Poi>>
     suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi>
-    fun getMetadata(): GraphMetadata?
-    suspend fun loadGraph(nodes: List<MapNode>, edges: List<MapEdge>, metadata: GraphMetadata)
-    suspend fun loadPois(pois: List<Poi>)
-    fun isLoaded(): Boolean
+    suspend fun getMetadata(): GraphMetadata?
 }

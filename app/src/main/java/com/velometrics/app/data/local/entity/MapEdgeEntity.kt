@@ -35,7 +35,8 @@ private data class EdgeMetadataJson(
     @SerializedName("slope_percent") val slopePercent: Double?,
     @SerializedName("traversal_count") val traversalCount: Int?,
     @SerializedName("last_traversal") val lastTraversal: String?,
-    @SerializedName("time_of_day_dist") val timeOfDayDist: List<Int>?
+    @SerializedName("time_of_day_dist") val timeOfDayDist: List<Int>?,
+    @SerializedName("avg_stop_count") val avgStopCount: Double?
 )
 
 private val gson = Gson()
@@ -69,6 +70,7 @@ fun MapEdgeEntity.toDomain(): MapEdge {
         slopePercent = meta?.slopePercent,
         traversalCount = meta?.traversalCount,
         lastTraversal = meta?.lastTraversal,
-        timeOfDayDist = meta?.timeOfDayDist
+        timeOfDayDist = meta?.timeOfDayDist,
+        avgStopCount = meta?.avgStopCount
     )
 }

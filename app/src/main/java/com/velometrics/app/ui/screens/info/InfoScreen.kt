@@ -41,6 +41,7 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -145,6 +146,25 @@ private const val POI_COVERAGE_MARGIN_KM = 10.0
 private const val POI_COVERAGE_MAP_PADDING_PX = 24
 private const val KM_PER_DEGREE_LAT = 111.32
 
+/** Returns [minLon, minLat, maxLon, maxLat] spanning all points of the MultiPolygon. */
+private fun multiPolygonBounds(multiPolygon: MultiPolygon): DoubleArray {
+    var minLon = Double.MAX_VALUE
+    var minLat = Double.MAX_VALUE
+    var maxLon = -Double.MAX_VALUE
+    var maxLat = -Double.MAX_VALUE
+    multiPolygon.coordinates().forEach { polygon ->
+        polygon.forEach { ring ->
+            ring.forEach { point ->
+                minLon = min(minLon, point.longitude())
+                minLat = min(minLat, point.latitude())
+                maxLon = max(maxLon, point.longitude())
+                maxLat = max(maxLat, point.latitude())
+            }
+        }
+    }
+    return doubleArrayOf(minLon, minLat, maxLon, maxLat)
+}
+
 @Composable
 private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
     Card(modifier = Modifier
@@ -163,8 +183,18 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
             if (metadata != null) {
                 var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
                 var mapSize by remember { mutableStateOf(IntSize.Zero) }
-                val midLat = (metadata.bboxSouth + metadata.bboxNorth) / 2.0
-                val midLon = (metadata.bboxWest + metadata.bboxEast) / 2.0
+                val multiPolygon = remember(metadata.coverageGeojson) {
+                    metadata.coverageGeojson?.let { MultiPolygon.fromJson(it) }
+                }
+                val coverageBounds = remember(multiPolygon) {
+                    multiPolygon?.let { multiPolygonBounds(it) }
+                }
+                val minLon = coverageBounds?.get(0) ?: metadata.bboxWest
+                val minLat = coverageBounds?.get(1) ?: metadata.bboxSouth
+                val maxLon = coverageBounds?.get(2) ?: metadata.bboxEast
+                val maxLat = coverageBounds?.get(3) ?: metadata.bboxNorth
+                val midLat = (minLat + maxLat) / 2.0
+                val midLon = (minLon + maxLon) / 2.0
                 ComposableMapView(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -175,20 +205,19 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
                     gesturesEnabled = false,
                     onMapReady = { map, style -> mapAndStyle = Pair(map, style) }
                 )
-                LaunchedEffect(metadata, mapAndStyle, mapSize) {
+                LaunchedEffect(metadata, multiPolygon, mapAndStyle, mapSize) {
                     if (mapSize == IntSize.Zero) return@LaunchedEffect
                     val (map, style) = mapAndStyle ?: return@LaunchedEffect
 
                     val latMarginDeg = POI_COVERAGE_MARGIN_KM / KM_PER_DEGREE_LAT
                     val lonMarginDeg = POI_COVERAGE_MARGIN_KM / (KM_PER_DEGREE_LAT * cos(Math.toRadians(midLat)))
                     val bounds = LatLngBounds.Builder()
-                        .include(LatLng(metadata.bboxSouth - latMarginDeg, metadata.bboxWest - lonMarginDeg))
-                        .include(LatLng(metadata.bboxNorth + latMarginDeg, metadata.bboxEast + lonMarginDeg))
+                        .include(LatLng(minLat - latMarginDeg, minLon - lonMarginDeg))
+                        .include(LatLng(maxLat + latMarginDeg, maxLon + lonMarginDeg))
                         .build()
                     map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, POI_COVERAGE_MAP_PADDING_PX))
 
-                    val geojson = metadata.coverageGeojson ?: return@LaunchedEffect
-                    val multiPolygon = MultiPolygon.fromJson(geojson)
+                    if (multiPolygon == null) return@LaunchedEffect
                     val feature = Feature.fromGeometry(multiPolygon)
                     val source = GeoJsonSource(POI_COVERAGE_SOURCE, FeatureCollection.fromFeature(feature))
                     style.addSource(source)

@@ -18,6 +18,8 @@ fun BottomNavBar(navController: NavController) {
         Screen.SessionDetail.route -> Screen.Home.route
         Screen.RepeatedRouteDetail.route -> Screen.RoutePlanner.route
         Screen.RepeatedIntervalDetail.route -> Screen.RoutePlanner.route
+        Screen.Info.route -> Screen.Settings.route
+        Screen.HomeAddress.route -> Screen.Settings.route
         else -> currentRoute
     }
 

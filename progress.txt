@@ -580,3 +580,40 @@ edge metadata JSON (present, absent, null metadata). New
 mapping of bbox fields and `coverage_geojson` (present and absent).
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and `testDebugUnitTest`
 all pass.
+
+## Issue #76 — Dynamic POI coverage overlay on Settings > Info screen
+Completed: 2026-06-14 | Closed: pending
+
+### What was done
+
+**New `ui/screens/info/InfoViewModel.kt`**
+- `@HiltViewModel` exposing `metadata: StateFlow<GraphMetadata?>`, populated in
+  `init { viewModelScope.launch { ... } }` via the suspend
+  `MapGraphRepository.getMetadata()` added in #75.
+
+**`ui/screens/info/InfoScreen.kt`**
+- `InfoScreen` now takes `viewModel: InfoViewModel = hiltViewModel()` and
+  collects `metadata` via `collectAsState()`.
+- `PoiBboxSectionCard` replaced the hardcoded rectangle (built from
+  `CyclingConstants.BBOX_SW_LAT/LON`, `BBOX_NE_LAT/LON`) with the real
+  `metadata.coverageGeojson` MultiPolygon, parsed via
+  `org.maplibre.geojson.MultiPolygon.fromJson(...)` and rendered through a
+  `GeoJsonSource`/`FillLayer` (`#2196F3`, 0.25 opacity) — same styling as
+  before.
+- Map center for the card is now derived from
+  `metadata.bboxSouth/West/North/East` instead of the constants. Rendering
+  only happens once both the map style (captured via `onMapReady` into
+  `mapStyle` state) and `metadata.coverageGeojson` are available, via
+  `LaunchedEffect(metadata.coverageGeojson, mapStyle)`.
+- The card renders nothing until `metadata` is loaded (no loading
+  placeholder — acceptable since the metadata row is local DB and loads
+  near-instantly).
+
+**`util/Constants.kt`**
+- Removed unused `CyclingConstants.BBOX_SW_LAT/LON`, `BBOX_NE_LAT/LON`
+  (only consumer was the old rectangle in `PoiBboxSectionCard`).
+
+### Tests
+No new tests added (UI/Compose layer, consistent with existing test
+coverage for `InfoScreen`/other screen composables — none exist).
+`compileDebugKotlin` and `testDebugUnitTest` pass.

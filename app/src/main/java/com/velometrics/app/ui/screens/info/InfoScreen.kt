@@ -8,6 +8,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -16,12 +22,15 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.util.CyclingConstants
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.Style
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Polygon
+import org.maplibre.geojson.MultiPolygon
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -30,7 +39,8 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InfoScreen(onBack: () -> Unit) {
+fun InfoScreen(onBack: () -> Unit, viewModel: InfoViewModel = hiltViewModel()) {
+    val metadata by viewModel.metadata.collectAsState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -53,7 +63,7 @@ fun InfoScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             FatEfficiencySectionCard()
             Spacer(modifier = Modifier.height(16.dp))
-            PoiBboxSectionCard()
+            PoiBboxSectionCard(metadata)
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
@@ -123,8 +133,11 @@ private fun FatEfficiencySectionCard() {
     }
 }
 
+private const val POI_COVERAGE_SOURCE = "poi-coverage-source"
+private const val POI_COVERAGE_LAYER = "poi-coverage-layer"
+
 @Composable
-private fun PoiBboxSectionCard() {
+private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
     Card(modifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = 16.dp)) {
@@ -138,36 +151,33 @@ private fun PoiBboxSectionCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(12.dp))
-            val midLat = (CyclingConstants.BBOX_SW_LAT + CyclingConstants.BBOX_NE_LAT) / 2.0
-            val midLon = (CyclingConstants.BBOX_SW_LON + CyclingConstants.BBOX_NE_LON) / 2.0
-            ComposableMapView(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp),
-                initialCenter = LatLng(midLat, midLon),
-                initialZoom = 8.5,
-                gesturesEnabled = false,
-                onMapReady = { _, style ->
-                    val ring = listOf(
-                        listOf(
-                            org.maplibre.geojson.Point.fromLngLat(CyclingConstants.BBOX_SW_LON, CyclingConstants.BBOX_SW_LAT),
-                            org.maplibre.geojson.Point.fromLngLat(CyclingConstants.BBOX_NE_LON, CyclingConstants.BBOX_SW_LAT),
-                            org.maplibre.geojson.Point.fromLngLat(CyclingConstants.BBOX_NE_LON, CyclingConstants.BBOX_NE_LAT),
-                            org.maplibre.geojson.Point.fromLngLat(CyclingConstants.BBOX_SW_LON, CyclingConstants.BBOX_NE_LAT),
-                            org.maplibre.geojson.Point.fromLngLat(CyclingConstants.BBOX_SW_LON, CyclingConstants.BBOX_SW_LAT)
-                        )
-                    )
-                    val polygon = Polygon.fromLngLats(ring)
-                    val feature = Feature.fromGeometry(polygon)
-                    val source = GeoJsonSource("bbox-source", FeatureCollection.fromFeature(feature))
+            if (metadata != null) {
+                var mapStyle by remember { mutableStateOf<Style?>(null) }
+                val midLat = (metadata.bboxSouth + metadata.bboxNorth) / 2.0
+                val midLon = (metadata.bboxWest + metadata.bboxEast) / 2.0
+                ComposableMapView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    initialCenter = LatLng(midLat, midLon),
+                    initialZoom = 8.5,
+                    gesturesEnabled = false,
+                    onMapReady = { _, style -> mapStyle = style }
+                )
+                LaunchedEffect(metadata.coverageGeojson, mapStyle) {
+                    val style = mapStyle ?: return@LaunchedEffect
+                    val geojson = metadata.coverageGeojson ?: return@LaunchedEffect
+                    val multiPolygon = MultiPolygon.fromJson(geojson)
+                    val feature = Feature.fromGeometry(multiPolygon)
+                    val source = GeoJsonSource(POI_COVERAGE_SOURCE, FeatureCollection.fromFeature(feature))
                     style.addSource(source)
-                    val fillLayer = FillLayer("bbox-layer", "bbox-source").withProperties(
+                    val fillLayer = FillLayer(POI_COVERAGE_LAYER, POI_COVERAGE_SOURCE).withProperties(
                         PropertyFactory.fillColor("#2196F3"),
                         PropertyFactory.fillOpacity(0.25f)
                     )
                     style.addLayer(fillLayer)
                 }
-            )
+            }
         }
     }
 }

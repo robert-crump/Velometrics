@@ -41,12 +41,6 @@ object CyclingConstants {
     // Dropbox sync
     const val DEFAULT_DROPBOX_SYNC_FOLDER = "/Apps/WahooFitness"
 
-    // Bounding box (approximate cycling area)
-    const val BBOX_SW_LAT = 50.57
-    const val BBOX_SW_LON = 5.63
-    const val BBOX_NE_LAT = 50.96
-    const val BBOX_NE_LON = 6.30
-
     // Fat burn polynomial coefficients
     // fat_g_per_sec = (a*W² + b*W + c) / 3600, clamped >= 0
     const val FAT_A = -0.0142156

@@ -6,11 +6,17 @@ import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
+import com.velometrics.app.util.CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
+import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.PolylineDecoder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -34,6 +40,14 @@ class IntervalClusteringService @Inject constructor(
 
     companion object {
         private const val TAG = "IntervalClusteringService"
+
+        // Logs per-phase wall-clock timings of runClustering for on-device profiling.
+        private const val PERF_LOGGING = true
+
+        // Edge length of the spatial cells clusters are binned into before loading a shared road-
+        // graph Region. Large enough to amortize the graph load across many nearby clusters, small
+        // enough that a cell's union bounding box stays within MapMatcher's edge cap in dense areas.
+        private const val REGION_GROUP_CELL_M = 5_000.0
     }
 
     // ─── Shared data structures ───
@@ -65,6 +79,7 @@ class IntervalClusteringService @Inject constructor(
     // ─── Full clustering (single-linkage / connected components) ───
 
     suspend fun runClustering() = withContext(Dispatchers.Default) {
+        val tStart = System.nanoTime()
         val allIntervals = intervalRepository.getAllIntervals().first()
         val intervalsById = allIntervals.associateBy { it.id }
         val prepared = allIntervals.mapNotNull { prepareInterval(it) }
@@ -74,6 +89,7 @@ class IntervalClusteringService @Inject constructor(
             repeatedIntervalRepository.deleteAll()
             return@withContext
         }
+        val tPrepared = System.nanoTime()
 
         // ─── Step 1a: build edge graph (qualifying pairs) ───
         val adjacency = Array(n) { mutableListOf<Int>() }
@@ -107,11 +123,45 @@ class IntervalClusteringService @Inject constructor(
         }
         val components = Array(nextComponent) { mutableListOf<Int>() }
         for (i in 0 until n) components[componentId[i]].add(i)
+        val tGraph = System.nanoTime()
 
         // ─── Step 1c: build edge geometry for each cluster via map-matching ───
-        val candidates = components.mapNotNull { indices ->
-            buildArchetype(indices.map { intervalsById.getValue(prepared[it].intervalId) })
+        // Bin clusters into REGION_GROUP_CELL_M spatial cells, load the road graph once per cell as
+        // a reusable MapMatcher.Region, and match every cluster in that cell against it — collapsing
+        // a per-cluster DB query + RTree rebuild into one per cell. Cells too dense to index fall
+        // back to per-track matchTrack. Results are written back in component order so the downstream
+        // subset-discard and name assignment are identical to matching clusters one-by-one.
+        val archetypeByComponent = arrayOfNulls<CandidateArchetype>(components.size)
+        val refLat = prepared.map { it.track.minLat }.average()
+        val latCell = REGION_GROUP_CELL_M / GeoUtils.METERS_PER_DEG_LAT
+        val lonCell = REGION_GROUP_CELL_M / (GeoUtils.METERS_PER_DEG_LAT * cos(Math.toRadians(refLat)))
+        val cellToComponents = HashMap<Long, MutableList<Int>>()
+        for (c in components.indices) {
+            val box = clusterBox(components[c], prepared) ?: continue
+            val row = floor(((box[0] + box[2]) / 2) / latCell).toLong()
+            val col = floor(((box[1] + box[3]) / 2) / lonCell).toLong()
+            cellToComponents.getOrPut(row * 2_000_000L + col + 1_000_000L) { mutableListOf() }.add(c)
         }
+        val latMargin = GeoUtils.metersToLat(INTERVAL_EDGE_SNAP_RADIUS_M)
+        for (cellComponents in cellToComponents.values) {
+            var nLat = Double.MAX_VALUE; var nLon = Double.MAX_VALUE
+            var xLat = -Double.MAX_VALUE; var xLon = -Double.MAX_VALUE
+            for (c in cellComponents) {
+                val box = clusterBox(components[c], prepared) ?: continue
+                nLat = min(nLat, box[0]); nLon = min(nLon, box[1])
+                xLat = max(xLat, box[2]); xLon = max(xLon, box[3])
+            }
+            val lonMargin = GeoUtils.metersToLon(INTERVAL_EDGE_SNAP_RADIUS_M, (nLat + xLat) / 2)
+            val region = mapMatcher.loadRegion(nLat - latMargin, nLon - lonMargin, xLat + latMargin, xLon + lonMargin)
+            val match: suspend (List<List<Double>>) -> List<MapEdge>? =
+                if (region != null) region::match else mapMatcher::matchTrack
+            for (c in cellComponents) {
+                val intervals = components[c].map { intervalsById.getValue(prepared[it].intervalId) }
+                archetypeByComponent[c] = buildArchetype(intervals, match)
+            }
+        }
+        val candidates = archetypeByComponent.filterNotNull()
+        val tMatched = System.nanoTime()
 
         // ─── Step 2: discard archetypes that are mostly a subset of a longer archetype ───
         val finalArchetypes = discardSubsets(candidates)
@@ -145,15 +195,43 @@ class IntervalClusteringService @Inject constructor(
         val matchedOldIds = newEntries.map { (_, _, id) -> id }.filter { it != 0L }.toSet()
         val toDelete = existing.map { it.id }.filter { it !in matchedOldIds }
 
+        val tCompute = System.nanoTime()
         withContext(Dispatchers.IO) {
             repeatedIntervalRepository.deleteRepeatedIntervalsByIds(toDelete)
             for (entry in finalEntries) {
                 repeatedIntervalRepository.saveRepeatedInterval(entry)
             }
         }
+
+        if (PERF_LOGGING) {
+            fun ms(from: Long, to: Long) = (to - from) / 1_000_000
+            Log.i(
+                TAG,
+                "perf: n=$n clusters=$nextComponent archetypes=${finalArchetypes.size} | " +
+                    "prepare=${ms(tStart, tPrepared)}ms graph=${ms(tPrepared, tGraph)}ms " +
+                    "mapmatch=${ms(tGraph, tMatched)}ms postprocess=${ms(tMatched, tCompute)}ms " +
+                    "persist=${ms(tCompute, System.nanoTime())}ms total=${ms(tStart, System.nanoTime())}ms"
+            )
+        }
     }
 
-    private suspend fun buildArchetype(intervals: List<IntervalSession>): CandidateArchetype? {
+    /** Union bounding box `[minLat, minLon, maxLat, maxLon]` of a cluster's member tracks, or null if empty. */
+    private fun clusterBox(indices: List<Int>, prepared: List<PreparedInterval>): DoubleArray? {
+        if (indices.isEmpty()) return null
+        var nLat = Double.MAX_VALUE; var nLon = Double.MAX_VALUE
+        var xLat = -Double.MAX_VALUE; var xLon = -Double.MAX_VALUE
+        for (i in indices) {
+            val t = prepared[i].track
+            nLat = min(nLat, t.minLat); nLon = min(nLon, t.minLon)
+            xLat = max(xLat, t.maxLat); xLon = max(xLon, t.maxLon)
+        }
+        return doubleArrayOf(nLat, nLon, xLat, xLon)
+    }
+
+    private suspend fun buildArchetype(
+        intervals: List<IntervalSession>,
+        match: suspend (List<List<Double>>) -> List<MapEdge>?
+    ): CandidateArchetype? {
         val sorted = intervals.sortedBy { it.distanceM }
         val medianIndex = sorted.size / 2
         val candidateOrder = sorted.indices.sortedBy { abs(it - medianIndex) }
@@ -161,7 +239,7 @@ class IntervalClusteringService @Inject constructor(
         for (idx in candidateOrder) {
             val representative = sorted[idx]
             val track = parseGpsTrack(representative.gpsTrack)
-            val edges = mapMatcher.matchTrack(track) ?: continue
+            val edges = match(track) ?: continue
             val start = PolylineDecoder.decode(edges.first().geometryEncoded).firstOrNull() ?: continue
             val end = PolylineDecoder.decode(edges.last().geometryEncoded).lastOrNull() ?: continue
             return CandidateArchetype(

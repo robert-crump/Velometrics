@@ -111,6 +111,13 @@ class IntervalClusteringServiceTest {
         val trackSlot = slot<List<List<Double>>>()
         coEvery { mapMatcher.matchTrack(capture(trackSlot)) } answers { matchTrack(trackSlot.captured) }
 
+        // Clustering loads one shared Region per spatial cell and matches against it; delegate the
+        // Region's match to the same fake matchTrack so tests describe map-matching in one place.
+        val region = mockk<MapMatcher.Region>()
+        val regionTrackSlot = slot<List<List<Double>>>()
+        coEvery { region.match(capture(regionTrackSlot)) } answers { matchTrack(regionTrackSlot.captured) }
+        coEvery { mapMatcher.loadRegion(any(), any(), any(), any()) } returns region
+
         val service = IntervalClusteringService(intervalRepository, repeatedIntervalRepository, mapMatcher)
         return Triple(service, saved, deleted)
     }

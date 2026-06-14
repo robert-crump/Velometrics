@@ -25,13 +25,68 @@ import javax.inject.Singleton
 class MapMatcher @Inject constructor(
     private val repository: MapGraphRepository
 ) {
-    private val spatialIndex = RTreeSpatialIndex()
-
     private data class Run(val edgeIdx: Int, val pointCount: Int)
 
+    companion object {
+        // Cap on edges loaded into a single reusable Region. Above this the slice is too large to
+        // index without risking the heap (the full graph is 500K+ edges, #29), so callers fall back
+        // to per-track matching. Below 2 there is nothing to match against.
+        private const val MAX_REGION_EDGES = 60_000
+    }
+
     /**
-     * Returns a connected, ordered list of [MapEdge]s matching [gpsTrack], or null if no
-     * coherent match could be produced (too few usable snaps, or a gap too large to repair).
+     * A slice of the road graph — edges, nodes, adjacency, and a spatial index — loaded once and
+     * reused to [match] many GPS tracks that fall within it. Clustering many nearby intervals shares
+     * one Region instead of paying a DB query + RTree rebuild per track.
+     */
+    inner class Region internal constructor(
+        private val edges: List<MapEdge>,
+        private val nodes: Map<Long, MapNode>,
+        private val adj: Map<Int, List<Int>>,
+        private val index: RTreeSpatialIndex
+    ) {
+        /**
+         * Returns a connected, ordered list of [MapEdge]s matching [gpsTrack], or null if no
+         * coherent match could be produced (too few usable snaps, or a gap too large to repair).
+         */
+        suspend fun match(gpsTrack: List<List<Double>>): List<MapEdge>? {
+            val points = gpsTrack.mapNotNull { coords -> if (coords.size >= 2) LatLng(coords[0], coords[1]) else null }
+            if (points.size < 2 || edges.size < 2) return null
+
+            val snapped = snapPoints(points, index)
+            val anchors = collapseConsecutive(snapped)
+                .filter { it.pointCount >= CyclingConstants.INTERVAL_MATCH_MIN_ANCHOR_POINTS }
+            if (anchors.isEmpty()) return null
+
+            val sequence = dedupeConsecutive(anchors.map { it.edgeIdx })
+            val repaired = repairGaps(sequence, adj, edges)?.let(::dedupeConsecutive) ?: return null
+
+            val pruned = pruneLeafEdges(repaired, edges, nodes, points.first(), points.last())
+            if (pruned.isEmpty()) return null
+
+            return pruned.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
+        }
+    }
+
+    /**
+     * Loads the graph slice within the given bounding box into a reusable [Region], or null if the
+     * box holds fewer than 2 edges (nothing to match) or more than [MAX_REGION_EDGES] (too large —
+     * the caller should fall back to per-track [matchTrack]).
+     */
+    suspend fun loadRegion(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): Region? {
+        val edges = repository.getEdgesNear(minLat, minLon, maxLat, maxLon)
+        if (edges.size < 2 || edges.size > MAX_REGION_EDGES) return null
+        val nodes = repository.getNodesNear(minLat, minLon, maxLat, maxLon).associateBy { it.id }
+        val adj = buildAdjacency(edges)
+        val index = RTreeSpatialIndex()
+        index.rebuildIndex(edges, nodes)
+        return Region(edges, nodes, adj, index)
+    }
+
+    /**
+     * Single-track convenience: loads a [Region] for just this track's bounding box and matches
+     * against it. Equivalent to the original per-track path; clustering reuses one [Region] across
+     * many tracks via [loadRegion] instead.
      */
     suspend fun matchTrack(gpsTrack: List<List<Double>>): List<MapEdge>? {
         val points = gpsTrack.mapNotNull { coords -> if (coords.size >= 2) LatLng(coords[0], coords[1]) else null }
@@ -41,25 +96,7 @@ class MapMatcher @Inject constructor(
         // one go (decoding every polyline and parsing its metadata blows the heap, #29).
         // Query only the slice of the graph near this track's bounding box.
         val bbox = TrackGeometryUtils.computeBoundingBox(points, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M)
-        val edges = repository.getEdgesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
-        if (edges.size < 2) return null
-        val nodes = repository.getNodesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon).associateBy { it.id }
-        val adj = buildAdjacency(edges)
-
-        spatialIndex.rebuildIndex(edges, nodes)
-
-        val snapped = snapPoints(points)
-        val anchors = collapseConsecutive(snapped)
-            .filter { it.pointCount >= CyclingConstants.INTERVAL_MATCH_MIN_ANCHOR_POINTS }
-        if (anchors.isEmpty()) return null
-
-        val sequence = dedupeConsecutive(anchors.map { it.edgeIdx })
-        val repaired = repairGaps(sequence, adj, edges)?.let(::dedupeConsecutive) ?: return null
-
-        val pruned = pruneLeafEdges(repaired, edges, nodes, points.first(), points.last())
-        if (pruned.isEmpty()) return null
-
-        return pruned.mapNotNull { edges.getOrNull(it) }.takeIf { it.size > 1 }
+        return loadRegion(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)?.match(gpsTrack)
     }
 
     private fun buildAdjacency(edges: List<MapEdge>): Map<Int, List<Int>> {
@@ -82,10 +119,10 @@ class MapMatcher @Inject constructor(
      * candidate qualifies, falls back to the nearest candidate by distance so a point is never
      * dropped purely due to heading noise.
      */
-    private suspend fun snapPoints(points: List<LatLng>): List<Int?> {
+    private suspend fun snapPoints(points: List<LatLng>, index: RTreeSpatialIndex): List<Int?> {
         val headings = computeHeadings(points)
         return points.mapIndexed { i, point ->
-            val candidates = spatialIndex.queryEdgesNear(
+            val candidates = index.queryEdgesNear(
                 point.latitude, point.longitude, CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
             )
             selectSnapCandidate(candidates, headings[i])?.edgeKey?.toInt()

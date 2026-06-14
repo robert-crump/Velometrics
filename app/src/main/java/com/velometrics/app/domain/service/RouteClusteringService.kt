@@ -35,6 +35,9 @@ class RouteClusteringService @Inject constructor(
 
         // Flip to true (locally) to log per-pair rejection reasons + summary.
         private const val DEBUG_LOGGING = false
+
+        // Logs per-phase wall-clock timings of runClustering for on-device profiling.
+        private const val PERF_LOGGING = true
     }
 
     // ─── Shared data structures ───
@@ -102,13 +105,21 @@ class RouteClusteringService @Inject constructor(
         return true
     }
 
-    /** Bidirectional similarity: max of coverage(A→B) and coverage(B→A). */
-    private fun pairSimilarity(a: PreparedTrack, b: PreparedTrack): Double =
-        max(coverageScore(a.sampledPoints, b.grid), coverageScore(b.sampledPoints, a.grid))
+    /**
+     * Bidirectional similarity: max of coverage(A→B) and coverage(B→A). Short-circuits once the
+     * first direction reaches [SIMILARITY_THRESHOLD] (qualification only compares against that
+     * threshold), so the second, redundant coverage scan is skipped for matching pairs.
+     */
+    private fun pairSimilarity(a: PreparedTrack, b: PreparedTrack): Double {
+        val covAB = coverageScore(a.sampledPoints, b.grid)
+        if (covAB >= SIMILARITY_THRESHOLD) return covAB
+        return max(covAB, coverageScore(b.sampledPoints, a.grid))
+    }
 
     // ─── Full clustering (single-linkage / connected components) ───
 
     suspend fun runClustering() = withContext(Dispatchers.Default) {
+        val tStart = System.nanoTime()
         val allClusterData = sessionRepository.getAllClusterData()
         val clusterDataWithGps = allClusterData.filter { it.gpsTrack != null }
 
@@ -118,21 +129,47 @@ class RouteClusteringService @Inject constructor(
             return@withContext
         }
 
+        val tLoaded = System.nanoTime()
         val prepared = clusterDataWithGps.mapNotNull { prepareTrack(it) }
         val n = prepared.size
+        val tPrepared = System.nanoTime()
 
         // ─── Step 1: build edge graph (qualifying pairs) ───
+        // Bin tracks by centroid into MAX_CENTROID_DIST_M cells and only compare pairs in the same
+        // or adjacent cells. pairQualifies always rejects centroids ≥ MAX_CENTROID_DIST_M apart, and
+        // any pair outside the 3×3 neighborhood is guaranteed at least that far apart on one axis —
+        // so this prunes the O(n²) sweep toward O(n·k) without changing which pairs qualify. The
+        // longitude cell uses the highest-magnitude latitude (smallest cos) so a 2-cell column gap
+        // always exceeds MAX_CENTROID_DIST_M at every latitude in the dataset.
         val adjacency = Array(n) { mutableListOf<Int>() }
         var edgeCount = 0
-        for (i in 0 until n) {
-            for (j in i + 1 until n) {
-                if (pairQualifies(prepared[i], prepared[j])) {
-                    adjacency[i].add(j)
-                    adjacency[j].add(i)
-                    edgeCount++
+        if (n > 1) {
+            val latCellSize = MAX_CENTROID_DIST_M / GeoUtils.METERS_PER_DEG_LAT
+            val maxAbsLat = prepared.maxOf { abs(it.centroid[0]) }
+            val lonCellSize = MAX_CENTROID_DIST_M / (GeoUtils.METERS_PER_DEG_LAT * cos(Math.toRadians(maxAbsLat)))
+            val rows = LongArray(n) { floor(prepared[it].centroid[0] / latCellSize).toLong() }
+            val cols = LongArray(n) { floor(prepared[it].centroid[1] / lonCellSize).toLong() }
+            val buckets = HashMap<Long, MutableList<Int>>()
+            for (i in 0 until n) {
+                buckets.getOrPut(rows[i] * 2_000_000L + cols[i] + 1_000_000L) { mutableListOf() }.add(i)
+            }
+            for (i in 0 until n) {
+                for (dr in -1L..1L) {
+                    for (dc in -1L..1L) {
+                        val bucket = buckets[(rows[i] + dr) * 2_000_000L + (cols[i] + dc) + 1_000_000L] ?: continue
+                        for (j in bucket) {
+                            if (j <= i) continue
+                            if (pairQualifies(prepared[i], prepared[j])) {
+                                adjacency[i].add(j)
+                                adjacency[j].add(i)
+                                edgeCount++
+                            }
+                        }
+                    }
                 }
             }
         }
+        val tGraph = System.nanoTime()
 
         // ─── Step 2: connected components (single-linkage) ───
         val componentId = IntArray(n) { -1 }
@@ -192,11 +229,23 @@ class RouteClusteringService @Inject constructor(
         val matchedOldIds = newRoutes.map { (_, _, id) -> id }.filter { it != 0L }.toSet()
         val toDelete = existingRoutes.map { it.id }.filter { it !in matchedOldIds }
 
+        val tCompute = System.nanoTime()
         withContext(Dispatchers.IO) {
             repeatedRouteRepository.deleteRoutesByIds(toDelete)
             for (route in finalRoutes) {
                 repeatedRouteRepository.saveRoute(route)
             }
+        }
+
+        if (PERF_LOGGING) {
+            fun ms(from: Long, to: Long) = (to - from) / 1_000_000
+            Log.i(
+                TAG,
+                "perf: n=$n edges=$edgeCount groups=${validGroups.size} | " +
+                    "load=${ms(tStart, tLoaded)}ms prepare=${ms(tLoaded, tPrepared)}ms " +
+                    "graph=${ms(tPrepared, tGraph)}ms postprocess=${ms(tGraph, tCompute)}ms " +
+                    "persist=${ms(tCompute, System.nanoTime())}ms total=${ms(tStart, System.nanoTime())}ms"
+            )
         }
     }
 
@@ -276,17 +325,22 @@ class RouteClusteringService @Inject constructor(
 
     private fun resampleTrack(points: List<List<Double>>, n: Int): List<List<Double>> {
         if (points.size <= 1) return points
-        val cumulative = mutableListOf(0.0)
+        val cumulative = DoubleArray(points.size)
         for (i in 1 until points.size) {
-            cumulative.add(cumulative.last() + GeoUtils.haversineDistance(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]))
+            cumulative[i] = cumulative[i - 1] +
+                GeoUtils.haversineDistance(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1])
         }
-        val totalLen = cumulative.last()
+        val totalLen = cumulative[points.size - 1]
         if (totalLen == 0.0) return points
 
-        val result = mutableListOf<List<Double>>()
+        // cumulative is non-decreasing and targetDist increases with k, so a single forward-moving
+        // index replaces the previous per-sample indexOfLast rescan — O(points + n) instead of the
+        // O(points · n) that dominated route clustering's prepare phase on long tracks.
+        val result = ArrayList<List<Double>>(n)
+        var idx = 0
         for (k in 0 until n) {
             val targetDist = totalLen * k / (n - 1).toDouble()
-            val idx = cumulative.indexOfLast { it <= targetDist }.coerceAtLeast(0)
+            while (idx < points.size - 1 && cumulative[idx + 1] <= targetDist) idx++
             if (idx >= points.size - 1) {
                 result.add(points.last())
             } else {

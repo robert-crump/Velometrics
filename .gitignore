@@ -52,3 +52,6 @@ nul
 
 # Cleanup report (local only)
 cleanup-report.md
+
+# Cycling graph DB (large binary asset, kept locally only)
+app/src/main/assets/cycling_graph.db

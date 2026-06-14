@@ -113,10 +113,10 @@ fun HomeScreen(
 
     LaunchedEffect(dropboxSyncMessage) {
         dropboxSyncMessage?.let { message ->
+            viewModel.clearDropboxSyncMessage()
             isSnackbarVisible = true
             snackbarHostState.showSnackbar(message)
             isSnackbarVisible = false
-            viewModel.clearDropboxSyncMessage()
         }
     }
 

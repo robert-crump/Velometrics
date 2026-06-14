@@ -14,6 +14,11 @@ object GpxAnalysisUtils {
     // of 20 cramped 5km bins.
     val POI_DENSITY_NICE_SIZES_M = listOf(5_000.0, 10_000.0, 20_000.0, 25_000.0, 50_000.0, 100_000.0)
     const val ELEVATION_SMOOTHING_WINDOW = 5
+    // "Nice" elevation axis steps, smallest first. The smallest step that keeps the tick count
+    // (range / step + 1) at or below ELEVATION_AXIS_MAX_TICKS is used.
+    val ELEVATION_AXIS_STEPS_M = listOf(50.0, 100.0, 200.0)
+    const val ELEVATION_AXIS_MAX_TICKS = 6
+    const val MAX_FILE_NAME_LENGTH = 25
 
     /** Sums haversine distances between consecutive track points. */
     fun totalTrackDistanceM(points: List<LatLng>): Double =
@@ -111,6 +116,34 @@ object GpxAnalysisUtils {
     fun elevationGainPer100km(gainM: Int, totalDistanceM: Double): Int {
         if (totalDistanceM <= 0.0) return 0
         return (gainM * 100_000.0 / totalDistanceM).roundToInt()
+    }
+
+    /**
+     * Picks an elevation axis step from [ELEVATION_AXIS_STEPS_M]: the smallest step that keeps
+     * the tick count (the range from [minEle] to [maxEle], rounded out to multiples of the step,
+     * divided by the step, plus one) at or below [ELEVATION_AXIS_MAX_TICKS].
+     */
+    fun elevationAxisStep(minEle: Double, maxEle: Double): Double {
+        for (step in ELEVATION_AXIS_STEPS_M) {
+            val axisMin = kotlin.math.floor(minEle / step) * step
+            val rawMax = kotlin.math.ceil(maxEle / step) * step
+            val axisMax = if (rawMax <= axisMin) axisMin + step else rawMax
+            val tickCount = ((axisMax - axisMin) / step).roundToInt() + 1
+            if (tickCount <= ELEVATION_AXIS_MAX_TICKS) return step
+        }
+        return ELEVATION_AXIS_STEPS_M.last()
+    }
+
+    /**
+     * Shortens [name] to at most [maxLength] characters for display. If [name] already fits, it's
+     * returned unchanged (extension included). Otherwise the extension is dropped first; if that
+     * still doesn't fit, the result is cut and suffixed with "…".
+     */
+    fun truncateFileName(name: String, maxLength: Int = MAX_FILE_NAME_LENGTH): String {
+        if (name.length <= maxLength) return name
+        val withoutExtension = name.substringBeforeLast('.', name)
+        if (withoutExtension.length <= maxLength) return withoutExtension
+        return withoutExtension.take(maxLength - 1) + "…"
     }
 
     /**

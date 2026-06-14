@@ -2,6 +2,7 @@ package com.velometrics.app.ui.shared
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.gpx.GpxParser
@@ -38,6 +39,12 @@ class GpxSharedViewModel @Inject constructor(
 
     private val _gpxTrack = MutableStateFlow<GpxTrack?>(null)
     val gpxTrack: StateFlow<GpxTrack?> = _gpxTrack.asStateFlow()
+
+    private val _gpxFileName = MutableStateFlow<String?>(null)
+    val gpxFileName: StateFlow<String?> = _gpxFileName.asStateFlow()
+
+    private val _showGpxPoisOverlay = MutableStateFlow(false)
+    val showGpxPoisOverlay: StateFlow<Boolean> = _showGpxPoisOverlay.asStateFlow()
 
     private val _gpxPois = MutableStateFlow<List<PoiWithDistances>>(emptyList())
     val gpxPois: StateFlow<List<PoiWithDistances>> = _gpxPois.asStateFlow()
@@ -79,6 +86,10 @@ class GpxSharedViewModel @Inject constructor(
         _selectedPoiItem.value = item
     }
 
+    fun setGpxPoisOverlayVisible(visible: Boolean) {
+        _showGpxPoisOverlay.value = visible
+    }
+
     suspend fun loadGpxFromUri(uri: Uri, contentResolver: ContentResolver): Boolean {
         _gpxPois.value = emptyList()
         _discoveryScore.value = null
@@ -89,13 +100,26 @@ class GpxSharedViewModel @Inject constructor(
             }
         } ?: return false
         _gpxTrack.value = track
+        _gpxFileName.value = withContext(Dispatchers.IO) { queryDisplayName(uri, contentResolver) }
         fetchPoisForTrack(track)
         fetchRouteAnalysis(track)
         return true
     }
 
+    private fun queryDisplayName(uri: Uri, contentResolver: ContentResolver): String? {
+        val cursor = contentResolver.query(uri, null, null, null, null)
+        return cursor?.use {
+            if (it.moveToFirst()) {
+                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) it.getString(nameIndex) else null
+            } else null
+        }
+    }
+
     fun clearGpx() {
         _gpxTrack.value = null
+        _gpxFileName.value = null
+        _showGpxPoisOverlay.value = false
         _gpxPois.value = emptyList()
         _selectedPoiItem.value = null
         _discoveryScore.value = null

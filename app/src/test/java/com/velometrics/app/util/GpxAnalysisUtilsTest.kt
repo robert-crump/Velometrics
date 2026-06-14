@@ -212,6 +212,46 @@ class GpxAnalysisUtilsTest {
     }
 
     @Test
+    fun `elevationAxisStep uses 50m steps for small ranges`() {
+        assertEquals(50.0, GpxAnalysisUtils.elevationAxisStep(minEle = 100.0, maxEle = 220.0), 0.0)
+    }
+
+    @Test
+    fun `elevationAxisStep uses 100m steps for medium ranges`() {
+        assertEquals(100.0, GpxAnalysisUtils.elevationAxisStep(minEle = 0.0, maxEle = 450.0), 0.0)
+    }
+
+    @Test
+    fun `elevationAxisStep uses 200m steps for large ranges`() {
+        assertEquals(200.0, GpxAnalysisUtils.elevationAxisStep(minEle = 0.0, maxEle = 1100.0), 0.0)
+    }
+
+    @Test
+    fun `elevationAxisStep falls back to 200m for very large ranges`() {
+        assertEquals(200.0, GpxAnalysisUtils.elevationAxisStep(minEle = 0.0, maxEle = 3000.0), 0.0)
+    }
+
+    @Test
+    fun `truncateFileName returns short names unchanged`() {
+        assertEquals("ride.gpx", GpxAnalysisUtils.truncateFileName("ride.gpx"))
+    }
+
+    @Test
+    fun `truncateFileName strips extension when needed to fit`() {
+        // 28 chars with extension, 24 without -> fits once the extension is dropped
+        assertEquals("morning_commute_loop_2024", GpxAnalysisUtils.truncateFileName("morning_commute_loop_2024.gpx"))
+    }
+
+    @Test
+    fun `truncateFileName truncates with ellipsis when still too long without extension`() {
+        val name = "a_very_long_descriptive_ride_name.gpx"
+        val result = GpxAnalysisUtils.truncateFileName(name)
+        assertEquals(25, result.length)
+        assertTrue(result.endsWith("…"))
+        assertEquals("a_very_long_descriptive_" + "…", result)
+    }
+
+    @Test
     fun `speedPowerEstimate computes length-weighted averages and coverage from ride-history edges`() {
         val edges = listOf(
             edgeOf(750.0, isTraversed = true, speedMean = 20.0, powerMean = 200.0),

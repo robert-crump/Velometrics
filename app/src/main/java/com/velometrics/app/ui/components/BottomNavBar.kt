@@ -1,12 +1,17 @@
 ﻿package com.velometrics.app.ui.components
 
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.velometrics.app.ui.navigation.Screen
 import com.velometrics.app.ui.navigation.bottomNavItems
+import com.velometrics.app.ui.shared.GpxSharedViewModel
 
 @Composable
 fun BottomNavBar(navController: NavController) {
@@ -23,6 +28,9 @@ fun BottomNavBar(navController: NavController) {
         else -> currentRoute
     }
 
+    val gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalActivity.current as ComponentActivity)
+    val showGpxPoisOverlay by gpxSharedViewModel.showGpxPoisOverlay.collectAsState()
+
     NavigationBar {
         bottomNavItems.forEach { screen ->
             NavigationBarItem(
@@ -30,12 +38,18 @@ fun BottomNavBar(navController: NavController) {
                 label = { Text(screen.title) },
                 selected = highlightedRoute == screen.route,
                 onClick = {
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = true
+                    // While the "POIs along .gpx" overlay is open, a tab tap closes it instead
+                    // of navigating away.
+                    if (showGpxPoisOverlay) {
+                        gpxSharedViewModel.setGpxPoisOverlayVisible(false)
+                    } else {
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
-                        launchSingleTop = true
-                        restoreState = true
                     }
                 }
             )

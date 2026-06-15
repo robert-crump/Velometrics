@@ -1,3 +1,44 @@
+## Issue #78 — [Map] Add Flow segments layer + trim Layers panel entries
+Completed: 2026-06-15 | Closed: pending
+
+### What was done
+
+**Edge metadata parsing (`MapEdge.kt`, `MapEdgeEntity.kt`)**
+- `MapEdge` gains `pedalFlowCount: Int? = null` and `gravityFlowCount: Int? = null`,
+  parsed from the `pedal_flow_count`/`gravity_flow_count` fields in `map_edges.metadata`
+  JSON via `EdgeMetadataJson`, same passthrough pattern as `avgStopCount` from #75
+  (missing/null -> null). Confirmed both field names exist in the shipped
+  `cycling_graph.db` asset.
+
+**Flow segment predicate (`MapOverlayUtils.kt`, `Constants.kt`)**
+- New `CyclingConstants.FLOW_SEGMENT_MIN_COUNT = 3`, `FLOW_SEGMENT_COLOR = "#4CAF50"`,
+  `FLOW_SEGMENT_LINE_WIDTH = 3f`.
+- New pure `MapOverlayUtils.isFlowSegment(edge)`: true when
+  `(pedalFlowCount ?: 0) + (gravityFlowCount ?: 0) >= FLOW_SEGMENT_MIN_COUNT`.
+
+**Rendering (`MapOverlayRenderer.kt`)**
+- New `renderFlowSegments`/`removeFlowSegments`: draws qualifying edges as a single
+  green width-3 `LineLayer` below the user-location marker (`addLayerBelowUserMarker`),
+  following the existing `renderEdges`/`removeEdges` source/layer pattern.
+
+**ViewModel + UI (`MapViewViewModel.kt`, `MapViewScreen.kt`)**
+- New `showFlowSegments: StateFlow<Boolean>` (default false, in-memory only) +
+  `toggleFlowSegments()`.
+- New remove-then-render `LaunchedEffect` sync for the Flow segments layer, independent
+  of the Intervals/.gpx syncs.
+- Layers panel: removed the "All rides (Robert)" and "Speed Overlay" toggle rows and
+  the `LegendCard` invocation (no legend renders anywhere now, including for
+  Intervals); the backing `showAllRidesLayer`/`showSpeedOverlay` state, their renderer
+  sync effects, `LegendCard`, and `toGrayscaleColor` remain in place but are now
+  dormant/unused from the UI. Renamed the ".gpx track" row to ".gpx". Final row order:
+  Intervals, Flow segments, .gpx.
+
+### Tests
+New `MapEdgeEntityTest` cases for `pedal_flow_count`/`gravity_flow_count` parsing
+(present, absent, null metadata). New `MapOverlayUtilsTest` cases for `isFlowSegment`
+covering the threshold boundary (sum 2 -> false, 3 -> true), null counts, and a mix of
+one null/one non-null count. `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #74 — Session Detail: cardiac efficiency + elevation gain stats
 Completed: 2026-06-13 | Closed: pending
 

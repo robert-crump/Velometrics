@@ -1,6 +1,8 @@
 ﻿package com.velometrics.app.util
 
+import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.util.CyclingConstants.FLOW_SEGMENT_MIN_COUNT
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MAX_DURATION_SEC
 import com.velometrics.app.util.CyclingConstants.INTERVAL_COLOR_MIN_DURATION_SEC
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
@@ -81,4 +83,13 @@ object MapOverlayUtils {
         val seconds = totalSec % 60
         return "$minutes:%02d".format(seconds)
     }
+
+    // --- Flow segments overlay ---
+
+    /**
+     * An edge qualifies as a flow segment when the sum of its pedal-flow and gravity-flow run
+     * counts meets [FLOW_SEGMENT_MIN_COUNT]. Null/missing counts are treated as 0.
+     */
+    fun isFlowSegment(edge: MapEdge): Boolean =
+        ((edge.pedalFlowCount ?: 0) + (edge.gravityFlowCount ?: 0)) >= FLOW_SEGMENT_MIN_COUNT
 }

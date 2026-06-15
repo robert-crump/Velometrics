@@ -29,4 +29,6 @@ data class MapEdge(
     val lastTraversal: String?,
     val timeOfDayDist: List<Int>?,
     val avgStopCount: Double? = null,
+    val pedalFlowCount: Int? = null,
+    val gravityFlowCount: Int? = null,
 )

@@ -98,6 +98,13 @@ object CyclingConstants {
     // Speed overlay
     const val SPEED_OVERLAY_LINE_WIDTH = 5f
 
+    // Flow segments overlay
+    // Minimum combined pedal-flow + gravity-flow run count for an edge to qualify as a
+    // "flow segment" (a stretch ridden with sustained controlled pedaling or coasting).
+    const val FLOW_SEGMENT_MIN_COUNT = 3
+    const val FLOW_SEGMENT_COLOR = "#4CAF50"
+    const val FLOW_SEGMENT_LINE_WIDTH = 3f
+
     // Map view
     const val DEFAULT_MAP_ZOOM = 12.0
     const val TRACK_LINE_WIDTH = 4f

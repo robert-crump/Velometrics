@@ -62,6 +62,11 @@ class MapViewViewModel @Inject constructor(
     private val _selectedSpeedCategories = MutableStateFlow<Set<String>>(emptySet())
     val selectedSpeedCategories: StateFlow<Set<String>> = _selectedSpeedCategories.asStateFlow()
 
+    private val _showFlowSegments = MutableStateFlow(false)
+    val showFlowSegments: StateFlow<Boolean> = _showFlowSegments.asStateFlow()
+
+    fun toggleFlowSegments() { _showFlowSegments.update { !it } }
+
     fun toggleAllRidesLayer() { _showAllRidesLayer.update { !it } }
 
     fun toggleSpeedOverlay() {

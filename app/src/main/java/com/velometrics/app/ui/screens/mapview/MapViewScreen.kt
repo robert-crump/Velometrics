@@ -125,6 +125,7 @@ fun MapViewScreen(
     val showAllRidesLayer by viewModel.showAllRidesLayer.collectAsState()
     val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
     val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
+    val showFlowSegments by viewModel.showFlowSegments.collectAsState()
 
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
@@ -324,6 +325,15 @@ fun MapViewScreen(
         MapOverlayRenderer.removeSpeedOverlay(ms.second)
         if (showSpeedOverlay) {
             MapOverlayRenderer.renderSpeedOverlay(ms.second, edges, selectedSpeedCategories)
+        }
+    }
+
+    // Flow segments overlay sync
+    LaunchedEffect(showFlowSegments, edges, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        MapOverlayRenderer.removeFlowSegments(ms.second)
+        if (showFlowSegments && edges.isNotEmpty()) {
+            MapOverlayRenderer.renderFlowSegments(ms.second, edges)
         }
     }
 
@@ -756,32 +766,6 @@ fun MapViewScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // All Rides toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("All rides (Robert)", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = showAllRidesLayer,
-                                onCheckedChange = { viewModel.toggleAllRidesLayer() }
-                            )
-                        }
-
-                        // Speed Overlay toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Speed Overlay", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = showSpeedOverlay,
-                                onCheckedChange = { viewModel.toggleSpeedOverlay() }
-                            )
-                        }
-
                         // Intervals toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -795,13 +779,26 @@ fun MapViewScreen(
                             )
                         }
 
-                        // .gpx track toggle
+                        // Flow segments toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(".gpx track", style = MaterialTheme.typography.bodyMedium)
+                            Text("Flow segments", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = showFlowSegments,
+                                onCheckedChange = { viewModel.toggleFlowSegments() }
+                            )
+                        }
+
+                        // .gpx toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(".gpx", style = MaterialTheme.typography.bodyMedium)
                             Switch(
                                 checked = gpxToggleActive,
                                 onCheckedChange = { checked ->
@@ -812,17 +809,6 @@ fun MapViewScreen(
                                         showRemoveGpxConfirmDialog = true
                                     }
                                 }
-                            )
-                        }
-
-                        if (showAllRidesLayer || showSpeedOverlay || showIntervalOverlay) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LegendCard(
-                                showAllRides = showAllRidesLayer,
-                                showSpeed = showSpeedOverlay,
-                                showIntervals = showIntervalOverlay,
-                                selectedSpeedCategories = selectedSpeedCategories,
-                                onSpeedCategoryClick = { viewModel.toggleSpeedCategory(it) }
                             )
                         }
 
@@ -1090,13 +1076,8 @@ private fun SpeedPowerEstimateSection(speedPowerEstimate: SpeedPowerEstimateResu
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 is SpeedPowerEstimateResult.Estimate -> {
-                    val mainText = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W — " +
-                        "based on ${speedPowerEstimate.coveragePercent}% of this route you've ridden before"
-                    val text = if (speedPowerEstimate.routeCoverage.isFull) {
-                        mainText
-                    } else {
-                        "$mainText. ${routeCoverageNote(speedPowerEstimate.routeCoverage)}"
-                    }
+                    val text = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W - " +
+                        "based on ${speedPowerEstimate.coveragePercent}% data coverage"
                     Text(
                         text = text,
                         style = MaterialTheme.typography.bodyMedium

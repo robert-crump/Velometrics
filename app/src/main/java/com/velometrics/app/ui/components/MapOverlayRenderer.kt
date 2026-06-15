@@ -2,6 +2,8 @@
 
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.CyclingConstants.FLOW_SEGMENT_COLOR
+import com.velometrics.app.util.CyclingConstants.FLOW_SEGMENT_LINE_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_OVERLAY_LINE_WIDTH
 import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.PolylineDecoder
@@ -25,6 +27,8 @@ object MapOverlayRenderer {
     private const val EDGE_LAYER = "edge-overlay-layer"
     private const val SPEED_SOURCE = "speed-overlay-source"
     private const val SPEED_LAYER = "speed-overlay-layer"
+    private const val FLOW_SEGMENT_SOURCE = "flow-segment-overlay-source"
+    private const val FLOW_SEGMENT_LAYER = "flow-segment-overlay-layer"
 
     suspend fun renderEdges(style: Style, edges: List<MapEdge>) {
         val features = withContext(Dispatchers.Default) {
@@ -88,6 +92,35 @@ object MapOverlayRenderer {
     fun removeSpeedOverlay(style: Style) {
         try { style.removeLayer(SPEED_LAYER) } catch (_: Exception) {}
         try { style.removeSource(SPEED_SOURCE) } catch (_: Exception) {}
+    }
+
+    suspend fun renderFlowSegments(style: Style, edges: List<MapEdge>) {
+        val features = withContext(Dispatchers.Default) {
+            val lines = mutableListOf<List<Point>>()
+            edges.filter { MapOverlayUtils.isFlowSegment(it) }.forEach { edge ->
+                val points = decodeEdgePoints(edge)
+                if (points.size >= 2) lines.add(points)
+            }
+            buildList {
+                if (lines.isNotEmpty())
+                    add(Feature.fromGeometry(MultiLineString.fromLngLats(lines))
+                        .also { it.addStringProperty("color", FLOW_SEGMENT_COLOR) })
+            }
+        }
+        val source = GeoJsonSource(FLOW_SEGMENT_SOURCE, FeatureCollection.fromFeatures(features))
+        style.addSource(source)
+        val layer = LineLayer(FLOW_SEGMENT_LAYER, FLOW_SEGMENT_SOURCE).withProperties(
+            PropertyFactory.lineColor(Expression.get("color")),
+            PropertyFactory.lineWidth(FLOW_SEGMENT_LINE_WIDTH),
+            PropertyFactory.lineJoin("round"),
+            PropertyFactory.lineCap("round")
+        )
+        addLayerBelowUserMarker(style, layer)
+    }
+
+    fun removeFlowSegments(style: Style) {
+        try { style.removeLayer(FLOW_SEGMENT_LAYER) } catch (_: Exception) {}
+        try { style.removeSource(FLOW_SEGMENT_SOURCE) } catch (_: Exception) {}
     }
 
     private fun decodeEdgePoints(edge: MapEdge): List<Point> {

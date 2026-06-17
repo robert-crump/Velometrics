@@ -1,15 +1,18 @@
-﻿package com.velometrics.app.ui.screens.settings
+package com.velometrics.app.ui.screens.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +34,7 @@ fun SettingsScreen(
     val currentFtp by viewModel.ftp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
+    val homeDisplayName by viewModel.homeDisplayName.collectAsState(initial = "")
     val pendingFtp by viewModel.pendingFtp.collectAsState()
     val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
     val needsDropboxReauth by viewModel.needsDropboxReauth.collectAsState()
@@ -38,36 +42,53 @@ fun SettingsScreen(
         initial = CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
     )
 
-    // Local edit state for FTP text field
-    var ftpFieldValue by remember(currentFtp) { mutableStateOf(currentFtp.toString()) }
+    var showFtpDialog by remember { mutableStateOf(false) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+    var showRecalcDialog by remember { mutableStateOf(false) }
 
-    // Local edit state for Dropbox sync folder text field
-    var dropboxFolderFieldValue by remember(currentDropboxSyncFolder) {
-        mutableStateOf(currentDropboxSyncFolder)
-    }
-    var showOverflowMenu by remember { mutableStateOf(false) }
-    var showFtpInfo by remember { mutableStateOf(false) }
-
-    // FTP info dialog
-    if (showFtpInfo) {
+    // FTP edit dialog
+    if (showFtpDialog) {
+        var ftpInput by remember { mutableStateOf(currentFtp.toString()) }
         AlertDialog(
-            onDismissRequest = { showFtpInfo = false },
-            title = { Text("What is FTP?") },
+            onDismissRequest = { showFtpDialog = false },
+            title = { Text("FTP (Functional Threshold Power)") },
             text = {
-                Text(
-                    "FTP (Functional Threshold Power) is the average power you can sustain for one hour. " +
-                    "It defines power zones, sprint detection (≥${(CyclingConstants.SPRINT_THRESHOLD_FACTOR * 100).roundToInt()}% FTP), " +
-                    "and interval detection (≥${(CyclingConstants.INTERVAL_THRESHOLD_FACTOR * 100).roundToInt()}% FTP). " +
-                    "Requires a power meter."
-                )
+                Column {
+                    OutlinedTextField(
+                        value = ftpInput,
+                        onValueChange = { ftpInput = it },
+                        label = { Text("FTP (W)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "The average power you can sustain for one hour. " +
+                            "Defines power zones, sprint detection (≥${(CyclingConstants.SPRINT_THRESHOLD_FACTOR * 100).roundToInt()}% FTP), " +
+                            "and interval detection (≥${(CyclingConstants.INTERVAL_THRESHOLD_FACTOR * 100).roundToInt()}% FTP). " +
+                            "Requires a power meter.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = { showFtpInfo = false }) { Text("OK") }
+                TextButton(onClick = {
+                    val parsed = ftpInput.trim().toIntOrNull()
+                    if (parsed != null && parsed > 0 && parsed != currentFtp) {
+                        showFtpDialog = false
+                        viewModel.requestFtpChange(parsed)
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFtpDialog = false }) { Text("Cancel") }
             }
         )
     }
 
-    // Confirmation dialog
+    // FTP change confirmation dialog
     pendingFtp?.let { newFtp ->
         AlertDialog(
             onDismissRequest = { viewModel.cancelFtpChange() },
@@ -75,8 +96,8 @@ fun SettingsScreen(
             text = {
                 Text(
                     "New FTP = $newFtp W will be used for all future file imports.\n\n" +
-                    "Existing session data (power zones, fat efficiency, sprints) remains based on " +
-                    "FTP = $currentFtp W and cannot be updated without re-importing those files."
+                        "Existing session data (power zones, fat efficiency, sprints) remains based on " +
+                        "FTP = $currentFtp W and cannot be updated without re-importing those files."
                 )
             },
             confirmButton = {
@@ -88,272 +109,218 @@ fun SettingsScreen(
         )
     }
 
+    // Dropbox folder edit dialog
+    if (showFolderDialog) {
+        var folderInput by remember { mutableStateOf(currentDropboxSyncFolder) }
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            title = { Text("Dropbox sync folder") },
+            text = {
+                OutlinedTextField(
+                    value = folderInput,
+                    onValueChange = { folderInput = it },
+                    label = { Text("Folder path") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val trimmed = folderInput.trim().trimEnd('/')
+                    if (trimmed.isNotEmpty() && trimmed != currentDropboxSyncFolder) {
+                        viewModel.saveDropboxSyncFolder(trimmed)
+                    }
+                    showFolderDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Recalculate confirmation dialog
+    if (showRecalcDialog) {
+        AlertDialog(
+            onDismissRequest = { showRecalcDialog = false },
+            title = { Text("Recalculate session stats?") },
+            text = {
+                Text(
+                    "Re-runs session comparisons. Power zone histograms, sprint data, " +
+                        "heart-rate, and elevation stats require re-importing FIT files."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRecalcDialog = false
+                    viewModel.recalculateAllStats()
+                }) { Text("Recalculate") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRecalcDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Info") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    onNavigateToInfo()
-                                }
-                            )
-                        }
-                    }
-                }
-            )
+            TopAppBar(title = { Text("Settings") })
         }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Power settings
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Power Settings",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = ftpFieldValue,
-                            onValueChange = { ftpFieldValue = it },
-                            label = { Text("FTP (W)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { showFtpInfo = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "About FTP")
-                        }
-                        Button(
-                            onClick = {
-                                val parsed = ftpFieldValue.trim().toIntOrNull()
-                                if (parsed != null && parsed > 0 && parsed != currentFtp) {
-                                    viewModel.requestFtpChange(parsed)
-                                }
-                            }
-                        ) {
-                            Text("Save")
-                        }
-                    }
-                }
+            // ── Training ──
+            SectionHeader("Training")
+
+            SettingsRow(
+                icon = Icons.Default.Bolt,
+                title = "FTP",
+                subtitle = "$currentFtp W",
+                onClick = { showFtpDialog = true }
+            )
+
+            val homeSubtitle = if (homeDisplayName.isNotBlank()) {
+                homeDisplayName
+            } else {
+                "${"%.5f".format(currentHomeLat)}, ${"%.5f".format(currentHomeLon)}"
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Home location
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Home Location",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        IconButton(onClick = onNavigateToHomeAddress) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit home location")
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Latitude: ${"%.5f".format(currentHomeLat)}")
-                    Text("Longitude: ${"%.5f".format(currentHomeLon)}")
+            SettingsRow(
+                icon = Icons.Default.Home,
+                title = "Home location",
+                subtitle = homeSubtitle,
+                onClick = onNavigateToHomeAddress,
+                trailing = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
+            )
+
+            // ── Data ──
+            SectionHeader("Data")
+
+            val dropboxSubtitle = when {
+                needsDropboxReauth -> "Needs reauthorization"
+                isDropboxConnected -> "Connected"
+                else -> "Not connected"
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Dropbox sync
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Dropbox Sync",
-                        style = MaterialTheme.typography.titleMedium
+            SettingsRow(
+                icon = Icons.Default.Cloud,
+                title = "Dropbox",
+                subtitle = dropboxSubtitle,
+                subtitleColor = if (needsDropboxReauth) {
+                    MaterialTheme.colorScheme.error
+                } else null,
+                onClick = {
+                    if (needsDropboxReauth) viewModel.connectDropbox()
+                },
+                trailing = {
+                    Switch(
+                        checked = isDropboxConnected,
+                        onCheckedChange = { checked ->
+                            if (checked) viewModel.connectDropbox()
+                            else viewModel.disconnectDropbox()
+                        }
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (isDropboxConnected) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "Connected",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                        if (needsDropboxReauth) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "Dropbox sync needs reauthorization",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Button(
-                                onClick = { viewModel.connectDropbox() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Reconnect Dropbox")
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.disconnectDropbox() },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Disconnect")
-                        }
-                    } else {
-                        Text(
-                            text = "Connect your Dropbox account to automatically import rides " +
-                                "synced by Wahoo.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.connectDropbox() },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Connect Dropbox")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Folder to sync .fit files from",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = dropboxFolderFieldValue,
-                            onValueChange = { dropboxFolderFieldValue = it },
-                            label = { Text("Dropbox folder") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Button(
-                            onClick = {
-                                val trimmed = dropboxFolderFieldValue.trim().trimEnd('/')
-                                if (trimmed.isNotEmpty() && trimmed != currentDropboxSyncFolder) {
-                                    viewModel.saveDropboxSyncFolder(trimmed)
-                                }
-                            }
-                        ) {
-                            Text("Save")
-                        }
-                    }
                 }
+            )
+
+            SettingsRow(
+                icon = Icons.Default.Folder,
+                title = "Sync folder",
+                subtitle = currentDropboxSyncFolder,
+                onClick = { showFolderDialog = true }
+            )
+
+            val recalcSubtitle = when (recalcState) {
+                is RecalcState.Running -> "Recalculating…"
+                is RecalcState.Done -> "Done"
+                else -> "Re-run session comparisons"
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Recalculate session stats
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Recalculate Session Stats",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Re-runs session comparisons. Power zone histograms, sprint data, " +
-                            "heart-rate, and elevation stats require re-importing FIT files.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = { viewModel.recalculateAllStats() },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = recalcState !is RecalcState.Running
-                    ) {
-                        Text("Recalculate")
-                    }
-
-                    when (recalcState) {
-                        is RecalcState.Running -> {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                Text(
-                                    text = "Recalculating...",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                        is RecalcState.Done -> {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "Done",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                        else -> {}
-                    }
+            SettingsRow(
+                icon = Icons.Default.Refresh,
+                title = "Recalculate session stats",
+                subtitle = recalcSubtitle,
+                onClick = {
+                    if (recalcState !is RecalcState.Running) showRecalcDialog = true
                 }
-            }
+            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // ── About ──
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            SettingsRow(
+                icon = Icons.Default.Info,
+                title = "About",
+                onClick = onNavigateToInfo,
+                trailing = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 56.dp, top = 16.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+private fun SettingsRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    subtitleColor: androidx.compose.ui.graphics.Color? = null,
+    onClick: () -> Unit = {},
+    trailing: @Composable (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = subtitleColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+            }
+        }
+        if (trailing != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            trailing()
         }
     }
 }

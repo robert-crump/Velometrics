@@ -26,6 +26,8 @@ class HomeAddressViewModel @Inject constructor(
     private val _lon = MutableStateFlow(0.0)
     val lon: StateFlow<Double> = _lon.asStateFlow()
 
+    private val _displayName = MutableStateFlow("")
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -42,6 +44,7 @@ class HomeAddressViewModel @Inject constructor(
         viewModelScope.launch {
             _lat.value = userSettingsRepository.homeLat.first()
             _lon.value = userSettingsRepository.homeLon.first()
+            _displayName.value = userSettingsRepository.homeDisplayName.first()
         }
     }
 
@@ -65,9 +68,10 @@ class HomeAddressViewModel @Inject constructor(
         }
     }
 
-    fun selectLocation(lat: Double, lon: Double) {
+    fun selectLocation(lat: Double, lon: Double, displayName: String = "") {
         _lat.value = lat
         _lon.value = lon
+        _displayName.value = displayName
         _searchResults.value = emptyList()
     }
 
@@ -81,7 +85,7 @@ class HomeAddressViewModel @Inject constructor(
 
     fun save(onDone: () -> Unit) {
         viewModelScope.launch {
-            userSettingsRepository.saveHomeLocation(_lat.value, _lon.value)
+            userSettingsRepository.saveHomeLocation(_lat.value, _lon.value, _displayName.value)
             _saved.value = true
             onDone()
         }

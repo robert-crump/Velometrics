@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
@@ -34,21 +35,15 @@ fun RepeatedRoutesScreen(
     val routeSortOrder by viewModel.sortOrder.collectAsState()
     val intervalSortOrder by intervalsViewModel.sortOrder.collectAsState()
 
-    val routeSortOptions = listOf(
-        "Distance ↑" to RouteSortOrder.DISTANCE_ASC,
-        "Distance ↓" to RouteSortOrder.DISTANCE_DESC,
-        "Frequency ↑" to RouteSortOrder.FREQUENCY_ASC,
-        "Frequency ↓" to RouteSortOrder.FREQUENCY_DESC,
-        "Name ↑" to RouteSortOrder.NAME_ASC,
-        "Name ↓" to RouteSortOrder.NAME_DESC,
+    val routeSortDimensions = listOf(
+        Triple("Distance", RouteSortOrder.DISTANCE_DESC, RouteSortOrder.DISTANCE_ASC),
+        Triple("Frequency", RouteSortOrder.FREQUENCY_DESC, RouteSortOrder.FREQUENCY_ASC),
+        Triple("Name", RouteSortOrder.NAME_ASC, RouteSortOrder.NAME_DESC),
     )
-    val intervalSortOptions = listOf(
-        "Distance ↑" to RepeatedIntervalSortOrder.DISTANCE_ASC,
-        "Distance ↓" to RepeatedIntervalSortOrder.DISTANCE_DESC,
-        "Frequency ↑" to RepeatedIntervalSortOrder.FREQUENCY_ASC,
-        "Frequency ↓" to RepeatedIntervalSortOrder.FREQUENCY_DESC,
-        "Name ↑" to RepeatedIntervalSortOrder.NAME_ASC,
-        "Name ↓" to RepeatedIntervalSortOrder.NAME_DESC,
+    val intervalSortDimensions = listOf(
+        Triple("Distance", RepeatedIntervalSortOrder.DISTANCE_DESC, RepeatedIntervalSortOrder.DISTANCE_ASC),
+        Triple("Frequency", RepeatedIntervalSortOrder.FREQUENCY_DESC, RepeatedIntervalSortOrder.FREQUENCY_ASC),
+        Triple("Name", RepeatedIntervalSortOrder.NAME_ASC, RepeatedIntervalSortOrder.NAME_DESC),
     )
 
     Scaffold(
@@ -65,31 +60,41 @@ fun RepeatedRoutesScreen(
                             onDismissRequest = { filterMenuExpanded = false }
                         ) {
                             if (selectedTab == RoutesSubTab.ROUTES) {
-                                routeSortOptions.forEach { (label, order) ->
+                                routeSortDimensions.forEach { (label, defaultOrder, altOrder) ->
+                                    val isActive = routeSortOrder == defaultOrder || routeSortOrder == altOrder
+                                    val arrow = if (isActive) {
+                                        if (routeSortOrder.name.endsWith("_ASC")) " ↑" else " ↓"
+                                    } else ""
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                label,
-                                                fontWeight = if (routeSortOrder == order) FontWeight.Bold else FontWeight.Normal
+                                                "$label$arrow",
+                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                                             )
                                         },
                                         onClick = {
-                                            viewModel.setSortOrder(order)
+                                            val newOrder = if (routeSortOrder == defaultOrder) altOrder else defaultOrder
+                                            viewModel.setSortOrder(newOrder)
                                             filterMenuExpanded = false
                                         }
                                     )
                                 }
                             } else {
-                                intervalSortOptions.forEach { (label, order) ->
+                                intervalSortDimensions.forEach { (label, defaultOrder, altOrder) ->
+                                    val isActive = intervalSortOrder == defaultOrder || intervalSortOrder == altOrder
+                                    val arrow = if (isActive) {
+                                        if (intervalSortOrder.name.endsWith("_ASC")) " ↑" else " ↓"
+                                    } else ""
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                label,
-                                                fontWeight = if (intervalSortOrder == order) FontWeight.Bold else FontWeight.Normal
+                                                "$label$arrow",
+                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                                             )
                                         },
                                         onClick = {
-                                            intervalsViewModel.setSortOrder(order)
+                                            val newOrder = if (intervalSortOrder == defaultOrder) altOrder else defaultOrder
+                                            intervalsViewModel.setSortOrder(newOrder)
                                             filterMenuExpanded = false
                                         }
                                     )
@@ -112,10 +117,17 @@ fun RepeatedRoutesScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 RoutesSubTab.entries.forEachIndexed { index, tab ->
+                    val count = RoutesSubTab.entries.size
+                    val shape = when (index) {
+                        0 -> RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
+                        count - 1 -> RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp)
+                        else -> RoundedCornerShape(0.dp)
+                    }
                     SegmentedButton(
                         selected = selectedTab == tab,
                         onClick = { viewModel.selectTab(tab) },
-                        shape = SegmentedButtonDefaults.itemShape(index, RoutesSubTab.entries.size),
+                        shape = shape,
+                        icon = {},
                         label = { Text(tab.label) }
                     )
                 }
@@ -283,18 +295,9 @@ private fun RepeatedRouteCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                StatChip(label = "Times", value = "$count")
-                StatChip(label = "Avg dist", value = FormatUtils.formatDistance(avgDist))
-                StatChip(label = "Avg time", value = FormatUtils.formatDuration(avgDuration))
-            }
-
-            val latest = sessions.maxByOrNull { it.sessionStart }
-            if (latest != null) {
-                Text(
-                    "Last ridden: ${FormatUtils.formatDate(latest.sessionStart)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                StatValue("${count}x")
+                StatValue(FormatUtils.formatDistance(avgDist))
+                StatValue(FormatUtils.formatDuration(avgDuration))
             }
         }
     }
@@ -326,35 +329,19 @@ private fun RepeatedIntervalCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                StatChip(label = "Times", value = "$count")
-                StatChip(label = "Distance", value = FormatUtils.formatDistance(repeatedInterval.distanceM / 1000.0))
-                StatChip(label = "Avg duration", value = FormatUtils.formatDuration(avgDuration))
-                StatChip(label = "Avg power", value = FormatUtils.formatPower(avgPower))
-            }
-
-            val latest = intervals.maxByOrNull { it.startTimestamp }
-            if (latest != null) {
-                Text(
-                    "Last ridden: ${FormatUtils.formatDate(latest.startTimestamp)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                StatValue("${count}x")
+                StatValue(FormatUtils.formatDistance(repeatedInterval.distanceM / 1000.0))
+                StatValue(FormatUtils.formatDuration(avgDuration))
+                StatValue(FormatUtils.formatPower(avgPower))
             }
         }
     }
 }
 
 @Composable
-private fun StatChip(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+private fun StatValue(value: String) {
+    Text(
+        value,
+        style = MaterialTheme.typography.bodyMedium
+    )
 }

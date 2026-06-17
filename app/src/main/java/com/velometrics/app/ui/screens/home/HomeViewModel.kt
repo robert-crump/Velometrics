@@ -198,14 +198,16 @@ class HomeViewModel @Inject constructor(
     }
 
     /** Pull-to-refresh entry point: syncs new .fit files from the configured Dropbox folder. */
-    fun syncDropbox() {
+    fun syncDropbox(isUserInitiated: Boolean = true) {
         if (_isSyncing.value) return
 
         viewModelScope.launch(Dispatchers.IO) {
             _isSyncing.value = true
             try {
                 if (!dropboxAuthRepository.isConnected.value) {
-                    _dropboxSyncMessage.value = "Connect Dropbox in Settings to sync rides"
+                    if (isUserInitiated) {
+                        _dropboxSyncMessage.value = "Connect Dropbox in Settings to sync rides"
+                    }
                     return@launch
                 }
                 if (dropboxAuthRepository.needsReauth.value) {
@@ -217,7 +219,9 @@ class HomeViewModel @Inject constructor(
                         if (result.importResults.any { it is ImportResult.Success }) {
                             appScope.launch { routeClusteringService.runClustering() }
                         }
-                        _dropboxSyncMessage.value = buildSyncMessage(result.importResults)
+                        if (isUserInitiated || result.importResults.isNotEmpty()) {
+                            _dropboxSyncMessage.value = buildSyncMessage(result.importResults)
+                        }
                     }
                     DropboxSyncResult.TransientFailure -> {
                         // Fail silently; will retry on the next sync trigger.
@@ -235,7 +239,7 @@ class HomeViewModel @Inject constructor(
     /** Auto-sync entry point: silently syncs Dropbox on app open, if connected. */
     private fun autoSyncDropbox() {
         if (!dropboxAuthRepository.isConnected.value) return
-        syncDropbox()
+        syncDropbox(isUserInitiated = false)
     }
 
     private fun buildSyncMessage(results: List<ImportResult>): String {

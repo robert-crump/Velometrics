@@ -171,7 +171,7 @@ private fun PoiBboxSectionCard(metadata: GraphMetadata?) {
         .fillMaxWidth()
         .padding(horizontal = 16.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Where is POI data available?", style = MaterialTheme.typography.titleMedium)
+            Text("POI coverage", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 "Points of interest (fuel stations, cafes, bakeries, fast food) are available " +

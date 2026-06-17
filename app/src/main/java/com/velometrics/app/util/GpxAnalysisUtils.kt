@@ -148,12 +148,12 @@ object GpxAnalysisUtils {
 
     /**
      * Distance-weighted average speed/power and ride-history coverage over [matchedEdges].
-     * Coverage is the percentage of the route's total length covered by edges with ride-history
-     * metadata (`isTraversed == true` and non-null `speedMean`/`powerMean`); the averages are
-     * weighted by `lengthM` over just those edges. Returns null if [matchedEdges] is empty or has
-     * zero total length (nothing to score).
+     * Coverage is the percentage of [routeTotalDistanceM] (the full .gpx route's length) covered
+     * by edges with ride-history metadata (`isTraversed == true` and non-null
+     * `speedMean`/`powerMean`); the averages are weighted by `lengthM` over just those edges.
+     * Returns null if [matchedEdges] is empty or has zero total length (nothing to score).
      */
-    fun speedPowerEstimate(matchedEdges: List<MapEdge>): SpeedPowerEstimate? {
+    fun speedPowerEstimate(matchedEdges: List<MapEdge>, routeTotalDistanceM: Double): SpeedPowerEstimate? {
         val totalLengthM = matchedEdges.sumOf { it.lengthM }
         if (totalLengthM <= 0.0) return null
 
@@ -161,7 +161,11 @@ object GpxAnalysisUtils {
             it.isTraversed && it.speedMean != null && it.powerMean != null
         }
         val coveredLengthM = rideHistoryEdges.sumOf { it.lengthM }
-        val coveragePercent = (100 * coveredLengthM / totalLengthM).roundToInt().coerceIn(0, 100)
+        val coveragePercent = if (routeTotalDistanceM > 0.0) {
+            (100 * coveredLengthM / routeTotalDistanceM).roundToInt().coerceIn(0, 100)
+        } else {
+            0
+        }
         if (coveredLengthM <= 0.0) return SpeedPowerEstimate(avgSpeedKmh = 0, avgPowerW = 0, coveragePercent = 0)
 
         val avgSpeedKmh = (rideHistoryEdges.sumOf { it.speedMean!! * it.lengthM } / coveredLengthM).roundToInt()

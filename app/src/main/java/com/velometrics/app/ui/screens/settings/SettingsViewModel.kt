@@ -32,6 +32,7 @@ class SettingsViewModel @Inject constructor(
     val ftp = userSettingsRepository.ftp
     val homeLat = userSettingsRepository.homeLat
     val homeLon = userSettingsRepository.homeLon
+    val homeDisplayName = userSettingsRepository.homeDisplayName
     val dropboxSyncFolder = userSettingsRepository.dropboxSyncFolder
     val isDropboxConnected = dropboxAuthRepository.isConnected
     val needsDropboxReauth = dropboxAuthRepository.needsReauth

@@ -198,7 +198,7 @@ class GpxAnalysisUtilsTest {
 
     @Test
     fun `speedPowerEstimate is null for an empty edge list`() {
-        assertNull(GpxAnalysisUtils.speedPowerEstimate(emptyList()))
+        assertNull(GpxAnalysisUtils.speedPowerEstimate(emptyList(), routeTotalDistanceM = 2000.0))
     }
 
     @Test
@@ -207,7 +207,7 @@ class GpxAnalysisUtilsTest {
             edgeOf(1000.0, isTraversed = false),
             edgeOf(1000.0, isTraversed = true, speedMean = null, powerMean = null)
         )
-        val result = GpxAnalysisUtils.speedPowerEstimate(edges)
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges, routeTotalDistanceM = 2000.0)
         assertEquals(SpeedPowerEstimate(avgSpeedKmh = 0, avgPowerW = 0, coveragePercent = 0), result)
     }
 
@@ -258,12 +258,12 @@ class GpxAnalysisUtilsTest {
             edgeOf(250.0, isTraversed = true, speedMean = 30.0, powerMean = 240.0),
             edgeOf(1000.0, isTraversed = false)
         )
-        val result = GpxAnalysisUtils.speedPowerEstimate(edges)
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges, routeTotalDistanceM = 4000.0)
 
         // weighted over the 1000m of ride-history coverage (750m @20km/h, 250m @30km/h)
         assertEquals(23, result?.avgSpeedKmh) // (750*20 + 250*30) / 1000 = 22.5 -> 23
         assertEquals(210, result?.avgPowerW) // (750*200 + 250*240) / 1000 = 210
-        // 1000m of ride-history coverage out of 2000m total matched length
-        assertEquals(50, result?.coveragePercent)
+        // 1000m of ride-history coverage out of 4000m full route length
+        assertEquals(25, result?.coveragePercent)
     }
 }

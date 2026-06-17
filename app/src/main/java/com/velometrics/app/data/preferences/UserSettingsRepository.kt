@@ -25,6 +25,7 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_FTP = intPreferencesKey("ftp")
         private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
         private val KEY_HOME_LON = doublePreferencesKey("home_lon")
+        private val KEY_HOME_DISPLAY_NAME = stringPreferencesKey("home_display_name")
         private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
     }
 
@@ -40,6 +41,10 @@ class UserSettingsRepository @Inject constructor(
         prefs[KEY_HOME_LON] ?: CyclingConstants.HOME_LON
     }
 
+    val homeDisplayName: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HOME_DISPLAY_NAME] ?: ""
+    }
+
     val dropboxSyncFolder: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_DROPBOX_SYNC_FOLDER] ?: CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
     }
@@ -50,10 +55,11 @@ class UserSettingsRepository @Inject constructor(
         }
     }
 
-    suspend fun saveHomeLocation(lat: Double, lon: Double) {
+    suspend fun saveHomeLocation(lat: Double, lon: Double, displayName: String = "") {
         context.dataStore.edit { prefs ->
             prefs[KEY_HOME_LAT] = lat
             prefs[KEY_HOME_LON] = lon
+            prefs[KEY_HOME_DISPLAY_NAME] = displayName
         }
     }
 

@@ -143,7 +143,7 @@ fun HomeAddressScreen(
                                     .clickable {
                                         val rLat = result.lat.toDoubleOrNull() ?: return@clickable
                                         val rLon = result.lon.toDoubleOrNull() ?: return@clickable
-                                        viewModel.selectLocation(rLat, rLon)
+                                        viewModel.selectLocation(rLat, rLon, result.displayName)
                                         viewModel.updateSearchQuery("")
                                     }
                                     .padding(horizontal = 16.dp, vertical = 10.dp)

@@ -217,12 +217,12 @@ class GpxSharedViewModel @Inject constructor(
             _speedPowerEstimate.value = if (match.matchedEdges.isEmpty()) {
                 SpeedPowerEstimateResult.OutsideCoverage
             } else {
-                GpxAnalysisUtils.speedPowerEstimate(match.matchedEdges)
+                GpxAnalysisUtils.speedPowerEstimate(match.matchedEdges, match.totalDistanceM)
                     ?.let {
                         if (it.coveragePercent <= 0) {
                             SpeedPowerEstimateResult.NoRideHistory
                         } else {
-                            SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent, routeCoverage)
+                            SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent)
                         }
                     }
                     ?: SpeedPowerEstimateResult.Unavailable
@@ -259,8 +259,7 @@ class GpxSharedViewModel @Inject constructor(
 
 /**
  * How much of an imported .gpx route could be matched to the road graph, used to caveat
- * [DiscoveryScoreResult.Score] and [SpeedPowerEstimateResult.Estimate] when part of the route is
- * outside the graph's coverage area.
+ * [DiscoveryScoreResult.Score] when part of the route is outside the graph's coverage area.
  */
 data class RouteCoverage(val matchedDistanceM: Double, val totalDistanceM: Double, val percent: Int) {
     val isFull: Boolean get() = percent >= 100
@@ -277,7 +276,7 @@ sealed interface DiscoveryScoreResult {
 
 /** Result of matching the loaded .gpx track to the road graph and estimating speed/power from ride history. */
 sealed interface SpeedPowerEstimateResult {
-    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int, val routeCoverage: RouteCoverage) : SpeedPowerEstimateResult
+    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int) : SpeedPowerEstimateResult
     object NoRideHistory : SpeedPowerEstimateResult
     object Unavailable : SpeedPowerEstimateResult
 

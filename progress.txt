@@ -1,3 +1,54 @@
+## Issue #82 — Update cycling_graph.db schema to v4: route-creation components from Ride-Graph AP9
+Completed: 2026-06-18 | Closed: pending
+
+### What was done
+
+**MapEdgeEntity / MapEdge — 7 new columns**
+- `slope_percent` REAL: moved from metadata JSON to a top-level column on
+  `MapEdgeEntity`. `toDomain()` now reads from the column instead of JSON.
+  Removed `slope_percent` from `EdgeMetadataJson`.
+- `curvature` REAL, `stop_penalty` REAL, `stop_penalty_source` TEXT,
+  `predicted_flow_score` REAL, `flow_confidence` REAL, `hazard_score` REAL:
+  new nullable columns on `MapEdgeEntity`, passed through to `MapEdge`
+  domain model with `= null` defaults to avoid breaking existing callers.
+
+**New `CorridorEntity` + `Corridor` domain model**
+- `corridors` table with `id` (PK), `entry_node`, `exit_node`, `length_m`,
+  `pedal_reward`, `gravity_reward`, `predicted_reward`, `exit_hazard_score`,
+  `type`, `centroid_lat`, `centroid_lon`.
+- `toDomain()` extension mapping to `Corridor` data class.
+
+**New `CorridorConnectorEntity` + `CorridorConnector` domain model**
+- `corridor_connectors` table with composite PK `(from_corridor, to_corridor)`
+  and `distance_m`.
+- `toDomain()` extension mapping to `CorridorConnector` data class.
+
+**New `CorridorDao`**
+- `getAll()`, `getAllConnectors()`, `getConnectorsForCorridor(corridorId)`.
+
+**`CyclingAssetDatabase` v3 → v4**
+- Registered `CorridorEntity` and `CorridorConnectorEntity`, bumped version to
+  4. Destructive migration via `createFromAsset` rebuilds from the updated
+  asset DB.
+- Added `corridorDao()` abstract method.
+
+**`DatabaseModule`**
+- Added `provideCorridorDao`.
+
+**`MapGraphRepository` + `MapGraphRepositoryImpl`**
+- New `getAllCorridors()`, `getAllCorridorConnectors()`,
+  `getConnectorsForCorridor(corridorId)` on the interface and implementation.
+
+**Test fakes updated**
+- `MapMatcherTest`, `FastWayHomeServiceTest`, `MapViewViewModelTest` fake
+  repositories now implement the three new corridor methods.
+
+### Tests
+New `CorridorEntityTest`: measured and predicted corridor mapping. New
+`CorridorConnectorEntityTest`: field mapping. Updated `MapEdgeEntityTest`:
+`slope_percent` reads from column not JSON, new v4 columns present/absent.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #78 — [Map] Add Flow segments layer + trim Layers panel entries
 Completed: 2026-06-15 | Closed: pending
 

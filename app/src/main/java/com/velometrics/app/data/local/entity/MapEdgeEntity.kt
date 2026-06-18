@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.data.local.entity
+package com.velometrics.app.data.local.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
@@ -16,7 +16,14 @@ data class MapEdgeEntity(
     val surface: String?,
     @ColumnInfo(name = "is_traversed") val isTraversed: Boolean,
     @ColumnInfo(name = "geometry_encoded") val geometryEncoded: String?,
-    val metadata: String?
+    val metadata: String?,
+    @ColumnInfo(name = "slope_percent") val slopePercent: Double?,
+    val curvature: Double?,
+    @ColumnInfo(name = "stop_penalty") val stopPenalty: Double?,
+    @ColumnInfo(name = "stop_penalty_source") val stopPenaltySource: String?,
+    @ColumnInfo(name = "predicted_flow_score") val predictedFlowScore: Double?,
+    @ColumnInfo(name = "flow_confidence") val flowConfidence: Double?,
+    @ColumnInfo(name = "hazard_score") val hazardScore: Double?
 )
 
 private data class EdgeMetadataJson(
@@ -32,7 +39,6 @@ private data class EdgeMetadataJson(
     @SerializedName("power_p25") val powerP25: Double?,
     @SerializedName("power_p75") val powerP75: Double?,
     @SerializedName("power_p90") val powerP90: Double?,
-    @SerializedName("slope_percent") val slopePercent: Double?,
     @SerializedName("traversal_count") val traversalCount: Int?,
     @SerializedName("last_traversal") val lastTraversal: String?,
     @SerializedName("time_of_day_dist") val timeOfDayDist: List<Int>?,
@@ -69,12 +75,18 @@ fun MapEdgeEntity.toDomain(): MapEdge {
         powerP25 = meta?.powerP25,
         powerP75 = meta?.powerP75,
         powerP90 = meta?.powerP90,
-        slopePercent = meta?.slopePercent,
+        slopePercent = slopePercent,
         traversalCount = meta?.traversalCount,
         lastTraversal = meta?.lastTraversal,
         timeOfDayDist = meta?.timeOfDayDist,
         avgStopCount = meta?.avgStopCount,
         pedalFlowCount = meta?.pedalFlowCount,
-        gravityFlowCount = meta?.gravityFlowCount
+        gravityFlowCount = meta?.gravityFlowCount,
+        curvature = curvature,
+        stopPenalty = stopPenalty,
+        stopPenaltySource = stopPenaltySource,
+        predictedFlowScore = predictedFlowScore,
+        flowConfidence = flowConfidence,
+        hazardScore = hazardScore,
     )
 }

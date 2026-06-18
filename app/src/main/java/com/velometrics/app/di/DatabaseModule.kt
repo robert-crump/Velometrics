@@ -175,4 +175,7 @@ object DatabaseModule {
 
     @Provides
     fun provideMapMetadataDao(db: CyclingAssetDatabase): MapMetadataDao = db.mapMetadataDao()
+
+    @Provides
+    fun provideCorridorDao(db: CyclingAssetDatabase): CorridorDao = db.corridorDao()
 }

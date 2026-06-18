@@ -1,10 +1,13 @@
-﻿package com.velometrics.app.data.repository
+package com.velometrics.app.data.repository
 
+import com.velometrics.app.data.local.dao.CorridorDao
 import com.velometrics.app.data.local.dao.MapEdgeDao
 import com.velometrics.app.data.local.dao.MapMetadataDao
 import com.velometrics.app.data.local.dao.MapNodeDao
 import com.velometrics.app.data.local.dao.PoiDao
 import com.velometrics.app.data.local.entity.*
+import com.velometrics.app.domain.model.Corridor
+import com.velometrics.app.domain.model.CorridorConnector
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -20,7 +23,8 @@ class MapGraphRepositoryImpl @Inject constructor(
     private val nodeDao: MapNodeDao,
     private val edgeDao: MapEdgeDao,
     private val poiDao: PoiDao,
-    private val metadataDao: MapMetadataDao
+    private val metadataDao: MapMetadataDao,
+    private val corridorDao: CorridorDao
 ) : MapGraphRepository {
 
     override fun getAllEdges(): Flow<List<MapEdge>> =
@@ -57,4 +61,13 @@ class MapGraphRepositoryImpl @Inject constructor(
         poiDao.getInBoundingBox(minLat, maxLat, minLon, maxLon).mapNotNull { it.toDomain() }
 
     override suspend fun getMetadata(): GraphMetadata? = metadataDao.getMetadata()?.toDomain()
+
+    override suspend fun getAllCorridors(): List<Corridor> =
+        corridorDao.getAll().map { it.toDomain() }
+
+    override suspend fun getAllCorridorConnectors(): List<CorridorConnector> =
+        corridorDao.getAllConnectors().map { it.toDomain() }
+
+    override suspend fun getConnectorsForCorridor(corridorId: Long): List<CorridorConnector> =
+        corridorDao.getConnectorsForCorridor(corridorId).map { it.toDomain() }
 }

@@ -1,5 +1,7 @@
 package com.velometrics.app.domain.service
 
+import com.velometrics.app.domain.model.Corridor
+import com.velometrics.app.domain.model.CorridorConnector
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -42,6 +44,9 @@ class MapMatcherTest {
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
             override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) = emptyList<Poi>()
             override suspend fun getMetadata(): GraphMetadata? = null
+            override suspend fun getAllCorridors() = emptyList<Corridor>()
+            override suspend fun getAllCorridorConnectors() = emptyList<CorridorConnector>()
+            override suspend fun getConnectorsForCorridor(corridorId: Long) = emptyList<CorridorConnector>()
         }
 
     /** A point at the given latitude, fixed longitude — used to build tracks along a north-bound chain. */

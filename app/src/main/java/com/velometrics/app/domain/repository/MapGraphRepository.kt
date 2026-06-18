@@ -1,5 +1,7 @@
 ﻿package com.velometrics.app.domain.repository
 
+import com.velometrics.app.domain.model.Corridor
+import com.velometrics.app.domain.model.CorridorConnector
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -17,4 +19,7 @@ interface MapGraphRepository {
     fun getAllPois(): Flow<List<Poi>>
     suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi>
     suspend fun getMetadata(): GraphMetadata?
+    suspend fun getAllCorridors(): List<Corridor>
+    suspend fun getAllCorridorConnectors(): List<CorridorConnector>
+    suspend fun getConnectorsForCorridor(corridorId: Long): List<CorridorConnector>
 }

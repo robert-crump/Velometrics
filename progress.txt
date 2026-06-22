@@ -1,3 +1,55 @@
+## Issue #92 — RouteRefiner: bbox-sliced fine pass with reward-weighted A* glue
+Completed: 2026-06-22 | Closed: pending
+
+### What was done
+
+**New `RouteRefiner` (pure object, suspend for I/O, deterministic A\*)**
+- `domain/service/RouteRefiner.kt`: object with a single public function:
+  - `refine(candidate, corridorMap, repository, weights?, rewardContext?,
+    hazardConfig?, junctionCostConfig?, config?)` — expands a coarse
+    `CandidateLoop` (corridor-level) into a concrete `RefinedRoute`
+    (edge-level) with authoritative actual distance.
+- `RefinedRoute` data class: carries `edges` (ordered `MapEdge` list),
+  `actualDistanceM`, `totalReward`, `flowScore`, `discoveryScore`.
+- `RefinerConfig` data class: `bboxMarginM` (default 2000.0),
+  `maxAStarIterations` (default 50,000), `rewardWeight` (default 10.0),
+  `turnCostWeight` (default 50.0).
+- **Bbox-sliced edge loading:** computes a bounding box from candidate
+  corridor centroids + margin, loads only the edge/node slice via
+  `repository.getEdgesNear`/`getNodesNear`. The full edge graph is
+  never loaded (#46).
+- **Hazard pre-filtering:** applies `HazardFilter.shouldKeep` (#87) to
+  the loaded edges before building the routing graph. Hazardous edges
+  never appear in refined routes.
+- **Waypoint expansion:** builds ordered waypoints from corridor
+  entry/exit node pairs, closed with a return to the home corridor's
+  entry node. Routes each consecutive waypoint pair via A\*.
+- **Reward-weighted A\* glue routing:** edge-based A\* (like
+  `FastWayHomeService`) with a composite cost function:
+  `max(lengthM * 0.1, lengthM + turnCostWeight * turnCost - rewardWeight * reward)`.
+  Uses `RewardComposer.composeEdgeReward` (#88) for the reward term
+  and `JunctionCost.computeTurnCost` (#89) for graduated turn-angle +
+  left-turn surcharge penalties at junctions. Heuristic is
+  `haversine * 0.1` (admissible given the cost floor). This is
+  explicitly **not** pure shortest path — the A\* prefers high-flow,
+  low-stop edges and penalizes sharp turns.
+- **Authoritative actual distance:** computed as the sum of edge lengths
+  in the refined route, which can differ from the coarse corridor-based
+  estimate.
+
+### Tests
+New `RouteRefinerTest` with 13 tests: corridor expansion to edge-level
+route, bbox-only loading (tracking fake asserts `getEdgesNear`/
+`getNodesNear` called and `getAllEdges`/`getAllNodes` not called),
+reward-weighted A\* picks high-reward path over shorter path on a
+constructed case, zero-reward-weight picks shortest path, hazard-rejected
+edges never appear, junction costs penalize sharp turns, authoritative
+actual distance from edges, actual distance differs from coarse estimate,
+flow and discovery sub-scores carried, null when no path exists, null
+for empty corridors, bbox covers corridor centroids with margin,
+buildWaypoints produces correct entry-exit sequence.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #91 — CorridorOrienteer: GRASP coarse loop search (in-memory, seeded)
 Completed: 2026-06-22 | Closed: pending
 

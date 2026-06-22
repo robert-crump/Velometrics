@@ -1,3 +1,51 @@
+## Issue #90 — DegradationPolicy: tiered relaxation + actual-vs-requested reporting
+Completed: 2026-06-22 | Closed: pending
+
+### What was done
+
+**New `DegradationPolicy` (pure object, no I/O, deterministic)**
+- `domain/service/DegradationPolicy.kt`: object with four public functions:
+  - `nextTier(currentTier)` — returns the next relaxation tier in the fixed
+    order NONE → WIDEN_BAND → EASE_DISCOVERY → EASE_PENALTIES, or null when
+    all tiers are exhausted.
+  - `tierParams(tier, baseExploreExploitBalance?, baseReusePenaltyWeight?,
+    config?)` — returns `TierParams` (distanceBandFraction,
+    exploreExploitBalance, reusePenaltyWeight) for a given tier. Each
+    successive tier is cumulatively more relaxed: WIDEN_BAND widens the
+    distance band (0.15 → 0.30), EASE_DISCOVERY also raises the explore
+    balance (0.3 → 0.6), EASE_PENALTIES also reduces the reuse penalty
+    weight (2.0 → 0.5).
+  - `reportCandidates(candidateDistances, requestedDistanceM)` — produces a
+    `CandidateReport` per candidate with actual distance, requested distance,
+    and signed deviation percent.
+  - `evaluate(candidateDistances, requestedDistanceM, currentTier,
+    maxReachableDistanceM?, config?)` — decides the outcome:
+    `Sufficient` when >= minDesired candidates or at the loosest tier with
+    any candidates (returns 1–2 instead of padding to 3);
+    `NeedsRelaxation` when fewer than minDesired and more tiers remain;
+    `HardFailure` when zero candidates at the loosest tier, with a specific
+    actionable reason from `failureReason`.
+  - `failureReason(requestedDistanceM, maxReachableDistanceM?)` — returns
+    "distance exceeds reachable" when the requested distance exceeds the
+    graph's maximum loop distance, or "check home location" otherwise.
+- `DegradationConfig` data class: `minDesiredCandidates` (default 3),
+  `baseDistanceBandFraction` (0.15), `widenedDistanceBandFraction` (0.30),
+  `easedExploreExploitBalance` (0.6), `easedReusePenaltyWeight` (0.5).
+
+### Tests
+New `DegradationPolicyTest` with 24 table-driven tests: tier progression order,
+NONE/WIDEN_BAND/EASE_DISCOVERY/EASE_PENALTIES params, cumulative relaxation
+monotonicity across all tiers, custom base values and config, actual-vs-requested
+reporting (positive/negative/zero deviation, zero requested distance), evaluate
+with 3 candidates → Sufficient, 2 at NONE → NeedsRelaxation(WIDEN_BAND), 0 at
+NONE → NeedsRelaxation, 1 at WIDEN_BAND → NeedsRelaxation(EASE_DISCOVERY),
+2 at loosest tier → Sufficient (accepts partial), 1 at loosest → Sufficient
+(not padded), 0 at loosest → HardFailure, custom minDesiredCandidates,
+Sufficient carries actual-vs-requested per candidate, failure reason cites
+unreachable distance, failure reason cites home location (null and within-range),
+HardFailure carries specific reason from evaluate.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #92 — RouteRefiner: bbox-sliced fine pass with reward-weighted A* glue
 Completed: 2026-06-22 | Closed: pending
 

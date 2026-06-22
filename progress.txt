@@ -1,3 +1,43 @@
+## Issue #89 — JunctionCost: graduated turn-angle + stop-modulated left-turn surcharge
+Completed: 2026-06-22 | Closed: pending
+
+### What was done
+
+**New `JunctionCost` (pure, no I/O, deterministic)**
+- `domain/service/JunctionCost.kt`: object with a single public function:
+  - `computeTurnCost(approachBearing, exitBearing, approachEdge, config?)` —
+    returns a turn cost in [0, ~1.5] combining a graduated angle penalty with
+    a stop-modulated left-turn surcharge.
+- `JunctionCostConfig` data class: `leftTurnSurchargeWeight` (default 0.5) and
+  `lowStopThreshold` (default 0.5).
+- **Graduated turn-angle penalty:** `turnAngle / 180.0`, monotonically
+  increasing from 0 (straight) to 1.0 (U-turn), continuous — no binary
+  threshold.
+- **Left-turn surcharge (right-hand traffic):** left turns (counter-clockwise
+  deviation) receive an additional multiplicative surcharge
+  `anglePenalty * surchargeWeight * stopModulation`. Right turns and U-turns
+  receive only the base angle penalty.
+- **Stop-modulated left-turn waiver:** the surcharge is modulated by the
+  approach edge's measured `avgStopCount`:
+  - Un-ridden edges (`isTraversed == false`) → full surcharge (1.0).
+  - Traversed with null `avgStopCount` → full surcharge (conservative default).
+  - Traversed with low `avgStopCount` → proportionally reduced (0 stops = waived).
+  - Traversed with high `avgStopCount` (≥ threshold) → full surcharge (capped at 1.0).
+- Documented extension point for Ride-Graph #36 (per-turn braking): inline
+  comment marks where `computeStopModulation` swaps from edge-level
+  `avgStopCount` to per-(in,out)-pair data once available.
+
+### Tests
+New `JunctionCostTest` with 16 table-driven tests: straight continuation zero
+cost, gentle < moderate < sharp angle gradient, U-turn maximum penalty,
+monotonic increase across 0–180° in 10° steps, bearing wrap-around correctness,
+left turn > equivalent right turn on unridden junction, surcharge scales with
+weight config, surcharge waived at zero stops, surcharge reduced at low stops,
+surcharge full at high stops, custom lowStopThreshold, un-ridden equals
+ridden-high-stop, null avgStopCount equals unridden, and right turns unaffected
+by stop data.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #87 — HazardFilter: pre-reward hard-reject graph filter
 Completed: 2026-06-22 | Closed: pending
 

@@ -1,3 +1,42 @@
+## Issue #88 — RewardComposer v1: additive flow+stop+explore reward
+Completed: 2026-06-22 | Closed: pending
+
+### What was done
+
+**New `RewardComposer` (pure, no I/O, deterministic)**
+- `domain/service/RewardComposer.kt`: object with two public functions:
+  - `composeEdgeReward(edge, weights?, context?)` — scores a `MapEdge` as the
+    additive sum of weighted `flow`, `stop`, and `explore` terms.
+  - `composeCorridorReward(corridor, weights?, context?)` — scores a `Corridor`
+    using its `pedalReward + gravityReward` as the flow term, and
+    `predictedReward` as the explore term for predicted corridors only.
+- `flow` (+): `pedalFlowCount + gravityFlowCount` for edges,
+  `pedalReward + gravityReward` for corridors. Pedal and gravity contribute
+  equally by default.
+- `stop` (−): `stopPenalty` (edges only; corridors have no per-corridor stop
+  signal in v1).
+- `explore` (+): `exploreExploitBalance · novelty · predictedFlowScore ·
+  flowConfidence`. Novelty is 1.0 for untraversed edges and predicted
+  corridors, 0.0 otherwise. Predictions below the `confidenceFloor` are
+  hard-excluded (explore term = 0).
+- `RewardWeights` data class: per-term weight multipliers (default 1.0 each).
+- `RewardContext` data class: `exploreExploitBalance` (default 0.3) and
+  `confidenceFloor` (default 0.2).
+- `ComposedReward` data class: carries per-component scores and the additive
+  `total`.
+- Inline doc block at the composition site documents deferred future terms
+  (`vista`, `surface`, `quiet`, `wind`) and rejected terms (`scenery`,
+  `crowding`, `training-match`).
+
+### Tests
+New `RewardComposerTest` with 13 table-driven tests asserting reward
+**ordering** (relative ranking): high-flow > low-flow, pedal = gravity,
+stop penalty reduces reward, confident prediction > no prediction,
+below-confidence-floor exclusion, traversed edges get zero explore,
+null-safe flow/stop handling, additive total, corridor ranking, predicted
+vs measured corridor explore term, corridor pedal/gravity symmetry.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #82 — Update cycling_graph.db schema to v4: route-creation components from Ride-Graph AP9
 Completed: 2026-06-18 | Closed: pending
 

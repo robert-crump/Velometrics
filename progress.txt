@@ -1,3 +1,34 @@
+## Issue #87 — HazardFilter: pre-reward hard-reject graph filter
+Completed: 2026-06-22 | Closed: pending
+
+### What was done
+
+**New `HazardFilter` (pure, no I/O, deterministic)**
+- `domain/service/HazardFilter.kt`: object with a single public function:
+  - `shouldKeep(edge, config?)` — returns `true` to keep, `false` to reject.
+- `HazardConfig` data class: `hazardScoreThreshold` (default 0.7) and
+  `raceToStopThreshold` (default 3.0).
+- **Type 2 — fast car roads (measured):** rejects edges whose `hazardScore`
+  meets or exceeds `hazardScoreThreshold`.
+- **Type 2 — fast car roads (tag prior):** when no measured `hazardScore`
+  exists, rejects edges with OSM `highway` tags `motorway`, `motorway_link`,
+  `trunk`, `trunk_link`. Measured data overrides the tag prior (a motorway
+  with low measured hazard is kept).
+- **Type 1 — race-to-a-stop:** rejects edges whose `stopPenalty` meets or
+  exceeds `raceToStopThreshold`, using the per-edge stop signal as a proxy
+  for the per-turn braking stat that lands with Ride-Graph #36.
+- Documented extension point for Ride-Graph #37 (`maxspeed >= 70 km/h`
+  rule): inline comment marks where the measured maxspeed check drops in
+  once the column ships.
+
+### Tests
+New `HazardFilterTest` with 17 table-driven tests: hazardScore above/below/at
+threshold, custom threshold, motorway/motorway_link/trunk/trunk_link tag
+prior rejection, residential kept, measured-overrides-prior, stopPenalty
+above/below/at threshold, null stopPenalty kept, custom raceToStop threshold,
+safe combined edge, and cross-type rejection independence.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #88 — RewardComposer v1: additive flow+stop+explore reward
 Completed: 2026-06-22 | Closed: pending
 

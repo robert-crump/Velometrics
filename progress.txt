@@ -1,3 +1,75 @@
+## Issue #93 — RouteGenerator + Plan-a-ride action — first end-to-end ride
+Completed: 2026-06-23 | Closed: pending
+
+### What was done
+
+**New `RouteGenerator` (thin orchestrator, suspend, deterministic given seed)**
+- `domain/service/RouteGenerator.kt`: object with a single public function:
+  - `generate(homeLat, homeLon, targetDistanceM, repository, weights?,
+    rewardContext?, config?)` — returns `RoutePlanResult` (Success or Failure).
+- `GeneratorConfig` data class: bundles `OrienteerConfig`, `RefinerConfig`,
+  `DegradationConfig`, `HazardConfig`, `JunctionCostConfig`, and `seed`.
+- `RankedCandidate` data class: carries `refinedRoute`, `coarseLoop`, `rank`,
+  and `distanceDeviationPercent`.
+- **Orchestration flow:**
+  1. Loads corridors and connectors from `MapGraphRepository`.
+  2. Runs `CorridorOrienteer.search()` for coarse candidates within D±15%.
+  3. Refines each candidate with `RouteRefiner.refine()` (bbox-sliced, reward-
+     weighted A\*).
+  4. Evaluates via `DegradationPolicy.evaluate()` — if fewer than desired
+     candidates, relaxes tier params (widen band → ease discovery → ease
+     penalties) and re-runs search+refine.
+  5. Returns up to 3 ranked candidates sorted by descending total reward, each
+     with flow/discovery sub-scores and actual-vs-requested deviation percent.
+- **Degradation path:** exercises all tiers. Hard failure returns a specific
+  actionable message from `DegradationPolicy.failureReason`.
+- `estimateMaxReachable` helper provides a rough upper bound on loop distance
+  for meaningful failure messages.
+
+**New `PlanARideViewModel` (Hilt, UI state)**
+- `ui/screens/mapview/PlanARideViewModel.kt`: `@HiltViewModel` with:
+  - `candidates: StateFlow<List<RankedCandidate>>` — ranked results.
+  - `selectedCandidateIndex: StateFlow<Int?>` — which candidate is highlighted.
+  - `isGenerating: StateFlow<Boolean>` — loading state.
+  - `message: StateFlow<String?>` — failure/info message.
+  - `planARide(targetDistanceKm)` — triggers generation.
+  - `selectCandidate(index)` / `clearPlan()` — UI interactions.
+
+**New `PlanARideOverlay` (Compose UI)**
+- `ui/screens/mapview/PlanARideOverlay.kt`: `PlanARideCard` composable showing
+  loading spinner, candidate list with selection, or error message. Each
+  candidate row shows distance (with deviation %), flow score, and discovery
+  score. Selected candidate gets a highlighted border.
+
+**MapViewScreen integration**
+- Added `PlanARideViewModel` as a hilt ViewModel parameter.
+- New "Plan a ride" `SmallFloatingActionButton` with bike icon in the stacked
+  FAB column (above Fast Way Home).
+- Distance input `AlertDialog`: user enters target km, triggers generation.
+- `PlanARideCard` rendered below the Fast Way Home card when active.
+- Track rendering `LaunchedEffect`: renders all candidate routes on the map
+  using `MapTrackRenderer`. Selected candidate rendered last (on top, full
+  width); non-selected candidates at 60% width. Camera fits to selected
+  candidate bounds.
+- Three candidate colors: green (#4CAF50), orange (#FF9800), purple (#9C27B0).
+
+**Constants**
+- `CyclingConstants`: `PLAN_A_RIDE_DEFAULT_DISTANCE_KM` (50.0),
+  `PLAN_A_RIDE_TRACK_WIDTH` (5f), `PLAN_A_RIDE_TRACK_COLORS` (3 colors).
+
+### Tests
+New `RouteGeneratorTest` with 8 tests: end-to-end smoke test (generates ranked
+candidates with sub-scores on small fixture graph), candidates ranked by
+descending reward, candidates start and end at home corridor (loop closure),
+distance deviation percent reported per candidate, fails with message on empty
+corridors, hard failure on disconnected graph, degradation path exercised with
+high minDesiredCandidates, estimateMaxReachable null for empty / positive for
+non-empty.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+**Note:** This issue is marked HITL — human review of end-to-end ride behaviour
+and UX is needed before merge.
+
 ## Issue #90 — DegradationPolicy: tiered relaxation + actual-vs-requested reporting
 Completed: 2026-06-22 | Closed: pending
 

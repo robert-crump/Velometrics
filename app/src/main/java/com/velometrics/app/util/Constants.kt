@@ -166,6 +166,15 @@ object CyclingConstants {
     const val FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M = 20f
     const val FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS = 5_000L
 
+    // Plan-a-ride route generation
+    const val PLAN_A_RIDE_DEFAULT_DISTANCE_KM = 50.0
+    const val PLAN_A_RIDE_TRACK_WIDTH = 5f
+    val PLAN_A_RIDE_TRACK_COLORS = listOf(
+        "#4CAF50", // Green — best candidate
+        "#FF9800", // Orange — second
+        "#9C27B0", // Purple — third
+    )
+
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(
         "0 km/h" to "#000000",

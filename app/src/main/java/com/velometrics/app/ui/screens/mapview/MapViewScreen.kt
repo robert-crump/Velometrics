@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
@@ -71,6 +72,10 @@ import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
+import com.velometrics.app.domain.service.RankedCandidate
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
@@ -116,6 +121,7 @@ private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 fun MapViewScreen(
     viewModel: MapViewViewModel = hiltViewModel(),
     fastWayHomeViewModel: FastWayHomeViewModel = hiltViewModel(),
+    planARideViewModel: PlanARideViewModel = hiltViewModel(),
     gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalActivity.current as ComponentActivity),
     gpxIntentViewModel: GpxIntentViewModel = hiltViewModel(LocalActivity.current as ComponentActivity)
 ) {
@@ -154,6 +160,15 @@ fun MapViewScreen(
     val isFindingFastWayHome by fastWayHomeViewModel.isFindingFastWayHome.collectAsState()
     val fastWayHomeLocation by fastWayHomeViewModel.homeLocation.collectAsState()
     val showFastWayHomeCard = isFindingFastWayHome || fastWayHomeResult != null || fastWayHomeMessage != null
+
+    // Plan a ride state
+    val planCandidates by planARideViewModel.candidates.collectAsState()
+    val planSelectedIndex by planARideViewModel.selectedCandidateIndex.collectAsState()
+    val isGeneratingPlan by planARideViewModel.isGenerating.collectAsState()
+    val planMessage by planARideViewModel.message.collectAsState()
+    val showPlanARideCard = isGeneratingPlan || planCandidates.isNotEmpty() || planMessage != null
+    var showPlanDistanceDialog by remember { mutableStateOf(false) }
+
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -240,6 +255,7 @@ fun MapViewScreen(
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
     var fastWayHomeRendered by remember { mutableStateOf(false) }
+    var planARideRenderedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var fineLocationZoomedIn by remember { mutableStateOf(false) }
 
     // Device heading (compass direction the phone is facing), shown as an arrow on the
@@ -389,6 +405,46 @@ fun MapViewScreen(
         ms.first.easeCamera(
             CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600
         )
+    }
+
+    // Plan-a-ride candidate tracks sync
+    LaunchedEffect(planCandidates, planSelectedIndex, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        for (id in planARideRenderedIds) {
+            try { MapTrackRenderer.removeTrack(ms.second, id) } catch (_: Exception) {}
+        }
+        planARideRenderedIds = emptySet()
+
+        if (planCandidates.isEmpty()) return@LaunchedEffect
+
+        val newIds = mutableSetOf<String>()
+        val selected = planSelectedIndex ?: 0
+        // Render non-selected candidates first (thinner), then selected on top
+        for (i in planCandidates.indices) {
+            if (i == selected) continue
+            val candidate = planCandidates[i]
+            val trackId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}$i"
+            val points = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+            if (points.size >= 2) {
+                val color = PLAN_A_RIDE_TRACK_COLORS[i % PLAN_A_RIDE_TRACK_COLORS.size]
+                MapTrackRenderer.addTrack(ms.second, trackId, points, color, PLAN_A_RIDE_TRACK_WIDTH * 0.6f)
+                newIds.add(trackId)
+            }
+        }
+        // Selected candidate rendered last (on top, full width)
+        if (selected in planCandidates.indices) {
+            val candidate = planCandidates[selected]
+            val trackId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}$selected"
+            val points = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+            if (points.size >= 2) {
+                val color = PLAN_A_RIDE_TRACK_COLORS[selected % PLAN_A_RIDE_TRACK_COLORS.size]
+                MapTrackRenderer.addTrack(ms.second, trackId, points, color, PLAN_A_RIDE_TRACK_WIDTH)
+                newIds.add(trackId)
+                val bounds = LatLngBounds.Builder().apply { points.forEach { include(it) } }.build()
+                ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600)
+            }
+        }
+        planARideRenderedIds = newIds
     }
 
     // Finish-line marker for selected GPX POI — rendered at the highest layer
@@ -659,8 +715,21 @@ fun MapViewScreen(
                 )
             }
 
+            // Plan a ride result card
+            if (showPlanARideCard) {
+                PlanARideCard(
+                    candidates = planCandidates,
+                    selectedIndex = planSelectedIndex,
+                    message = planMessage,
+                    isLoading = isGeneratingPlan,
+                    onSelectCandidate = { planARideViewModel.selectCandidate(it) },
+                    onDismiss = { planARideViewModel.clearPlan() },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+
             // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
-            if (!showFastWayHomeCard) {
+            if (!showFastWayHomeCard && !showPlanARideCard) {
                 selectedPoi?.let { poiWD ->
                     PoiPopupCard(
                         poiWithDistances = poiWD,
@@ -705,6 +774,11 @@ fun MapViewScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            SmallFloatingActionButton(
+                onClick = { showPlanDistanceDialog = true }
+            ) {
+                Icon(Icons.AutoMirrored.Filled.DirectionsBike, contentDescription = "Plan a ride")
+            }
             SmallFloatingActionButton(
                 onClick = {
                     fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
@@ -884,6 +958,35 @@ fun MapViewScreen(
             discoveryScore = gpxDiscoveryScore,
             speedPowerEstimate = gpxSpeedPowerEstimate,
             onClose = { showGpxAnalysisOverlay = false }
+        )
+    }
+
+    if (showPlanDistanceDialog) {
+        var distanceText by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_DISTANCE_KM.toInt().toString()) }
+        AlertDialog(
+            onDismissRequest = { showPlanDistanceDialog = false },
+            title = { Text("Plan a ride") },
+            text = {
+                Column {
+                    Text("Target distance (km):")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = distanceText,
+                        onValueChange = { distanceText = it.filter { c -> c.isDigit() } },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPlanDistanceDialog = false
+                    val km = distanceText.toDoubleOrNull() ?: PLAN_A_RIDE_DEFAULT_DISTANCE_KM
+                    planARideViewModel.planARide(km)
+                }) { Text("Generate") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPlanDistanceDialog = false }) { Text("Cancel") }
+            },
         )
     }
 

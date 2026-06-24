@@ -1224,10 +1224,13 @@ private fun SpeedPowerEstimateSection(speedPowerEstimate: SpeedPowerEstimateResu
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 is SpeedPowerEstimateResult.Estimate -> {
-                    val text = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W - " +
-                        "based on ${speedPowerEstimate.coveragePercent}% data coverage"
+                    val coverageText = if (speedPowerEstimate.totalCoveragePercent > speedPowerEstimate.coveragePercent) {
+                        "${speedPowerEstimate.totalCoveragePercent}% data coverage (${speedPowerEstimate.coveragePercent}% direct, rest from nearby parallel roads)"
+                    } else {
+                        "${speedPowerEstimate.coveragePercent}% data coverage"
+                    }
                     Text(
-                        text = text,
+                        text = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W - based on $coverageText",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

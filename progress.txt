@@ -1,3 +1,50 @@
+## Issue #102 — Wire surrogate fallback into speed/power estimate and discovery score
+Completed: 2026-06-24 | Closed: pending
+
+### What was done
+
+**`GpxAnalysisUtils.discoveryScore()` — surrogate-aware**
+- Added `surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()` parameter.
+- Edges present in the surrogates map (keyed by fromNode to toNode) count as
+  traversed — they contribute 0% to the "untraversed" total.
+
+**`GpxAnalysisUtils.speedPowerEstimate()` — surrogate-aware**
+- Added `surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()` parameter.
+- For uncovered edges that have a surrogate, borrows the surrogate's `speedMean`
+  and `powerMean` for the length-weighted average calculation.
+- Reports both direct-only coverage (`coveragePercent`) and direct + surrogate
+  coverage (`totalCoveragePercent`).
+
+**`SpeedPowerEstimate` — new `totalCoveragePercent` field**
+- Added `totalCoveragePercent: Int = coveragePercent` to represent combined
+  direct + surrogate coverage while keeping `coveragePercent` as direct-only.
+
+**`GpxSharedViewModel.fetchRouteAnalysis()` — orchestration**
+- After `matchTrackChunked`, calls new `findSurrogatesForMatchedEdges()` once.
+- `findSurrogatesForMatchedEdges` loads all edges/nodes in the track's bbox,
+  builds a fresh `RTreeSpatialIndex`, identifies uncovered matched edges by
+  (fromNode, toNode) lookup, calls `GpxAnalysisUtils.findSurrogates()`, and
+  converts the index-keyed result to a (fromNode, toNode)-keyed map.
+- Gracefully skips surrogate lookup if edge count exceeds 100K (safety cap).
+- Passes the resulting surrogate map to both `discoveryScore()` and
+  `speedPowerEstimate()`.
+
+**`SpeedPowerEstimateResult.Estimate` — new `totalCoveragePercent` field**
+- Added to carry the combined coverage through to the UI.
+
+**GPX analysis UI (`MapViewScreen.kt`)**
+- `SpeedPowerEstimateSection` now shows enhanced coverage when
+  `totalCoveragePercent > coveragePercent`: "X% data coverage (Y% direct, rest
+  from nearby parallel roads)".
+
+### Tests
+Added 6 new tests to `GpxAnalysisUtilsTest`: `speedPowerEstimate` with surrogates
+increases `totalCoveragePercent`, surrogates borrow surrogate metadata for weighted
+average, without surrogates `totalCoveragePercent` equals `coveragePercent`,
+`discoveryScore` with surrogates treats surrogate-covered edges as traversed,
+without surrogates unchanged, surrogates only affect untraversed edges.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #101 — Surrogate lookup: find nearest parallel edge with metadata
 Completed: 2026-06-24 | Closed: pending
 

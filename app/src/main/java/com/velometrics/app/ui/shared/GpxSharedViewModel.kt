@@ -8,12 +8,15 @@ import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.gpx.GpxParser
 import com.velometrics.app.domain.model.GpxPoiItem
 import com.velometrics.app.domain.model.GpxTrack
+import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.service.MapMatcher
 import com.velometrics.app.domain.service.TrackGeometryUtils
 import com.velometrics.app.domain.service.TrackIndex
 import com.velometrics.app.domain.service.TrackProjection
+import com.velometrics.app.domain.service.RTreeSpatialIndex
+import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GpxAnalysisUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -194,6 +197,8 @@ class GpxSharedViewModel @Inject constructor(
      * Matches the track against the road graph in chunks (#15 follow-up) and derives both the
      * discovery score and speed/power estimate from the shared result, so a route that's only
      * partially within the graph's coverage area still yields results for its covered portion.
+     * Calls [GpxAnalysisUtils.findSurrogates] once after matching and passes the result to both
+     * scoring functions.
      */
     private fun fetchRouteAnalysis(track: GpxTrack) {
         viewModelScope.launch {
@@ -206,10 +211,16 @@ class GpxSharedViewModel @Inject constructor(
             val match = mapMatcher.matchTrackChunked(gpsTrack)
             val routeCoverage = RouteCoverage(match.matchedDistanceM, match.totalDistanceM, match.coveragePercent)
 
+            val surrogates = if (match.matchedEdges.isNotEmpty()) {
+                findSurrogatesForMatchedEdges(track, match.matchedEdges)
+            } else {
+                emptyMap()
+            }
+
             _discoveryScore.value = if (match.matchedEdges.isEmpty()) {
                 DiscoveryScoreResult.OutsideCoverage
             } else {
-                GpxAnalysisUtils.discoveryScore(match.matchedEdges)
+                GpxAnalysisUtils.discoveryScore(match.matchedEdges, surrogates)
                     ?.let { DiscoveryScoreResult.Score(it, routeCoverage) }
                     ?: DiscoveryScoreResult.Unavailable
             }
@@ -217,17 +228,65 @@ class GpxSharedViewModel @Inject constructor(
             _speedPowerEstimate.value = if (match.matchedEdges.isEmpty()) {
                 SpeedPowerEstimateResult.OutsideCoverage
             } else {
-                GpxAnalysisUtils.speedPowerEstimate(match.matchedEdges, match.totalDistanceM)
+                GpxAnalysisUtils.speedPowerEstimate(match.matchedEdges, match.totalDistanceM, surrogates)
                     ?.let {
-                        if (it.coveragePercent <= 0) {
+                        if (it.coveragePercent <= 0 && it.totalCoveragePercent <= 0) {
                             SpeedPowerEstimateResult.NoRideHistory
                         } else {
-                            SpeedPowerEstimateResult.Estimate(it.avgSpeedKmh, it.avgPowerW, it.coveragePercent)
+                            SpeedPowerEstimateResult.Estimate(
+                                it.avgSpeedKmh, it.avgPowerW,
+                                it.coveragePercent, it.totalCoveragePercent
+                            )
                         }
                     }
                     ?: SpeedPowerEstimateResult.Unavailable
             }
         }
+    }
+
+    private suspend fun findSurrogatesForMatchedEdges(
+        track: GpxTrack,
+        matchedEdges: List<MapEdge>
+    ): Map<Pair<Long, Long>, MapEdge> = withContext(Dispatchers.Default) {
+        val hasUncovered = matchedEdges.any {
+            !it.isTraversed || it.speedMean == null || it.powerMean == null
+        }
+        if (!hasUncovered) return@withContext emptyMap()
+
+        val bbox = TrackGeometryUtils.computeBoundingBox(
+            track.points, CyclingConstants.GPX_SURROGATE_MAX_DISTANCE_M
+        )
+        val allEdges = mapGraphRepository.getEdgesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
+        if (allEdges.size > MAX_SURROGATE_EDGES) return@withContext emptyMap()
+
+        val allNodes = mapGraphRepository.getNodesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
+            .associateBy { it.id }
+
+        val edgeIndexLookup = HashMap<Pair<Long, Long>, Int>(allEdges.size)
+        for (i in allEdges.indices) {
+            edgeIndexLookup[allEdges[i].fromNode to allEdges[i].toNode] = i
+        }
+
+        val uncoveredByIndex = mutableMapOf<Long, MapEdge>()
+        for (edge in matchedEdges) {
+            if (!edge.isTraversed || edge.speedMean == null || edge.powerMean == null) {
+                val idx = edgeIndexLookup[edge.fromNode to edge.toNode] ?: continue
+                uncoveredByIndex[idx.toLong()] = allEdges[idx]
+            }
+        }
+        if (uncoveredByIndex.isEmpty()) return@withContext emptyMap()
+
+        val spatialIndex = RTreeSpatialIndex()
+        spatialIndex.rebuildIndex(allEdges, allNodes)
+
+        val surrogatesByIndex = GpxAnalysisUtils.findSurrogates(uncoveredByIndex, allEdges, spatialIndex)
+
+        val result = HashMap<Pair<Long, Long>, MapEdge>(surrogatesByIndex.size)
+        for ((idx, surrogateEdge) in surrogatesByIndex) {
+            val uncoveredEdge = allEdges[idx.toInt()]
+            result[uncoveredEdge.fromNode to uncoveredEdge.toNode] = surrogateEdge
+        }
+        result
     }
 
     private fun computeSegmentPoints(item: GpxPoiItem?, userLoc: LatLng?): List<LatLng> {
@@ -254,6 +313,7 @@ class GpxSharedViewModel @Inject constructor(
 
     companion object {
         private const val CORRIDOR_M = 200.0
+        private const val MAX_SURROGATE_EDGES = 100_000
     }
 }
 
@@ -276,7 +336,12 @@ sealed interface DiscoveryScoreResult {
 
 /** Result of matching the loaded .gpx track to the road graph and estimating speed/power from ride history. */
 sealed interface SpeedPowerEstimateResult {
-    data class Estimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int) : SpeedPowerEstimateResult
+    data class Estimate(
+        val avgSpeedKmh: Int,
+        val avgPowerW: Int,
+        val coveragePercent: Int,
+        val totalCoveragePercent: Int = coveragePercent
+    ) : SpeedPowerEstimateResult
     object NoRideHistory : SpeedPowerEstimateResult
     object Unavailable : SpeedPowerEstimateResult
 

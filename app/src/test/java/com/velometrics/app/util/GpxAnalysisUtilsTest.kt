@@ -14,9 +14,11 @@ class GpxAnalysisUtilsTest {
         isTraversed: Boolean,
         speedMean: Double? = null,
         powerMean: Double? = null,
+        fromNode: Long = 1L,
+        toNode: Long = 2L,
     ) = MapEdge(
-        fromNode = 1L,
-        toNode = 2L,
+        fromNode = fromNode,
+        toNode = toNode,
         lengthM = lengthM,
         highway = "cycleway",
         name = null,
@@ -265,5 +267,89 @@ class GpxAnalysisUtilsTest {
         assertEquals(210, result?.avgPowerW) // (750*200 + 250*240) / 1000 = 210
         // 1000m of ride-history coverage out of 4000m full route length
         assertEquals(25, result?.coveragePercent)
+    }
+
+    // --- surrogate-enhanced speed/power estimate ---
+
+    @Test
+    fun `speedPowerEstimate with surrogates increases totalCoveragePercent`() {
+        val uncovered = edgeOf(500.0, isTraversed = false, fromNode = 10L, toNode = 11L)
+        val edges = listOf(
+            edgeOf(500.0, isTraversed = true, speedMean = 20.0, powerMean = 200.0, fromNode = 1L, toNode = 2L),
+            uncovered
+        )
+        val surrogate = edgeOf(500.0, isTraversed = true, speedMean = 30.0, powerMean = 250.0, fromNode = 20L, toNode = 21L)
+        val surrogates = mapOf((10L to 11L) to surrogate)
+
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges, routeTotalDistanceM = 1000.0, surrogates = surrogates)!!
+
+        assertEquals(50, result.coveragePercent)
+        assertEquals(100, result.totalCoveragePercent)
+    }
+
+    @Test
+    fun `speedPowerEstimate with surrogates borrows surrogate metadata for weighted average`() {
+        val uncovered = edgeOf(500.0, isTraversed = false, fromNode = 10L, toNode = 11L)
+        val edges = listOf(
+            edgeOf(500.0, isTraversed = true, speedMean = 20.0, powerMean = 200.0, fromNode = 1L, toNode = 2L),
+            uncovered
+        )
+        val surrogate = edgeOf(500.0, isTraversed = true, speedMean = 30.0, powerMean = 300.0, fromNode = 20L, toNode = 21L)
+        val surrogates = mapOf((10L to 11L) to surrogate)
+
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges, routeTotalDistanceM = 1000.0, surrogates = surrogates)!!
+
+        // (500*20 + 500*30) / 1000 = 25
+        assertEquals(25, result.avgSpeedKmh)
+        // (500*200 + 500*300) / 1000 = 250
+        assertEquals(250, result.avgPowerW)
+    }
+
+    @Test
+    fun `speedPowerEstimate without surrogates keeps totalCoveragePercent equal to coveragePercent`() {
+        val edges = listOf(
+            edgeOf(500.0, isTraversed = true, speedMean = 20.0, powerMean = 200.0, fromNode = 1L, toNode = 2L),
+            edgeOf(500.0, isTraversed = false, fromNode = 10L, toNode = 11L)
+        )
+        val result = GpxAnalysisUtils.speedPowerEstimate(edges, routeTotalDistanceM = 1000.0)!!
+
+        assertEquals(result.coveragePercent, result.totalCoveragePercent)
+    }
+
+    // --- surrogate-enhanced discovery score ---
+
+    @Test
+    fun `discoveryScore with surrogates treats surrogate-covered edges as traversed`() {
+        val edges = listOf(
+            edgeOf(500.0, isTraversed = true, fromNode = 1L, toNode = 2L),
+            edgeOf(500.0, isTraversed = false, fromNode = 10L, toNode = 11L)
+        )
+        val surrogate = edgeOf(500.0, isTraversed = true, speedMean = 25.0, powerMean = 200.0, fromNode = 20L, toNode = 21L)
+        val surrogates = mapOf((10L to 11L) to surrogate)
+
+        assertEquals(0, GpxAnalysisUtils.discoveryScore(edges, surrogates))
+    }
+
+    @Test
+    fun `discoveryScore without surrogates is unchanged`() {
+        val edges = listOf(
+            edgeOf(500.0, isTraversed = true, fromNode = 1L, toNode = 2L),
+            edgeOf(500.0, isTraversed = false, fromNode = 10L, toNode = 11L)
+        )
+        assertEquals(50, GpxAnalysisUtils.discoveryScore(edges))
+    }
+
+    @Test
+    fun `discoveryScore surrogates only affect untraversed edges`() {
+        val edges = listOf(
+            edgeOf(750.0, isTraversed = false, fromNode = 10L, toNode = 11L),
+            edgeOf(250.0, isTraversed = false, fromNode = 12L, toNode = 13L)
+        )
+        val surrogate = edgeOf(100.0, isTraversed = true, speedMean = 25.0, powerMean = 200.0, fromNode = 20L, toNode = 21L)
+        // Only one of the two untraversed edges has a surrogate
+        val surrogates = mapOf((10L to 11L) to surrogate)
+
+        // 250m untraversed out of 1000m total = 25%
+        assertEquals(25, GpxAnalysisUtils.discoveryScore(edges, surrogates))
     }
 }

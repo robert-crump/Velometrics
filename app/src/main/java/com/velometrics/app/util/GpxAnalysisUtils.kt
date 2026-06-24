@@ -58,13 +58,19 @@ object GpxAnalysisUtils {
 
     /**
      * Discovery score (0-100): the percentage of [matchedEdges]' total length where
-     * `isTraversed == false`, i.e. roads not yet ridden according to the graph metadata. Returns
-     * null if [matchedEdges] is empty or has zero total length (nothing to score).
+     * `isTraversed == false`, i.e. roads not yet ridden according to the graph metadata.
+     * Edges present in [surrogates] (keyed by fromNode to toNode) count as traversed.
+     * Returns null if [matchedEdges] is empty or has zero total length (nothing to score).
      */
-    fun discoveryScore(matchedEdges: List<MapEdge>): Int? {
+    fun discoveryScore(
+        matchedEdges: List<MapEdge>,
+        surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()
+    ): Int? {
         val totalLengthM = matchedEdges.sumOf { it.lengthM }
         if (totalLengthM <= 0.0) return null
-        val untraversedLengthM = matchedEdges.filterNot { it.isTraversed }.sumOf { it.lengthM }
+        val untraversedLengthM = matchedEdges
+            .filterNot { it.isTraversed || surrogates.containsKey(it.fromNode to it.toNode) }
+            .sumOf { it.lengthM }
         return (100 * untraversedLengthM / totalLengthM).roundToInt().coerceIn(0, 100)
     }
 
@@ -209,28 +215,58 @@ object GpxAnalysisUtils {
      * Coverage is the percentage of [routeTotalDistanceM] (the full .gpx route's length) covered
      * by edges with ride-history metadata (`isTraversed == true` and non-null
      * `speedMean`/`powerMean`); the averages are weighted by `lengthM` over just those edges.
+     * Uncovered edges present in [surrogates] (keyed by fromNode to toNode) borrow the
+     * surrogate's `speedMean`/`powerMean` for the weighted average. [totalCoveragePercent]
+     * reports direct + surrogate coverage; [coveragePercent] remains direct-only.
      * Returns null if [matchedEdges] is empty or has zero total length (nothing to score).
      */
-    fun speedPowerEstimate(matchedEdges: List<MapEdge>, routeTotalDistanceM: Double): SpeedPowerEstimate? {
+    fun speedPowerEstimate(
+        matchedEdges: List<MapEdge>,
+        routeTotalDistanceM: Double,
+        surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()
+    ): SpeedPowerEstimate? {
         val totalLengthM = matchedEdges.sumOf { it.lengthM }
         if (totalLengthM <= 0.0) return null
 
         val rideHistoryEdges = matchedEdges.filter {
             it.isTraversed && it.speedMean != null && it.powerMean != null
         }
-        val coveredLengthM = rideHistoryEdges.sumOf { it.lengthM }
-        val coveragePercent = if (routeTotalDistanceM > 0.0) {
-            (100 * coveredLengthM / routeTotalDistanceM).roundToInt().coerceIn(0, 100)
-        } else {
-            0
-        }
-        if (coveredLengthM <= 0.0) return SpeedPowerEstimate(avgSpeedKmh = 0, avgPowerW = 0, coveragePercent = 0)
+        val directCoveredLengthM = rideHistoryEdges.sumOf { it.lengthM }
 
-        val avgSpeedKmh = (rideHistoryEdges.sumOf { it.speedMean!! * it.lengthM } / coveredLengthM).roundToInt()
-        val avgPowerW = (rideHistoryEdges.sumOf { it.powerMean!! * it.lengthM } / coveredLengthM).roundToInt()
-        return SpeedPowerEstimate(avgSpeedKmh, avgPowerW, coveragePercent)
+        val surrogateEdges = matchedEdges.filter { edge ->
+            !(edge.isTraversed && edge.speedMean != null && edge.powerMean != null) &&
+                surrogates.containsKey(edge.fromNode to edge.toNode)
+        }
+        val surrogateCoveredLengthM = surrogateEdges.sumOf { it.lengthM }
+
+        val coveragePercent = if (routeTotalDistanceM > 0.0) {
+            (100 * directCoveredLengthM / routeTotalDistanceM).roundToInt().coerceIn(0, 100)
+        } else { 0 }
+        val totalCoveragePercent = if (routeTotalDistanceM > 0.0) {
+            (100 * (directCoveredLengthM + surrogateCoveredLengthM) / routeTotalDistanceM).roundToInt().coerceIn(0, 100)
+        } else { 0 }
+
+        val totalCoveredLengthM = directCoveredLengthM + surrogateCoveredLengthM
+        if (totalCoveredLengthM <= 0.0) return SpeedPowerEstimate(avgSpeedKmh = 0, avgPowerW = 0, coveragePercent = 0)
+
+        var weightedSpeed = rideHistoryEdges.sumOf { it.speedMean!! * it.lengthM }
+        var weightedPower = rideHistoryEdges.sumOf { it.powerMean!! * it.lengthM }
+        for (edge in surrogateEdges) {
+            val surrogate = surrogates[edge.fromNode to edge.toNode]!!
+            weightedSpeed += surrogate.speedMean!! * edge.lengthM
+            weightedPower += surrogate.powerMean!! * edge.lengthM
+        }
+
+        val avgSpeedKmh = (weightedSpeed / totalCoveredLengthM).roundToInt()
+        val avgPowerW = (weightedPower / totalCoveredLengthM).roundToInt()
+        return SpeedPowerEstimate(avgSpeedKmh, avgPowerW, coveragePercent, totalCoveragePercent)
     }
 }
 
 /** Distance-weighted average speed (km/h) and power (W) over a route's ride-history coverage. */
-data class SpeedPowerEstimate(val avgSpeedKmh: Int, val avgPowerW: Int, val coveragePercent: Int)
+data class SpeedPowerEstimate(
+    val avgSpeedKmh: Int,
+    val avgPowerW: Int,
+    val coveragePercent: Int,
+    val totalCoveragePercent: Int = coveragePercent
+)

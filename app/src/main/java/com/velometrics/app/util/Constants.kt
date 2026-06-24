@@ -155,6 +155,10 @@ object CyclingConstants {
     // whole result.
     const val GPX_ANALYSIS_MATCH_CHUNK_M = 5_000.0
 
+    // Surrogate edge lookup: finding the nearest parallel traversed edge for uncovered edges
+    const val GPX_SURROGATE_MAX_DISTANCE_M = 20.0
+    const val GPX_SURROGATE_MAX_BEARING_DIFF_DEG = 45.0
+
     // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
     const val INTERVAL_LENGTH_TOLERANCE_M = 100.0
     const val INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8

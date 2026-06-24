@@ -1,3 +1,37 @@
+## Issue #101 — Surrogate lookup: find nearest parallel edge with metadata
+Completed: 2026-06-24 | Closed: pending
+
+### What was done
+
+**New `findSurrogates()` in `GpxAnalysisUtils` (suspend, pure lookup)**
+- `util/GpxAnalysisUtils.kt`: new suspend function:
+  - `findSurrogates(uncoveredEdges, allEdges, spatialIndex)` — returns a
+    `Map<Long, MapEdge>` mapping each uncovered edge's index to its nearest
+    surrogate edge (a parallel traversed edge with speed/power metadata).
+- For each uncovered edge:
+  1. Decodes the edge's polyline geometry via `PolylineDecoder`.
+  2. Computes the midpoint from the decoded geometry.
+  3. Queries the `RTreeSpatialIndex` at the midpoint with a 20m radius.
+  4. Filters candidates: must be traversed, have non-null `speedMean` and
+     `powerMean`, and not be the uncovered edge itself.
+  5. Computes start-to-end bearing for both the uncovered edge and each
+     candidate. Keeps only candidates whose bearing difference is ≤ 45°
+     (same direction only — anti-parallel edges excluded).
+  6. Picks the nearest qualifying candidate by distance.
+
+**New constants in `CyclingConstants`**
+- `GPX_SURROGATE_MAX_DISTANCE_M = 20.0`
+- `GPX_SURROGATE_MAX_BEARING_DIFF_DEG = 45.0`
+
+### Tests
+New `FindSurrogatesTest` with 8 tests: empty uncovered edges → empty map,
+no candidates within 20m → empty map, bearing diff > 45° excluded
+(perpendicular candidate), anti-parallel edges (~180° diff) excluded,
+multiple qualifying candidates → nearest by distance selected, candidates
+without speedMean/powerMean excluded, candidates not traversed excluded,
+parallel traversed edge within range selected as surrogate (golden path).
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #93 — RouteGenerator + Plan-a-ride action — first end-to-end ride
 Completed: 2026-06-23 | Closed: pending
 

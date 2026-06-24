@@ -2,6 +2,7 @@ package com.velometrics.app.util
 
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.PoiWithDistances
+import com.velometrics.app.domain.service.RTreeSpatialIndex
 import org.maplibre.android.geometry.LatLng
 import kotlin.math.roundToInt
 
@@ -144,6 +145,63 @@ object GpxAnalysisUtils {
         val withoutExtension = name.substringBeforeLast('.', name)
         if (withoutExtension.length <= maxLength) return withoutExtension
         return withoutExtension.take(maxLength - 1) + "…"
+    }
+
+    /**
+     * For each uncovered edge (keyed by its index in the full edge list), finds the nearest
+     * parallel traversed edge with speed/power metadata within [CyclingConstants.GPX_SURROGATE_MAX_DISTANCE_M].
+     */
+    suspend fun findSurrogates(
+        uncoveredEdges: Map<Long, MapEdge>,
+        allEdges: List<MapEdge>,
+        spatialIndex: RTreeSpatialIndex
+    ): Map<Long, MapEdge> {
+        val maxDistanceM = CyclingConstants.GPX_SURROGATE_MAX_DISTANCE_M
+        val maxBearingDiff = CyclingConstants.GPX_SURROGATE_MAX_BEARING_DIFF_DEG
+        val result = mutableMapOf<Long, MapEdge>()
+
+        for ((edgeKey, edge) in uncoveredEdges) {
+            val geometry = PolylineDecoder.decode(edge.geometryEncoded)
+            if (geometry.size < 2) continue
+
+            val midpoint = geometry[geometry.size / 2]
+            val edgeBearing = GeoUtils.computeBearing(
+                geometry.first().latitude, geometry.first().longitude,
+                geometry.last().latitude, geometry.last().longitude
+            )
+
+            val candidates = spatialIndex.queryEdgesNear(midpoint.latitude, midpoint.longitude, maxDistanceM)
+
+            val surrogate = candidates
+                .filter { candidate ->
+                    candidate.edgeKey != edgeKey &&
+                    candidate.distanceM <= maxDistanceM &&
+                    candidate.edgeKey.toInt() in allEdges.indices
+                }
+                .mapNotNull { candidate ->
+                    val candidateEdge = allEdges[candidate.edgeKey.toInt()]
+                    if (!candidateEdge.isTraversed || candidateEdge.speedMean == null || candidateEdge.powerMean == null) {
+                        return@mapNotNull null
+                    }
+                    val candidateGeometry = PolylineDecoder.decode(candidateEdge.geometryEncoded)
+                    if (candidateGeometry.size < 2) return@mapNotNull null
+                    val candidateBearing = GeoUtils.computeBearing(
+                        candidateGeometry.first().latitude, candidateGeometry.first().longitude,
+                        candidateGeometry.last().latitude, candidateGeometry.last().longitude
+                    )
+                    val bearingDiff = GeoUtils.bearingDifference(edgeBearing, candidateBearing)
+                    if (bearingDiff > maxBearingDiff) return@mapNotNull null
+                    candidate to candidateEdge
+                }
+                .minByOrNull { (candidate, _) -> candidate.distanceM }
+                ?.second
+
+            if (surrogate != null) {
+                result[edgeKey] = surrogate
+            }
+        }
+
+        return result
     }
 
     /**

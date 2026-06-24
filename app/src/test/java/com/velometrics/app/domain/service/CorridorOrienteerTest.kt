@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.CorridorConnector
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -10,7 +11,7 @@ class CorridorOrienteerTest {
     // --- Budget including return leg ---
 
     @Test
-    fun `every candidate respects distance budget including return leg`() {
+    fun `every candidate respects distance budget including return leg`() = runTest {
         val (corridors, connectors) = ringFixture()
         val targetM = 10000.0
 
@@ -35,7 +36,7 @@ class CorridorOrienteerTest {
     }
 
     @Test
-    fun `return leg is reserved - route does not overshoot when return is expensive`() {
+    fun `return leg is reserved - route does not overshoot when return is expensive`() = runTest {
         val home = corridor(id = 1, lat = 50.0, lon = 6.0)
         val far = corridor(id = 2, lat = 50.1, lon = 6.1, pedalReward = 10.0)
         val farther = corridor(id = 3, lat = 50.2, lon = 6.2, pedalReward = 10.0)
@@ -61,7 +62,7 @@ class CorridorOrienteerTest {
     // --- Zero edge queries (in-memory) ---
 
     @Test
-    fun `search operates purely on corridors and connectors`() {
+    fun `search operates purely on corridors and connectors`() = runTest {
         val (corridors, connectors) = ringFixture()
 
         val results = CorridorOrienteer.search(
@@ -80,7 +81,7 @@ class CorridorOrienteerTest {
     // --- Determinism ---
 
     @Test
-    fun `deterministic for a fixed seed`() {
+    fun `deterministic for a fixed seed`() = runTest {
         val (corridors, connectors) = ringFixture()
 
         val run1 = CorridorOrienteer.search(
@@ -105,7 +106,7 @@ class CorridorOrienteerTest {
     }
 
     @Test
-    fun `different seeds produce different results`() {
+    fun `different seeds produce different results`() = runTest {
         val (corridors, connectors) = largeRingFixture()
 
         val run1 = CorridorOrienteer.search(
@@ -130,7 +131,7 @@ class CorridorOrienteerTest {
     // --- Candidate diversity ---
 
     @Test
-    fun `output candidates have low pairwise corridor overlap`() {
+    fun `output candidates have low pairwise corridor overlap`() = runTest {
         val (corridors, connectors) = largeRingFixture()
 
         val results = CorridorOrienteer.search(
@@ -229,7 +230,7 @@ class CorridorOrienteerTest {
     }
 
     @Test
-    fun `near-home corridor reuse is effectively free`() {
+    fun `near-home corridor reuse is effectively free`() = runTest {
         val nearHome = corridor(id = 2, lat = 50.001, lon = 6.001, pedalReward = 5.0)
         val home = corridor(id = 1, lat = 50.0, lon = 6.0)
         val farA = corridor(id = 3, lat = 50.05, lon = 6.05, pedalReward = 5.0)
@@ -293,10 +294,99 @@ class CorridorOrienteerTest {
         assertNull(CorridorOrienteer.findNearestCorridor(emptyList(), 50.0, 6.0))
     }
 
+    // --- Radius filtering ---
+
+    @Test
+    fun `filterByRadius excludes corridors beyond max radius`() {
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val near = corridor(id = 2, lat = 50.01, lon = 6.0)
+        val far = corridor(id = 3, lat = 50.2, lon = 6.0)
+
+        val filtered = CorridorOrienteer.filterByRadius(
+            listOf(home, near, far),
+            homeLat = 50.0, homeLon = 6.0,
+            maxRadiusM = 5000.0,
+        )
+
+        assertTrue("Home corridor should pass", filtered.any { it.id == 1L })
+        assertTrue("Near corridor should pass", filtered.any { it.id == 2L })
+        assertFalse("Far corridor should be excluded", filtered.any { it.id == 3L })
+    }
+
+    // --- Direction filtering ---
+
+    @Test
+    fun `filterByDirection keeps corridors within homeExitRadius regardless of direction`() {
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val nearHome = corridor(id = 2, lat = 50.001, lon = 6.001)
+        val farSouth = corridor(id = 3, lat = 49.95, lon = 6.0)
+
+        val filtered = CorridorOrienteer.filterByDirection(
+            listOf(home, nearHome, farSouth),
+            homeLat = 50.0, homeLon = 6.0,
+            direction = RideDirection.NORTH,
+            homeExitRadiusM = 5000.0,
+        )
+
+        assertTrue("Home corridor should pass", filtered.any { it.id == 1L })
+        assertTrue("Near-home corridor should pass", filtered.any { it.id == 2L })
+        assertFalse("Far south corridor should be filtered out", filtered.any { it.id == 3L })
+    }
+
+    @Test
+    fun `filterByDirection keeps corridors in the chosen direction`() {
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val north = corridor(id = 2, lat = 50.1, lon = 6.0)
+        val east = corridor(id = 3, lat = 50.0, lon = 6.2)
+        val south = corridor(id = 4, lat = 49.9, lon = 6.0)
+        val west = corridor(id = 5, lat = 50.0, lon = 5.8)
+
+        val filteredNorth = CorridorOrienteer.filterByDirection(
+            listOf(home, north, east, south, west),
+            homeLat = 50.0, homeLon = 6.0,
+            direction = RideDirection.NORTH,
+            homeExitRadiusM = 500.0,
+        )
+
+        assertTrue("North corridor should pass for NORTH", filteredNorth.any { it.id == 2L })
+        assertFalse("South corridor should be excluded for NORTH", filteredNorth.any { it.id == 4L })
+    }
+
+    @Test
+    fun `search with direction only uses corridors in that direction`() = runTest {
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val northA = corridor(id = 2, lat = 50.02, lon = 6.0, pedalReward = 5.0)
+        val northB = corridor(id = 3, lat = 50.04, lon = 6.0, pedalReward = 5.0)
+        val south = corridor(id = 4, lat = 49.96, lon = 6.0, pedalReward = 5.0)
+
+        val connectors = listOf(
+            connector(1, 2, 2000.0),
+            connector(2, 3, 2000.0),
+            connector(3, 1, 3000.0),
+            connector(1, 4, 3000.0),
+            connector(4, 1, 3000.0),
+        )
+
+        val results = CorridorOrienteer.search(
+            listOf(home, northA, northB, south), connectors,
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 8000.0,
+            seed = 42L,
+            direction = RideDirection.NORTH,
+        )
+
+        for (candidate in results) {
+            assertFalse(
+                "South corridor should not appear in NORTH direction results",
+                candidate.corridors.contains(4L),
+            )
+        }
+    }
+
     // --- Edge cases ---
 
     @Test
-    fun `empty corridor list returns empty`() {
+    fun `empty corridor list returns empty`() = runTest {
         val results = CorridorOrienteer.search(
             emptyList(), emptyList(),
             homeLat = 50.0, homeLon = 6.0,
@@ -306,7 +396,7 @@ class CorridorOrienteerTest {
     }
 
     @Test
-    fun `disconnected graph returns empty when no loop possible`() {
+    fun `disconnected graph returns empty when no loop possible`() = runTest {
         val a = corridor(id = 1, lat = 50.0, lon = 6.0)
         val b = corridor(id = 2, lat = 50.1, lon = 6.1)
 
@@ -319,7 +409,7 @@ class CorridorOrienteerTest {
     }
 
     @Test
-    fun `candidates carry flow and discovery sub-scores`() {
+    fun `candidates carry flow and discovery sub-scores`() = runTest {
         val (corridors, connectors) = ringFixture()
 
         val results = CorridorOrienteer.search(

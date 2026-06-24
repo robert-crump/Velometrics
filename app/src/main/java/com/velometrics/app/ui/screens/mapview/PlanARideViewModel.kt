@@ -6,14 +6,18 @@ import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.service.GeneratorConfig
 import com.velometrics.app.domain.service.RankedCandidate
+import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.domain.service.RouteGenerator
 import com.velometrics.app.domain.service.RoutePlanResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -34,8 +38,11 @@ class PlanARideViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    fun planARide(targetDistanceKm: Double) {
-        viewModelScope.launch {
+    private var generationJob: Job? = null
+
+    fun planARide(targetDistanceKm: Double, direction: RideDirection? = null) {
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
             _isGenerating.value = true
             _message.value = null
             _candidates.value = emptyList()
@@ -45,10 +52,12 @@ class PlanARideViewModel @Inject constructor(
                 val homeLon = userSettingsRepository.homeLon.first()
                 val targetDistanceM = targetDistanceKm * 1000.0
 
-                val result = RouteGenerator.generate(
-                    homeLat, homeLon, targetDistanceM, repository,
-                    config = GeneratorConfig(),
-                )
+                val result = withContext(Dispatchers.Default) {
+                    RouteGenerator.generate(
+                        homeLat, homeLon, targetDistanceM, repository,
+                        config = GeneratorConfig(direction = direction),
+                    )
+                }
 
                 when (result) {
                     is RoutePlanResult.Success -> {
@@ -61,6 +70,8 @@ class PlanARideViewModel @Inject constructor(
                         _message.value = result.reason
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _message.value = "Route generation failed: ${e.message}"
             } finally {
@@ -76,8 +87,11 @@ class PlanARideViewModel @Inject constructor(
     }
 
     fun clearPlan() {
+        generationJob?.cancel()
+        generationJob = null
         _candidates.value = emptyList()
         _selectedCandidateIndex.value = null
         _message.value = null
+        _isGenerating.value = false
     }
 }

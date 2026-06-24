@@ -196,6 +196,7 @@ class DegradationPolicyTest {
             listOf(48000.0, 52000.0),
             requestedDistanceM = 50000.0,
             currentTier = RelaxationTier.NONE,
+            config = DegradationConfig(minDesiredCandidates = 3),
         )
 
         assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)
@@ -222,6 +223,7 @@ class DegradationPolicyTest {
             listOf(50000.0),
             requestedDistanceM = 50000.0,
             currentTier = RelaxationTier.WIDEN_BAND,
+            config = DegradationConfig(minDesiredCandidates = 3),
         )
 
         assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)

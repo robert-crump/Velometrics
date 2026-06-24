@@ -3,7 +3,7 @@ package com.velometrics.app.domain.service
 import kotlin.math.roundToInt
 
 data class DegradationConfig(
-    val minDesiredCandidates: Int = 3,
+    val minDesiredCandidates: Int = 1,
     val baseDistanceBandFraction: Double = 0.15,
     val widenedDistanceBandFraction: Double = 0.30,
     val easedExploreExploitBalance: Double = 0.6,

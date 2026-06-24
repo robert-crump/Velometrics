@@ -39,6 +39,9 @@ class MapMatcherTest {
                 edges.filter { (it.fromNode to it.toNode) in pairs.toSet() }
             override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = edges
             override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = nodes
+            override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
+            override suspend fun getRoutingEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
+                edges.map { com.velometrics.app.domain.repository.RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
             override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filter { it.isTraversed })
             override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filterNot { it.isTraversed })
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

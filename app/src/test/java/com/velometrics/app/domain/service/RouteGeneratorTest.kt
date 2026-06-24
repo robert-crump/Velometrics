@@ -7,6 +7,7 @@ import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.domain.repository.RoutingEdge
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -37,8 +38,6 @@ class RouteGeneratorTest {
         assertTrue("Expected at most 3 candidates", success.candidates.size <= 3)
 
         for (candidate in success.candidates) {
-            assertTrue(candidate.refinedRoute.flowScore >= 0.0)
-            assertTrue(candidate.refinedRoute.discoveryScore >= 0.0)
             assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
             assertTrue(candidate.refinedRoute.edges.isNotEmpty())
             assertTrue(candidate.rank >= 1)
@@ -63,8 +62,8 @@ class RouteGeneratorTest {
         if (candidates.size >= 2) {
             for (i in 0 until candidates.size - 1) {
                 assertTrue(
-                    "Candidate ${i + 1} should have >= reward than candidate ${i + 2}",
-                    candidates[i].refinedRoute.totalReward >= candidates[i + 1].refinedRoute.totalReward,
+                    "Candidate ${i + 1} should have >= coarse reward than candidate ${i + 2}",
+                    candidates[i].coarseLoop.totalReward >= candidates[i + 1].coarseLoop.totalReward,
                 )
             }
         }
@@ -305,9 +304,17 @@ class RouteGeneratorTest {
         override suspend fun getEdgesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = edges
+        override suspend fun getRoutingEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
+        override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>): List<MapEdge> {
+            val pairSet = pairs.toSet()
+            return edges.filter { (it.fromNode to it.toNode) in pairSet }
+        }
         override suspend fun getNodesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = nodes
+        override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
     }
 
     private inner class EmptyRepository : FakeRepository()
@@ -355,9 +362,17 @@ class RouteGeneratorTest {
         override suspend fun getEdgesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = edges
+        override suspend fun getRoutingEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
+        override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>): List<MapEdge> {
+            val pairSet = pairs.toSet()
+            return edges.filter { (it.fromNode to it.toNode) in pairSet }
+        }
         override suspend fun getNodesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = nodes
+        override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
     }
 
     private open class FakeRepository : MapGraphRepository {
@@ -370,6 +385,10 @@ class RouteGeneratorTest {
         override suspend fun getNodesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = emptyList<MapNode>()
+        override suspend fun getNodesByIds(vararg ids: Long) = emptyList<MapNode>()
+        override suspend fun getRoutingEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = emptyList<RoutingEdge>()
         override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

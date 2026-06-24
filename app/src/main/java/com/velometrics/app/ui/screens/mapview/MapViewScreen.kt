@@ -76,6 +76,7 @@ import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
 import com.velometrics.app.domain.service.RankedCandidate
+import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
@@ -971,6 +972,7 @@ fun MapViewScreen(
 
     if (showPlanDistanceDialog) {
         var distanceText by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_DISTANCE_KM.toInt().toString()) }
+        var selectedDirection by remember { mutableStateOf<RideDirection?>(null) }
         AlertDialog(
             onDismissRequest = { showPlanDistanceDialog = false },
             title = { Text("Plan a ride") },
@@ -983,13 +985,48 @@ fun MapViewScreen(
                         onValueChange = { distanceText = it.filter { c -> c.isDigit() } },
                         singleLine = true,
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Direction:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val directions = RideDirection.entries
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        directions.take(2).forEach { dir ->
+                            FilterChip(
+                                selected = selectedDirection == dir,
+                                onClick = {
+                                    selectedDirection = if (selectedDirection == dir) null else dir
+                                },
+                                label = { Text(dir.label) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        directions.drop(2).forEach { dir ->
+                            FilterChip(
+                                selected = selectedDirection == dir,
+                                onClick = {
+                                    selectedDirection = if (selectedDirection == dir) null else dir
+                                },
+                                label = { Text(dir.label) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     showPlanDistanceDialog = false
                     val km = distanceText.toDoubleOrNull() ?: PLAN_A_RIDE_DEFAULT_DISTANCE_KM
-                    planARideViewModel.planARide(km)
+                    planARideViewModel.planARide(km, selectedDirection)
                 }) { Text("Generate") }
             },
             dismissButton = {

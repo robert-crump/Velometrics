@@ -16,6 +16,7 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
     val speedHist: Map<String, Int> = gson.fromJson(speedHistogram, mapType)
     val fatEffHist: Map<String, Int>? = fatEfficiencyHistogram?.let { gson.fromJson(it, mapType) }
     val sprintHist: Map<String, Int>? = sprintHistogram?.let { gson.fromJson(it, mapType) }
+    val hrZoneDist: Map<String, Int>? = hrZoneDistribution?.let { gson.fromJson(it, mapType) }
 
     return CyclingSession(
         id = id,
@@ -44,7 +45,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         sprintCount = sprintCount,
         sprintHistogram = sprintHist,
         avgHeartRate = avgHeartRate,
-        elevationGainM = elevationGainM
+        elevationGainM = elevationGainM,
+        hrZoneDistribution = hrZoneDist
     )
 }
 
@@ -76,7 +78,8 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         sprintCount = sprintCount,
         sprintHistogram = sprintHistogram?.let { gson.toJson(it) },
         avgHeartRate = avgHeartRate,
-        elevationGainM = elevationGainM
+        elevationGainM = elevationGainM,
+        hrZoneDistribution = hrZoneDistribution?.let { gson.toJson(it) }
     )
 }
 

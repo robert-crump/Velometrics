@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material.icons.filled.FavoriteBorder
 import com.velometrics.app.util.CyclingConstants
 import kotlin.math.roundToInt
 
@@ -31,11 +32,13 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val recalcState by viewModel.recalcState.collectAsState()
+    val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
     val currentFtp by viewModel.ftp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
     val homeDisplayName by viewModel.homeDisplayName.collectAsState(initial = "")
     val pendingFtp by viewModel.pendingFtp.collectAsState()
+    val pendingMaxHr by viewModel.pendingMaxHr.collectAsState()
     val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
     val needsDropboxReauth by viewModel.needsDropboxReauth.collectAsState()
     val currentDropboxSyncFolder by viewModel.dropboxSyncFolder.collectAsState(
@@ -43,6 +46,7 @@ fun SettingsScreen(
     )
 
     var showFtpDialog by remember { mutableStateOf(false) }
+    var showMaxHrDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
     var showRecalcDialog by remember { mutableStateOf(false) }
 
@@ -105,6 +109,68 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.cancelFtpChange() }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Max HR edit dialog
+    if (showMaxHrDialog) {
+        var maxHrInput by remember { mutableStateOf(currentMaxHr.toString()) }
+        AlertDialog(
+            onDismissRequest = { showMaxHrDialog = false },
+            title = { Text("Max Heart Rate") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = maxHrInput,
+                        onValueChange = { maxHrInput = it },
+                        label = { Text("Max HR (bpm)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Your maximum heart rate in beats per minute. " +
+                            "Defines heart rate zone boundaries (Z1–Z5). " +
+                            "Requires a heart rate monitor.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val parsed = maxHrInput.trim().toIntOrNull()
+                    if (parsed != null && parsed > 0 && parsed != currentMaxHr) {
+                        showMaxHrDialog = false
+                        viewModel.requestMaxHrChange(parsed)
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMaxHrDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Max HR change confirmation dialog
+    pendingMaxHr?.let { newMaxHr ->
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelMaxHrChange() },
+            title = { Text("Change Max HR?") },
+            text = {
+                Text(
+                    "New Max HR = $newMaxHr bpm will be used for all future file imports.\n\n" +
+                        "Existing session data (heart rate zones) remains based on " +
+                        "Max HR = $currentMaxHr bpm and cannot be updated without re-importing those files."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmMaxHrChange() }) { Text("Confirm") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelMaxHrChange() }) { Text("Cancel") }
             }
         )
     }
@@ -181,6 +247,13 @@ fun SettingsScreen(
                 title = "FTP",
                 subtitle = "$currentFtp W",
                 onClick = { showFtpDialog = true }
+            )
+
+            SettingsRow(
+                icon = Icons.Default.FavoriteBorder,
+                title = "Max Heart Rate",
+                subtitle = "$currentMaxHr bpm",
+                onClick = { showMaxHrDialog = true }
             )
 
             val homeSubtitle = if (homeDisplayName.isNotBlank()) {

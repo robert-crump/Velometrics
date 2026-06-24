@@ -77,6 +77,16 @@ object CyclingConstants {
         "Zone 6" to (1.25 to Double.MAX_VALUE)
     )
 
+    // Heart rate zones (label → [lower, upper) as fraction of max HR)
+    const val DEFAULT_MAX_HR = 190
+    val HR_ZONES = listOf(
+        "Zone 1" to (0.0 to 0.60),
+        "Zone 2" to (0.60 to 0.70),
+        "Zone 3" to (0.70 to 0.80),
+        "Zone 4" to (0.80 to 0.90),
+        "Zone 5" to (0.90 to Double.MAX_VALUE)
+    )
+
     // Interval overlay
     const val INTERVAL_OVERLAY_LINE_WIDTH = 6f
     const val INTERVAL_GROUPED_LINE_WIDTH = 8f

@@ -139,6 +139,10 @@ fun SessionDetailScreen(
                         }
                     }
 
+                    if (s.hrZoneDistribution != null) {
+                        HeartRateZoneChart(hrZones = s.hrZoneDistribution!!)
+                    }
+
                     if (s.hasPower && s.fatEfficiencyHistogram != null) {
                         FatEfficiencyHistogram(histogram = s.fatEfficiencyHistogram!!)
                     }

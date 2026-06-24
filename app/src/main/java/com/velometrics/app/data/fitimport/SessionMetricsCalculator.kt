@@ -27,7 +27,8 @@ class SessionMetricsCalculator @Inject constructor() {
         timerEvents: List<TimerEvent>,
         rawRecordCount: Int,
         originalPowerCount: Int,
-        ftp: Int = CyclingConstants.DEFAULT_FTP
+        ftp: Int = CyclingConstants.DEFAULT_FTP,
+        maxHr: Int = CyclingConstants.DEFAULT_MAX_HR
     ): CyclingSession {
         // 1. Timestamps
         val sessionStart = datapoints.first().timestamp
@@ -81,6 +82,9 @@ class SessionMetricsCalculator @Inject constructor() {
         // 13. Elevation gain
         val elevationGainM = computeElevationGain(datapoints)
 
+        // 14. Heart rate zones
+        val hrZoneDistribution = if (avgHeartRate != null) computeHrZones(datapoints, maxHr) else null
+
         return CyclingSession(
             fileName = fileName,
             fileSha1 = fileSha1,
@@ -105,7 +109,8 @@ class SessionMetricsCalculator @Inject constructor() {
             fatEfficiencyHistogram = fatEfficiencyHistogram,
             fatEfficiencyScore = fatEfficiencyScore,
             avgHeartRate = avgHeartRate,
-            elevationGainM = elevationGainM
+            elevationGainM = elevationGainM,
+            hrZoneDistribution = hrZoneDistribution
         )
     }
 
@@ -119,6 +124,24 @@ class SessionMetricsCalculator @Inject constructor() {
         val hasHeartRate = hrValues.size >= (datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD)
         if (!hasHeartRate) return null
         return hrValues.average().roundToInt()
+    }
+
+    private fun computeHrZones(datapoints: List<Datapoint>, maxHr: Int): Map<String, Int> {
+        val zones = CyclingConstants.HR_ZONES.associate { (label, _) -> label to 0 }.toMutableMap()
+        val maxHrDouble = maxHr.toDouble()
+
+        for (dp in datapoints) {
+            val hr = dp.heartRate ?: continue
+            if (hr <= 0) continue
+            val ratio = hr / maxHrDouble
+            for ((label, range) in CyclingConstants.HR_ZONES) {
+                if (ratio >= range.first && ratio < range.second) {
+                    zones[label] = (zones[label] ?: 0) + 1
+                    break
+                }
+            }
+        }
+        return zones
     }
 
     /**

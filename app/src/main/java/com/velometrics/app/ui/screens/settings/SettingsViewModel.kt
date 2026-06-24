@@ -30,6 +30,7 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val ftp = userSettingsRepository.ftp
+    val maxHr = userSettingsRepository.maxHr
     val homeLat = userSettingsRepository.homeLat
     val homeLon = userSettingsRepository.homeLon
     val homeDisplayName = userSettingsRepository.homeDisplayName
@@ -42,6 +43,9 @@ class SettingsViewModel @Inject constructor(
 
     private val _pendingFtp = MutableStateFlow<Int?>(null)
     val pendingFtp: StateFlow<Int?> = _pendingFtp.asStateFlow()
+
+    private val _pendingMaxHr = MutableStateFlow<Int?>(null)
+    val pendingMaxHr: StateFlow<Int?> = _pendingMaxHr.asStateFlow()
 
     fun requestFtpChange(newFtp: Int) {
         _pendingFtp.value = newFtp
@@ -56,6 +60,22 @@ class SettingsViewModel @Inject constructor(
         _pendingFtp.value = null
         viewModelScope.launch(Dispatchers.IO) {
             userSettingsRepository.saveFtp(newFtp)
+        }
+    }
+
+    fun requestMaxHrChange(newMaxHr: Int) {
+        _pendingMaxHr.value = newMaxHr
+    }
+
+    fun cancelMaxHrChange() {
+        _pendingMaxHr.value = null
+    }
+
+    fun confirmMaxHrChange() {
+        val newMaxHr = _pendingMaxHr.value ?: return
+        _pendingMaxHr.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            userSettingsRepository.saveMaxHr(newMaxHr)
         }
     }
 

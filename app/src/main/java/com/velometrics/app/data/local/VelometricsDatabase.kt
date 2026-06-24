@@ -14,7 +14,7 @@ import com.velometrics.app.data.local.entity.*
         RepeatedRouteEntity::class,
         RepeatedIntervalEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

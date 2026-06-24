@@ -45,6 +45,7 @@ class FitImportService @Inject constructor(
         return try {
             // Read user FTP setting for this import
             val ftp = userSettingsRepository.ftp.first()
+            val maxHr = userSettingsRepository.maxHr.first()
 
             // 1. SHA-1 hash and duplicate check
             val fileSha1 = sha1Hex(bytes)
@@ -103,7 +104,8 @@ class FitImportService @Inject constructor(
                 timerEvents = parseResult.timerEvents,
                 rawRecordCount = parseResult.totalRecordCount,
                 originalPowerCount = originalPowerCount,
-                ftp = ftp
+                ftp = ftp,
+                maxHr = maxHr
             )
 
             Log.d(TAG, "$fileName: dist=${session.distanceKm}km, duration=${session.netDurationSec}s, " +

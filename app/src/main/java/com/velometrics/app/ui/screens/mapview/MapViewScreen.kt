@@ -272,7 +272,11 @@ fun MapViewScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         val loc = currentLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
-        renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
+        try {
+            renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
+        } catch (_: IllegalStateException) {
+            return@LaunchedEffect
+        }
         if (!fineLocationZoomedIn && accuracy <= 50f) {
             fineLocationZoomedIn = true
             ms.first.animateCamera(
@@ -285,7 +289,11 @@ fun MapViewScreen(
     LaunchedEffect(currentHeading, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         val heading = currentHeading ?: return@LaunchedEffect
-        updateHeadingArrow(context, ms.second, heading)
+        try {
+            updateHeadingArrow(context, ms.second, heading)
+        } catch (_: IllegalStateException) {
+            return@LaunchedEffect
+        }
     }
 
     // rememberUpdatedState for click listener (avoids stale captures)

@@ -12,6 +12,12 @@ data class RoutingEdgeRow(
     @ColumnInfo(name = "length_m") val lengthM: Double,
 )
 
+data class FlowSegmentRow(
+    @ColumnInfo(name = "geometry_encoded") val geometryEncoded: String,
+    @ColumnInfo(name = "pedal_flow_count") val pedalFlowCount: Int,
+    @ColumnInfo(name = "gravity_flow_count") val gravityFlowCount: Int,
+)
+
 @Dao
 interface MapEdgeDao {
     @Query("SELECT * FROM map_edges")
@@ -47,4 +53,22 @@ interface MapEdgeDao {
         """
     )
     suspend fun getRoutingEdgesNear(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<RoutingEdgeRow>
+
+    @Query(
+        """
+        SELECT DISTINCT e.geometry_encoded,
+               IFNULL(CAST(json_extract(e.metadata, '${'$'}.pedal_flow_count') AS INTEGER), 0) AS pedal_flow_count,
+               IFNULL(CAST(json_extract(e.metadata, '${'$'}.gravity_flow_count') AS INTEGER), 0) AS gravity_flow_count
+        FROM map_edges e
+        INNER JOIN map_nodes nf ON e.from_node = nf.id
+        INNER JOIN map_nodes nt ON e.to_node = nt.id
+        WHERE ((nf.lat BETWEEN :minLat AND :maxLat AND nf.lon BETWEEN :minLon AND :maxLon)
+            OR (nt.lat BETWEEN :minLat AND :maxLat AND nt.lon BETWEEN :minLon AND :maxLon))
+          AND (IFNULL(CAST(json_extract(e.metadata, '${'$'}.pedal_flow_count') AS INTEGER), 0)
+             + IFNULL(CAST(json_extract(e.metadata, '${'$'}.gravity_flow_count') AS INTEGER), 0)) >= :minFlowCount
+        """
+    )
+    suspend fun getFlowSegmentsNear(
+        minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, minFlowCount: Int
+    ): List<FlowSegmentRow>
 }

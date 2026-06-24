@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.ui.components
 
+import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.CyclingConstants.FLOW_SEGMENT_COLOR
@@ -94,11 +95,13 @@ object MapOverlayRenderer {
         try { style.removeSource(SPEED_SOURCE) } catch (_: Exception) {}
     }
 
-    suspend fun renderFlowSegments(style: Style, edges: List<MapEdge>) {
+    suspend fun renderFlowSegments(style: Style, segments: List<FlowSegment>) {
         val features = withContext(Dispatchers.Default) {
             val lines = mutableListOf<List<Point>>()
-            edges.filter { MapOverlayUtils.isFlowSegment(it) }.forEach { edge ->
-                val points = decodeEdgePoints(edge)
+            segments.forEach { segment ->
+                val points = PolylineDecoder.decode(segment.geometryEncoded).map { latLng ->
+                    Point.fromLngLat(latLng.longitude, latLng.latitude)
+                }
                 if (points.size >= 2) lines.add(points)
             }
             buildList {

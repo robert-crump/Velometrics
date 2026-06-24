@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.CorridorConnector
+import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -340,6 +341,8 @@ class RouteRefinerTest {
         override suspend fun getAllCorridorConnectors() = emptyList<CorridorConnector>()
         override suspend fun getConnectorsForCorridor(corridorId: Long) =
             emptyList<CorridorConnector>()
+        override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
+            emptyList<FlowSegment>()
     }
 
     private class TrackingFakeRepository(

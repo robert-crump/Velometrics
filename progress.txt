@@ -1,3 +1,50 @@
+## Issue #103 — Replace eager 512K edge load with viewport-scoped flow segments query
+Completed: 2026-06-24 | Closed: pending
+
+### What was done
+
+**New `FlowSegment` domain model**
+- `domain/model/FlowSegment.kt`: lightweight data class with only `geometryEncoded`,
+  `pedalFlowCount`, `gravityFlowCount` — no metadata, no speed/power stats, no node IDs.
+
+**New DAO query (`MapEdgeDao.kt`)**
+- `FlowSegmentRow` data class for the Room projection.
+- `getFlowSegmentsNear(minLat, maxLat, minLon, maxLon, minFlowCount)`: spatial BETWEEN
+  query (same pattern as `getNear()`) with flow-qualifying filter in SQL via
+  `json_extract(e.metadata, '$.pedal_flow_count')` + `json_extract(e.metadata,
+  '$.gravity_flow_count')`. Non-flow edges never leave the DB.
+
+**Repository method (`MapGraphRepository`, `MapGraphRepositoryImpl`)**
+- `getFlowSegmentsNear(minLat, minLon, maxLat, maxLon)`: passes
+  `CyclingConstants.FLOW_SEGMENT_MIN_COUNT` as the threshold to the DAO query, maps
+  `FlowSegmentRow` → `FlowSegment`.
+
+**ViewModel (`MapViewViewModel.kt`)**
+- Removed `allEdges: StateFlow<List<MapEdge>>` (was `SharingStarted.Eagerly` loading
+  all 511,597 edges ~200-250 MB).
+- Moved `_viewportBounds` declaration earlier (shared by POI layer and flow segments).
+- New `flowSegments: StateFlow<List<FlowSegment>>` combining `_showFlowSegments` toggle
+  with `_viewportBounds.debounce(300)`. Only active when the toggle is ON; returns
+  `emptyList()` when OFF or viewport is null.
+
+**MapViewScreen (`MapViewScreen.kt`)**
+- Replaced `val edges by viewModel.allEdges.collectAsState()` with
+  `val flowSegments by viewModel.flowSegments.collectAsState()`.
+- Flow segments `LaunchedEffect` now keys on `flowSegments` (viewport-scoped, pre-filtered)
+  instead of all edges.
+- Dormant overlay `LaunchedEffect`s (All rides, Speed overlay — UI toggles removed in #78)
+  no longer observe `edges`, avoiding any eager load trigger.
+
+**MapOverlayRenderer (`MapOverlayRenderer.kt`)**
+- `renderFlowSegments` now accepts `List<FlowSegment>` instead of `List<MapEdge>`. Decodes
+  `geometryEncoded` directly — no `isFlowSegment` filter needed since SQL already filters.
+
+### Tests
+Updated 5 fake `MapGraphRepository` implementations (MapViewViewModelTest,
+MapMatcherTest, FastWayHomeServiceTest, RouteRefinerTest, RouteGeneratorTest)
+with the new `getFlowSegmentsNear` method stub.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
 ## Issue #102 — Wire surrogate fallback into speed/power estimate and discovery score
 Completed: 2026-06-24 | Closed: pending
 

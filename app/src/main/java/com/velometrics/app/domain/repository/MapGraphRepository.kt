@@ -2,6 +2,7 @@
 
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.CorridorConnector
+import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
@@ -26,4 +27,5 @@ interface MapGraphRepository {
     suspend fun getAllCorridors(): List<Corridor>
     suspend fun getAllCorridorConnectors(): List<CorridorConnector>
     suspend fun getConnectorsForCorridor(corridorId: Long): List<CorridorConnector>
+    suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<FlowSegment>
 }

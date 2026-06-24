@@ -126,13 +126,13 @@ fun MapViewScreen(
     gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalActivity.current as ComponentActivity),
     gpxIntentViewModel: GpxIntentViewModel = hiltViewModel(LocalActivity.current as ComponentActivity)
 ) {
-    val edges by viewModel.allEdges.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
     val visibleSessionIds by viewModel.visibleSessionIds.collectAsState()
     val showAllRidesLayer by viewModel.showAllRidesLayer.collectAsState()
     val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
     val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
     val showFlowSegments by viewModel.showFlowSegments.collectAsState()
+    val flowSegments by viewModel.flowSegments.collectAsState()
 
     // Interval overlay state
     val showIntervalOverlay by viewModel.showIntervalOverlay.collectAsState()
@@ -335,30 +335,24 @@ fun MapViewScreen(
         renderedTrackIds = newRendered
     }
 
-    // All rides layer sync
-    LaunchedEffect(showAllRidesLayer, edges, mapAndStyle) {
+    // All rides layer sync (dormant — toggle removed from UI in #78)
+    LaunchedEffect(showAllRidesLayer, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapOverlayRenderer.removeEdges(ms.second)
-        if (showAllRidesLayer && edges.isNotEmpty()) {
-            MapOverlayRenderer.renderEdges(ms.second, edges)
-        }
     }
 
-    // Speed overlay sync — re-render when selected categories or edges change
-    LaunchedEffect(showSpeedOverlay, selectedSpeedCategories, edges, mapAndStyle) {
+    // Speed overlay sync (dormant — toggle removed from UI in #78)
+    LaunchedEffect(showSpeedOverlay, selectedSpeedCategories, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapOverlayRenderer.removeSpeedOverlay(ms.second)
-        if (showSpeedOverlay) {
-            MapOverlayRenderer.renderSpeedOverlay(ms.second, edges, selectedSpeedCategories)
-        }
     }
 
-    // Flow segments overlay sync
-    LaunchedEffect(showFlowSegments, edges, mapAndStyle) {
+    // Flow segments overlay sync — viewport-scoped, only active when toggle is on
+    LaunchedEffect(flowSegments, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapOverlayRenderer.removeFlowSegments(ms.second)
-        if (showFlowSegments && edges.isNotEmpty()) {
-            MapOverlayRenderer.renderFlowSegments(ms.second, edges)
+        if (flowSegments.isNotEmpty()) {
+            MapOverlayRenderer.renderFlowSegments(ms.second, flowSegments)
         }
     }
 

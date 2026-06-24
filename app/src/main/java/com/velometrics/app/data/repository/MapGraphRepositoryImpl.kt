@@ -8,11 +8,13 @@ import com.velometrics.app.data.local.dao.PoiDao
 import com.velometrics.app.data.local.entity.*
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.CorridorConnector
+import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.util.CyclingConstants
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -78,4 +80,9 @@ class MapGraphRepositoryImpl @Inject constructor(
 
     override suspend fun getConnectorsForCorridor(corridorId: Long): List<CorridorConnector> =
         corridorDao.getConnectorsForCorridor(corridorId).map { it.toDomain() }
+
+    override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<FlowSegment> =
+        edgeDao.getFlowSegmentsNear(minLat, maxLat, minLon, maxLon, CyclingConstants.FLOW_SEGMENT_MIN_COUNT).map {
+            FlowSegment(it.geometryEncoded, it.pedalFlowCount, it.gravityFlowCount)
+        }
 }

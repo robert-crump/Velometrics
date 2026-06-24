@@ -3,8 +3,8 @@
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.domain.model.RepeatedInterval
@@ -17,12 +17,14 @@ import com.velometrics.app.domain.service.LocationSource
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -46,9 +48,6 @@ class MapViewViewModel @Inject constructor(
         const val ALL_POIS_CHIP = "All POIs"
     }
 
-    val allEdges: StateFlow<List<MapEdge>> = mapGraphRepository.getAllEdges()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
     val sessions: StateFlow<List<CyclingSession>> = cyclingSessionRepository.getAllSessions()
         .map { list -> list.sortedByDescending { it.sessionStart } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -65,7 +64,21 @@ class MapViewViewModel @Inject constructor(
     private val _showFlowSegments = MutableStateFlow(false)
     val showFlowSegments: StateFlow<Boolean> = _showFlowSegments.asStateFlow()
 
+    private val _viewportBounds = MutableStateFlow<LatLngBounds?>(null)
+
     fun toggleFlowSegments() { _showFlowSegments.update { !it } }
+
+    @OptIn(FlowPreview::class)
+    val flowSegments: StateFlow<List<FlowSegment>> = combine(
+        _showFlowSegments,
+        _viewportBounds.debounce(300)
+    ) { show, bounds ->
+        if (!show || bounds == null) emptyList()
+        else mapGraphRepository.getFlowSegmentsNear(
+            bounds.latitudeSouth, bounds.longitudeWest,
+            bounds.latitudeNorth, bounds.longitudeEast
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun toggleAllRidesLayer() { _showAllRidesLayer.update { !it } }
 
@@ -132,8 +145,6 @@ class MapViewViewModel @Inject constructor(
 
     private val _activePoiChip = MutableStateFlow<String?>(null)
     val activePoiChip: StateFlow<String?> = _activePoiChip.asStateFlow()
-
-    private val _viewportBounds = MutableStateFlow<LatLngBounds?>(null)
 
     private val _selectedPoi = MutableStateFlow<PoiWithDistances?>(null)
     val selectedPoi: StateFlow<PoiWithDistances?> = _selectedPoi.asStateFlow()

@@ -18,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -69,7 +68,6 @@ import com.velometrics.app.ui.shared.SpeedPowerEstimateResult
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
-import com.velometrics.app.util.CyclingConstants.INTERVAL_DURATION_COLOR_RAMP
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
@@ -79,7 +77,6 @@ import com.velometrics.app.domain.service.RankedCandidate
 import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
-import com.velometrics.app.util.CyclingConstants.SPEED_COLOR_MAP
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
@@ -128,9 +125,6 @@ fun MapViewScreen(
 ) {
     val sessions by viewModel.sessions.collectAsState()
     val visibleSessionIds by viewModel.visibleSessionIds.collectAsState()
-    val showAllRidesLayer by viewModel.showAllRidesLayer.collectAsState()
-    val showSpeedOverlay by viewModel.showSpeedOverlay.collectAsState()
-    val selectedSpeedCategories by viewModel.selectedSpeedCategories.collectAsState()
     val showFlowSegments by viewModel.showFlowSegments.collectAsState()
     val flowSegments by viewModel.flowSegments.collectAsState()
 
@@ -333,18 +327,6 @@ fun MapViewScreen(
         }
 
         renderedTrackIds = newRendered
-    }
-
-    // All rides layer sync (dormant — toggle removed from UI in #78)
-    LaunchedEffect(showAllRidesLayer, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        MapOverlayRenderer.removeEdges(ms.second)
-    }
-
-    // Speed overlay sync (dormant — toggle removed from UI in #78)
-    LaunchedEffect(showSpeedOverlay, selectedSpeedCategories, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        MapOverlayRenderer.removeSpeedOverlay(ms.second)
     }
 
     // Flow segments overlay sync — viewport-scoped, only active when toggle is on
@@ -1653,136 +1635,6 @@ private fun OpenClosedBadge(openingHours: String?) {
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
-    }
-}
-
-/** Convert a hex color string to its grayscale equivalent (luminance-based). */
-private fun toGrayscaleColor(hexColor: String): Color {
-    val argb = android.graphics.Color.parseColor(hexColor)
-    val r = android.graphics.Color.red(argb) / 255f
-    val g = android.graphics.Color.green(argb) / 255f
-    val b = android.graphics.Color.blue(argb) / 255f
-    val lum = 0.299f * r + 0.587f * g + 0.114f * b
-    return Color(lum, lum, lum)
-}
-
-@Composable
-private fun LegendCard(
-    showAllRides: Boolean,
-    showSpeed: Boolean,
-    showIntervals: Boolean = false,
-    selectedSpeedCategories: Set<String> = emptySet(),
-    onSpeedCategoryClick: (String) -> Unit = {}
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            if (showAllRides) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .background(Color(android.graphics.Color.parseColor("#4CAF50")), CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "All rides (Robert)", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-
-            if (showAllRides && showSpeed) Spacer(modifier = Modifier.height(8.dp))
-
-            if (showSpeed) {
-                Text(
-                    text = "Speed — tap to toggle category",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                // Speed category key → legend label mapping
-                val speedBins = listOf(
-                    "0-20 km/h" to "0-20",
-                    "20-25 km/h" to "20-25",
-                    "25-30 km/h" to "25-30",
-                    "30-40 km/h" to "30-40",
-                    "40-50 km/h" to "40+"
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    speedBins.forEach { (categoryKey, label) ->
-                        val hexColor = SPEED_COLOR_MAP[categoryKey]!!
-                        val isActive = categoryKey in selectedSpeedCategories
-                        val dotColor = if (isActive) {
-                            Color(android.graphics.Color.parseColor(hexColor))
-                        } else {
-                            toGrayscaleColor(hexColor)
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSpeedCategoryClick(categoryKey) }
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(if (isActive) 20.dp else 16.dp)
-                                    .background(dotColor, CircleShape)
-                            )
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isActive) MaterialTheme.colorScheme.onSurface
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (showSpeed && showIntervals) {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (showIntervals) {
-                Text(
-                    text = "Intervals",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "2 min",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        INTERVAL_DURATION_COLOR_RAMP.forEach { color ->
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(12.dp)
-                                    .background(Color(android.graphics.Color.parseColor(color)))
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "8+ min",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            }
-        }
     }
 }
 

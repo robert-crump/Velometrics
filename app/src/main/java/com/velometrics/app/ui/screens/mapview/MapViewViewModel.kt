@@ -52,15 +52,6 @@ class MapViewViewModel @Inject constructor(
         .map { list -> list.sortedByDescending { it.sessionStart } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _showAllRidesLayer = MutableStateFlow(false)
-    val showAllRidesLayer: StateFlow<Boolean> = _showAllRidesLayer.asStateFlow()
-
-    private val _showSpeedOverlay = MutableStateFlow(false)
-    val showSpeedOverlay: StateFlow<Boolean> = _showSpeedOverlay.asStateFlow()
-
-    private val _selectedSpeedCategories = MutableStateFlow<Set<String>>(emptySet())
-    val selectedSpeedCategories: StateFlow<Set<String>> = _selectedSpeedCategories.asStateFlow()
-
     private val _showFlowSegments = MutableStateFlow(false)
     val showFlowSegments: StateFlow<Boolean> = _showFlowSegments.asStateFlow()
 
@@ -79,20 +70,6 @@ class MapViewViewModel @Inject constructor(
             bounds.latitudeNorth, bounds.longitudeEast
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    fun toggleAllRidesLayer() { _showAllRidesLayer.update { !it } }
-
-    fun toggleSpeedOverlay() {
-        val newShow = !_showSpeedOverlay.value
-        _showSpeedOverlay.value = newShow
-        _selectedSpeedCategories.value = if (newShow) setOf("40-50 km/h") else emptySet()
-    }
-
-    fun toggleSpeedCategory(categoryKey: String) {
-        _selectedSpeedCategories.update { current ->
-            if (categoryKey in current) current - categoryKey else current + categoryKey
-        }
-    }
 
     private val _visibleSessionIds = MutableStateFlow<Set<Long>>(emptySet())
     val visibleSessionIds: StateFlow<Set<Long>> = _visibleSessionIds.asStateFlow()

@@ -1,3 +1,31 @@
+## Issue #104 — Remove dead overlay code (all-rides layer, speed overlay)
+Completed: 2026-06-24
+
+### What was done
+
+**MapViewViewModel.kt**
+- Removed `_showAllRidesLayer` / `showAllRidesLayer` state
+- Removed `_showSpeedOverlay` / `showSpeedOverlay` state
+- Removed `_selectedSpeedCategories` / `selectedSpeedCategories` state
+- Removed `toggleAllRidesLayer()`, `toggleSpeedOverlay()`, `toggleSpeedCategory()` methods
+
+**MapViewScreen.kt**
+- Removed 3 `collectAsState()` bindings for the dead state flows
+- Removed 2 dormant `LaunchedEffect` blocks (all-rides layer, speed overlay)
+- Removed `LegendCard` composable (unused since UI toggles removed in #78)
+- Removed `toGrayscaleColor` helper (only used by LegendCard)
+- Cleaned up unused imports: `SPEED_COLOR_MAP`, `INTERVAL_DURATION_COLOR_RAMP`, `CircleShape`
+
+**MapOverlayRenderer.kt**
+- Removed `renderEdges`, `removeEdges`, `renderSpeedOverlay`, `removeSpeedOverlay` methods
+- Removed `decodeEdgePoints` private helper (only used by dead methods)
+- Removed `EDGE_SOURCE`, `EDGE_LAYER`, `SPEED_SOURCE`, `SPEED_LAYER` constants
+- Cleaned up unused imports: `MapEdge`, `CyclingConstants`, `SPEED_OVERLAY_LINE_WIDTH`, `MapOverlayUtils`, `Layer`
+
+All existing unit tests pass. No production code references remain for any removed symbols.
+
+---
+
 ## Issue #103 — Replace eager 512K edge load with viewport-scoped flow segments query
 Completed: 2026-06-24 | Closed: pending
 

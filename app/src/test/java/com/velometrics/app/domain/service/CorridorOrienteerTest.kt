@@ -493,6 +493,69 @@ class CorridorOrienteerTest {
         assertEquals(1.8, highWeight, 1e-9)
     }
 
+    // --- Outbound factor ---
+
+    @Test
+    fun `outboundFactor returns 1 during return phase`() {
+        val factor = CorridorOrienteer.outboundFactor(
+            candidateDistFromHomeM = 5000.0,
+            currentDistFromHomeM = 3000.0,
+            stepDistanceM = 2000.0,
+            budgetFraction = 0.6,
+            weight = 1.0,
+        )
+        assertEquals(1.0, factor, 1e-9)
+    }
+
+    @Test
+    fun `outboundFactor boosts outward movement during outbound`() {
+        val factor = CorridorOrienteer.outboundFactor(
+            candidateDistFromHomeM = 3000.0,
+            currentDistFromHomeM = 2000.0,
+            stepDistanceM = 1500.0,
+            budgetFraction = 0.2,
+            weight = 1.0,
+        )
+        assertTrue("Factor should boost outward movement", factor > 1.0)
+        assertEquals(1.0 + 1000.0 / 1500.0, factor, 1e-9)
+    }
+
+    @Test
+    fun `outboundFactor does not boost inward movement`() {
+        val factor = CorridorOrienteer.outboundFactor(
+            candidateDistFromHomeM = 1000.0,
+            currentDistFromHomeM = 3000.0,
+            stepDistanceM = 2000.0,
+            budgetFraction = 0.2,
+            weight = 1.0,
+        )
+        assertEquals(1.0, factor, 1e-9)
+    }
+
+    @Test
+    fun `outboundFactor returns 1 at budget midpoint`() {
+        val factor = CorridorOrienteer.outboundFactor(
+            candidateDistFromHomeM = 5000.0,
+            currentDistFromHomeM = 3000.0,
+            stepDistanceM = 2000.0,
+            budgetFraction = 0.5,
+            weight = 1.0,
+        )
+        assertEquals(1.0, factor, 1e-9)
+    }
+
+    @Test
+    fun `outboundFactor returns 1 when weight is zero`() {
+        val factor = CorridorOrienteer.outboundFactor(
+            candidateDistFromHomeM = 5000.0,
+            currentDistFromHomeM = 2000.0,
+            stepDistanceM = 1500.0,
+            budgetFraction = 0.2,
+            weight = 0.0,
+        )
+        assertEquals(1.0, factor, 1e-9)
+    }
+
     // --- Cosine similarity ---
 
     @Test

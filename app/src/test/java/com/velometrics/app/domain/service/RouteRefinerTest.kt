@@ -204,6 +204,82 @@ class RouteRefinerTest {
     }
 
     @Test
+    fun `edge reuse penalty discourages backtracking`() = runTest {
+        val nodes = listOf(
+            node(1, 50.0, 6.0),
+            node(2, 50.001, 6.001),
+            node(3, 50.002, 6.002),
+            node(4, 50.001, 6.003),
+        )
+        val edges = listOf(
+            edge(1, 2, 100.0),
+            edge(2, 3, 100.0),
+            edge(3, 4, 150.0),
+            edge(4, 1, 150.0),
+            edge(3, 2, 100.0),
+            edge(2, 1, 100.0),
+        )
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 1, exitNode = 3, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 3, exitNode = 1, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L),
+            totalDistanceM = 500.0,
+            totalReward = 10.0,
+            flowScore = 8.0,
+            discoveryScore = 2.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(edgeReusePenalty = 10.0),
+        )
+
+        assertNotNull(result)
+        val usesAlternate = result!!.edges.any { it.fromNode == 3L && it.toNode == 4L }
+        assertTrue("Should route via node 4 to avoid backtracking on 3->2->1", usesAlternate)
+    }
+
+    @Test
+    fun `no reuse penalty when edgeReusePenalty is 1`() = runTest {
+        val nodes = listOf(
+            node(1, 50.0, 6.0),
+            node(2, 50.001, 6.001),
+            node(3, 50.002, 6.002),
+            node(4, 50.001, 6.003),
+        )
+        val edges = listOf(
+            edge(1, 2, 100.0),
+            edge(2, 3, 100.0),
+            edge(3, 4, 150.0),
+            edge(4, 1, 150.0),
+            edge(3, 2, 100.0),
+            edge(2, 1, 100.0),
+        )
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 1, exitNode = 3, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 3, exitNode = 1, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L),
+            totalDistanceM = 500.0,
+            totalReward = 10.0,
+            flowScore = 8.0,
+            discoveryScore = 2.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(edgeReusePenalty = 1.0),
+        )
+
+        assertNotNull(result)
+        val usesDirectReturn = result!!.edges.any { it.fromNode == 3L && it.toNode == 2L }
+        assertTrue("Without penalty, shortest path 3->2->1 should be used", usesDirectReturn)
+    }
+
+    @Test
     fun `buildWaypoints produces entry-exit pairs closed with home return`() {
         val corridors = listOf(
             corridor(1, entryNode = 10, exitNode = 11),

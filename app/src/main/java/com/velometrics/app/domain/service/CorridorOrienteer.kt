@@ -23,6 +23,9 @@ data class OrienteerConfig(
     val maxRevisitsPerCorridor: Int = 2,
     val geoWeight: Double = 0.5,
     val distanceCeilingFraction: Double = 0.95,
+    val outboundBoostWeight: Double = 1.0,
+    val proximityPenaltyRadiusM: Double = 150.0,
+    val proximityPenaltyWeight: Double = 0.7,
 )
 
 data class CandidateLoop(
@@ -173,24 +176,41 @@ object CorridorOrienteer {
             val phaseBearing = phaseBearing(direction.bearingCenter, clockwise, budgetFraction)
             val currentLat = corridorMap[current]?.centroidLat ?: homeLat
             val currentLon = corridorMap[current]?.centroidLon ?: homeLon
+            val currentDistFromHome = GeoUtils.haversineDistance(homeLat, homeLon, currentLat, currentLon)
+            val proximityLatThresh = config.proximityPenaltyRadiusM / 111320.0
+            val proximityLonThresh = config.proximityPenaltyRadiusM / (111320.0 * cos(Math.toRadians(currentLat)))
 
             val scored = feasible.map { adj ->
                 val cId = adj.corridorId
                 val corridor = corridorMap[cId]!!
                 val baseReward = rewardCache[cId]?.total ?: 0.0
+                val distFromHome = GeoUtils.haversineDistance(
+                    homeLat, homeLon, corridor.centroidLat, corridor.centroidLon,
+                )
                 val reusePenalty = if (visited.contains(cId)) {
-                    val distFromHome = GeoUtils.haversineDistance(
-                        homeLat, homeLon, corridor.centroidLat, corridor.centroidLon,
-                    )
                     config.reusePenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
                 } else {
                     0.0
                 }
+                val proximityFactor = if (!visited.contains(cId) && config.proximityPenaltyWeight > 0.0) {
+                    val hasNearby = visited.any { visitedId ->
+                        val vc = corridorMap[visitedId] ?: return@any false
+                        abs(corridor.centroidLat - vc.centroidLat) < proximityLatThresh &&
+                            abs(corridor.centroidLon - vc.centroidLon) < proximityLonThresh
+                    }
+                    if (hasNearby) {
+                        1.0 - config.proximityPenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
+                    } else 1.0
+                } else 1.0
                 val corridorBearing = GeoUtils.computeBearing(
                     currentLat, currentLon, corridor.centroidLat, corridor.centroidLon,
                 )
                 val geoFactor = geometricFactor(corridorBearing, phaseBearing, config.geoWeight)
-                val effectiveReward = (baseReward / max(adj.distanceM, 1.0)) * geoFactor - reusePenalty
+                val outboundBoost = outboundFactor(
+                    distFromHome, currentDistFromHome,
+                    adj.distanceM, budgetFraction, config.outboundBoostWeight,
+                )
+                val effectiveReward = (baseReward / max(adj.distanceM, 1.0)) * geoFactor * outboundBoost * proximityFactor - reusePenalty
                 ScoredCandidate(adj, effectiveReward)
             }
 
@@ -210,7 +230,12 @@ object CorridorOrienteer {
             usedDistance += chosen.adj.distanceM
             totalReward += rewardCache[chosen.adj.corridorId]?.total ?: 0.0
         }
-        Log.d(TAG, "graspConstruct: $step steps, ${route.size} corridors (${visited.size} unique), dist=${usedDistance.toInt()}m budget=${maxBudget.toInt()}m")
+        val maxReachM = route.maxOfOrNull { id ->
+            corridorMap[id]?.let { c ->
+                GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon)
+            } ?: 0.0
+        } ?: 0.0
+        Log.d(TAG, "graspConstruct: $step steps, ${route.size} corridors (${visited.size} unique), dist=${usedDistance.toInt()}m budget=${maxBudget.toInt()}m maxReach=${maxReachM.toInt()}m")
 
         if (route.size < 2) return null
 
@@ -588,6 +613,18 @@ object CorridorOrienteer {
         if (distanceFromHomeM <= 0.0) return 0.0
         if (distanceFromHomeM >= homeExitRadiusM) return 1.0
         return distanceFromHomeM / homeExitRadiusM
+    }
+
+    internal fun outboundFactor(
+        candidateDistFromHomeM: Double,
+        currentDistFromHomeM: Double,
+        stepDistanceM: Double,
+        budgetFraction: Double,
+        weight: Double,
+    ): Double {
+        if (budgetFraction >= 0.5 || weight <= 0.0) return 1.0
+        val gain = (candidateDistFromHomeM - currentDistFromHomeM) / max(stepDistanceM, 1.0)
+        return 1.0 + weight * max(gain, 0.0)
     }
 
     internal fun findNearestCorridor(

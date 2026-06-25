@@ -18,6 +18,7 @@ data class RefinerConfig(
     val bboxMarginM: Double = 500.0,
     val maxAStarIterations: Int = 50_000,
     val bboxExpansionSteps: List<Double> = listOf(1.0, 2.0, 4.0),
+    val edgeReusePenalty: Double = 5.0,
 )
 
 object RouteRefiner {
@@ -70,6 +71,7 @@ object RouteRefiner {
         val astarStart = System.currentTimeMillis()
         val pathNodePairs = mutableListOf<Pair<Long, Long>>()
         var segmentCount = 0
+        val usedNodePairs = HashSet<Pair<Long, Long>>()
         for (i in 0 until waypoints.size - 1) {
             val from = waypoints[i]
             val to = waypoints[i + 1]
@@ -83,6 +85,7 @@ object RouteRefiner {
 
             var segmentPairs = shortestPathAStar(
                 preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to, targetNode, config,
+                usedNodePairs,
             )
 
             if (segmentPairs == null) {
@@ -106,7 +109,7 @@ object RouteRefiner {
                     edges.forEachIndexed { idx, edge ->
                         edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
                     }
-                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config)
+                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config, usedNodePairs)
                     if (segmentPairs != null) {
                         Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges (fallback ${marginMultiplier}x)")
                         break
@@ -119,6 +122,10 @@ object RouteRefiner {
                 return null
             }
             pathNodePairs.addAll(segmentPairs)
+            for (pair in segmentPairs) {
+                usedNodePairs.add(pair)
+                usedNodePairs.add(pair.second to pair.first)
+            }
             segmentCount++
         }
         Log.d(TAG, "refine: $segmentCount A* segments in ${System.currentTimeMillis() - astarStart}ms")
@@ -146,6 +153,7 @@ object RouteRefiner {
         toNode: Long,
         targetNode: MapNode,
         config: RefinerConfig,
+        usedNodePairs: Set<Pair<Long, Long>> = emptySet(),
     ): List<Pair<Long, Long>>? {
         fun heuristic(edgeIdx: Int): Double {
             val endNode = nodeMap[edges[edgeIdx].toNode] ?: return 0.0
@@ -167,7 +175,8 @@ object RouteRefiner {
             return null
         }
         for (idx in startIndices) {
-            val cost = edges[idx].lengthM
+            val reuse = if (usedNodePairs.contains(edges[idx].fromNode to edges[idx].toNode)) config.edgeReusePenalty else 1.0
+            val cost = edges[idx].lengthM * reuse
             gCosts[idx] = cost
             openSet.add(AStarEntry(idx, cost + heuristic(idx)))
         }
@@ -198,7 +207,8 @@ object RouteRefiner {
                 if (succIdx in closedSet) continue
                 if (succIdx == current.idx) continue
 
-                val newG = currentG + edges[succIdx].lengthM
+                val reuse = if (usedNodePairs.contains(edges[succIdx].fromNode to edges[succIdx].toNode)) config.edgeReusePenalty else 1.0
+                val newG = currentG + edges[succIdx].lengthM * reuse
 
                 val bestG = gCosts[succIdx]
                 if (bestG != null && newG >= bestG) continue

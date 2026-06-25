@@ -36,6 +36,7 @@ object RouteGenerator {
 
     private const val TAG = "RouteGenerator"
     private const val REFINED_BUFFER_FACTOR = 2
+    private const val REFINEMENT_CANDIDATE_MULTIPLIER = 5
 
     suspend fun generate(
         homeLat: Double,
@@ -81,8 +82,10 @@ object RouteGenerator {
                 exploreExploitBalance = tierParams.exploreExploitBalance,
                 confidenceFloor = rewardContext.confidenceFloor,
             )
+            val refinementCount = maxCandidates * REFINEMENT_CANDIDATE_MULTIPLIER
             val tierOrienteerConfig = config.orienteerConfig.copy(
                 reusePenaltyWeight = tierParams.reusePenaltyWeight,
+                candidateCount = refinementCount,
             )
 
             val coarseStart = System.currentTimeMillis()

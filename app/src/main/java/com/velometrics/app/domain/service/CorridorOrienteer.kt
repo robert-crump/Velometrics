@@ -8,6 +8,7 @@ import kotlinx.coroutines.ensureActive
 import java.util.PriorityQueue
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -18,6 +19,9 @@ data class OrienteerConfig(
     val homeExitRadiusM: Double = 5000.0,
     val reusePenaltyWeight: Double = 2.0,
     val overlapDiversityWeight: Double = 0.5,
+    val maxRouteSteps: Int = 100,
+    val maxRevisitsPerCorridor: Int = 3,
+    val geoWeight: Double = 0.5,
 )
 
 data class CandidateLoop(
@@ -32,6 +36,9 @@ object CorridorOrienteer {
 
     private const val TAG = "CorridorOrienteer"
     private const val DIRECTION_CONE_HALF_ANGLE = 45.0
+    private const val MAX_LOCAL_SEARCH_ITERATIONS = 20
+    private const val FAR_POINT_BUDGET_FRACTION = 1.0 / 3.0
+    private val DIRECTIONS = RideDirection.entries.toTypedArray()
 
     suspend fun search(
         corridors: List<Corridor>,
@@ -58,27 +65,35 @@ object CorridorOrienteer {
         Log.d(TAG, "search: ${corridors.size} corridors -> ${reachable.size} by radius(${maxRadiusM.toInt()}m) -> ${filtered.size} by direction, restarts=${config.graspRestarts}")
 
         val corridorMap = filtered.associateBy { it.id }
-        val adjacency = buildAdjacency(connectors.filter {
-            corridorMap.containsKey(it.fromCorridor) && corridorMap.containsKey(it.toCorridor)
-        })
+        val filteredConnectors = connectors.filter {
+            it.fromCorridor != it.toCorridor &&
+                corridorMap.containsKey(it.fromCorridor) && corridorMap.containsKey(it.toCorridor)
+        }
+        val adjacency = buildAdjacency(filteredConnectors, corridorMap)
+        val avgCorridorLen = if (filtered.isNotEmpty()) filtered.map { it.lengthM }.average() else 0.0
+        Log.d(TAG, "search: ${filteredConnectors.size} connectors, avgCorridorLen=${avgCorridorLen.toInt()}m")
 
         val homeCorridor = findNearestCorridor(filtered, homeLat, homeLon) ?: return emptyList()
         val homeId = homeCorridor.id
+        Log.d(TAG, "search: homeCorridor=${homeId} len=${homeCorridor.lengthM.toInt()}m neighbors=${adjacency[homeId]?.size ?: 0}")
 
         val rewardCache = filtered.associate { c ->
             c.id to RewardComposer.composeCorridorReward(c, weights, rewardContext)
         }
 
         val returnCosts = dijkstraFromHome(homeId, adjacency)
+        Log.d(TAG, "search: dijkstra reached ${returnCosts.size}/${filtered.size} corridors")
 
         val allCandidates = mutableListOf<CandidateLoop>()
 
         repeat(config.graspRestarts) { restart ->
             coroutineContext.ensureActive()
             val restartStart = System.currentTimeMillis()
+            val clockwise = restart % 2 == 0
+            val restartDirection = direction ?: DIRECTIONS[random.nextInt(DIRECTIONS.size)]
             val candidate = graspConstruct(
                 corridorMap, adjacency, rewardCache, returnCosts, homeId, homeLat, homeLon,
-                targetDistanceM, config, random,
+                targetDistanceM, config, random, restartDirection, clockwise,
             )
             val graspMs = System.currentTimeMillis() - restartStart
             if (candidate != null) {
@@ -88,7 +103,7 @@ object CorridorOrienteer {
                     homeId, homeLat, homeLon, targetDistanceM, config,
                 )
                 val localMs = System.currentTimeMillis() - localStart
-                Log.d(TAG, "search: restart[$restart] corridors=${improved.corridors.size} dist=${improved.totalDistanceM.toInt()}m grasp=${graspMs}ms local=${localMs}ms")
+                Log.d(TAG, "search: restart[$restart] cw=$clockwise dir=$restartDirection corridors=${improved.corridors.size} dist=${improved.totalDistanceM.toInt()}m grasp=${graspMs}ms local=${localMs}ms")
                 allCandidates.add(improved)
             } else {
                 Log.d(TAG, "search: restart[$restart] no feasible candidate grasp=${graspMs}ms")
@@ -113,23 +128,37 @@ object CorridorOrienteer {
         targetDistanceM: Double,
         config: OrienteerConfig,
         random: Random,
+        direction: RideDirection,
+        clockwise: Boolean,
     ): CandidateLoop? {
         val maxBudget = targetDistanceM * 1.15
         val route = mutableListOf(homeId)
         val visited = mutableSetOf(homeId)
-        var usedDistance = 0.0
+        val visitCounts = mutableMapOf(homeId to 1)
+        var usedDistance = corridorMap[homeId]?.lengthM ?: 0.0
         var totalReward = rewardCache[homeId]?.total ?: 0.0
 
-        while (true) {
+        var step = 0
+        while (step < config.maxRouteSteps) {
+            coroutineContext.ensureActive()
+            step++
             val current = route.last()
             val neighbors = adjacency[current] ?: break
 
             val feasible = neighbors.filter { adj ->
+                if (adj.corridorId == current) return@filter false
+                val visits = visitCounts[adj.corridorId] ?: 0
+                if (visits >= config.maxRevisitsPerCorridor) return@filter false
                 val candidateReturnCost = returnCosts[adj.corridorId] ?: return@filter false
                 corridorMap.containsKey(adj.corridorId) &&
                     usedDistance + adj.distanceM + candidateReturnCost <= maxBudget
             }
             if (feasible.isEmpty()) break
+
+            val budgetFraction = usedDistance / maxBudget
+            val phaseBearing = phaseBearing(direction.bearingCenter, clockwise, budgetFraction)
+            val currentLat = corridorMap[current]?.centroidLat ?: homeLat
+            val currentLon = corridorMap[current]?.centroidLon ?: homeLon
 
             val scored = feasible.map { adj ->
                 val cId = adj.corridorId
@@ -143,7 +172,11 @@ object CorridorOrienteer {
                 } else {
                     0.0
                 }
-                val effectiveReward = baseReward / max(adj.distanceM, 1.0) - reusePenalty
+                val corridorBearing = GeoUtils.computeBearing(
+                    currentLat, currentLon, corridor.centroidLat, corridor.centroidLon,
+                )
+                val geoFactor = geometricFactor(corridorBearing, phaseBearing, config.geoWeight)
+                val effectiveReward = (baseReward / max(adj.distanceM, 1.0)) * geoFactor - reusePenalty
                 ScoredCandidate(adj, effectiveReward)
             }
 
@@ -159,9 +192,11 @@ object CorridorOrienteer {
             val chosen = rcl[random.nextInt(rcl.size)]
             route.add(chosen.adj.corridorId)
             visited.add(chosen.adj.corridorId)
+            visitCounts[chosen.adj.corridorId] = (visitCounts[chosen.adj.corridorId] ?: 0) + 1
             usedDistance += chosen.adj.distanceM
             totalReward += rewardCache[chosen.adj.corridorId]?.total ?: 0.0
         }
+        Log.d(TAG, "graspConstruct: $step steps, ${route.size} corridors (${visited.size} unique), dist=${usedDistance.toInt()}m budget=${maxBudget.toInt()}m")
 
         if (route.size < 2) return null
 
@@ -197,20 +232,21 @@ object CorridorOrienteer {
     ): CandidateLoop {
         val connDist = precomputeConnectionDistances(adjacency)
         val homeDistCache = precomputeHomeDistances(corridorMap, homeLat, homeLon)
+        val homeLengthM = corridorMap[homeId]?.lengthM ?: 0.0
         val visited = HashSet<Long>(candidate.corridors.size * 2)
 
         var best = candidate
         var improved = true
         var iteration = 0
 
-        while (improved) {
+        while (improved && iteration < MAX_LOCAL_SEARCH_ITERATIONS) {
             coroutineContext.ensureActive()
             improved = false
             val iterStart = System.currentTimeMillis()
 
             val twoOptResult = tryTwoOpt(
                 best, rewardCache, connDist, returnCosts, homeDistCache,
-                targetDistanceM, config, visited,
+                targetDistanceM, config, visited, homeLengthM,
             )
             if (twoOptResult != null && twoOptResult.totalReward > best.totalReward) {
                 best = twoOptResult
@@ -219,7 +255,7 @@ object CorridorOrienteer {
 
             val orOptResult = tryOrOpt(
                 best, rewardCache, connDist, returnCosts, homeDistCache,
-                targetDistanceM, config, visited,
+                targetDistanceM, config, visited, homeLengthM,
             )
             if (orOptResult != null && orOptResult.totalReward > best.totalReward) {
                 best = orOptResult
@@ -268,13 +304,16 @@ object CorridorOrienteer {
         targetDistanceM: Double,
         config: OrienteerConfig,
         visited: HashSet<Long>,
+        homeLengthM: Double,
     ): CandidateLoop? {
         val route = candidate.corridors
         val n = route.size
         if (n < 4) return null
 
         val buf = route.toLongArray()
-        var bestCandidate: CandidateLoop? = null
+        var bestScore = Double.NaN
+        var bestI = -1
+        var bestJ = -1
 
         for (i in 1 until n - 2) {
             coroutineContext.ensureActive()
@@ -282,14 +321,14 @@ object CorridorOrienteer {
                 var lo = i; var hi = j
                 while (lo < hi) { val tmp = buf[lo]; buf[lo] = buf[hi]; buf[hi] = tmp; lo++; hi-- }
 
-                val evaluated = evaluateRouteArray(
+                val score = evaluateRouteScore(
                     buf, n, rewardCache, connDist, returnCosts, homeDistCache,
-                    targetDistanceM, config, visited,
+                    targetDistanceM, config, visited, homeLengthM,
                 )
-                if (evaluated != null) {
-                    if (bestCandidate == null || evaluated.totalReward > bestCandidate.totalReward) {
-                        bestCandidate = evaluated
-                    }
+                if (!score.isNaN() && (bestScore.isNaN() || score > bestScore)) {
+                    bestScore = score
+                    bestI = i
+                    bestJ = j
                 }
 
                 lo = i; hi = j
@@ -297,7 +336,14 @@ object CorridorOrienteer {
             }
         }
 
-        return bestCandidate
+        if (bestI < 0) return null
+
+        var lo = bestI; var hi = bestJ
+        while (lo < hi) { val tmp = buf[lo]; buf[lo] = buf[hi]; buf[hi] = tmp; lo++; hi-- }
+        return evaluateRouteArray(
+            buf, n, rewardCache, connDist, returnCosts, homeDistCache,
+            targetDistanceM, config, visited, homeLengthM,
+        )
     }
 
     private suspend fun tryOrOpt(
@@ -309,13 +355,16 @@ object CorridorOrienteer {
         targetDistanceM: Double,
         config: OrienteerConfig,
         visited: HashSet<Long>,
+        homeLengthM: Double,
     ): CandidateLoop? {
         val route = candidate.corridors
         val n = route.size
         if (n < 4) return null
 
         val buf = LongArray(n)
-        var bestCandidate: CandidateLoop? = null
+        var bestScore = Double.NaN
+        var bestI = -1
+        var bestJ = -1
 
         for (i in 1 until n - 1) {
             coroutineContext.ensureActive()
@@ -334,19 +383,74 @@ object CorridorOrienteer {
                 if (pos == insertAt) { buf[pos++] = segment }
                 val bufLen = pos
 
-                val evaluated = evaluateRouteArray(
+                val score = evaluateRouteScore(
                     buf, bufLen, rewardCache, connDist, returnCosts, homeDistCache,
-                    targetDistanceM, config, visited,
+                    targetDistanceM, config, visited, homeLengthM,
                 )
-                if (evaluated != null) {
-                    if (bestCandidate == null || evaluated.totalReward > bestCandidate.totalReward) {
-                        bestCandidate = evaluated
-                    }
+                if (!score.isNaN() && (bestScore.isNaN() || score > bestScore)) {
+                    bestScore = score
+                    bestI = i
+                    bestJ = j
                 }
             }
         }
 
-        return bestCandidate
+        if (bestI < 0) return null
+
+        val winnerSegment = route[bestI]
+        var pos = 0
+        val insertAt = if (bestJ > bestI) bestJ else bestJ
+        for (k in 0 until n) {
+            if (k == bestI) continue
+            if (pos == insertAt) { buf[pos++] = winnerSegment }
+            buf[pos++] = route[k]
+        }
+        if (pos == insertAt) { buf[pos++] = winnerSegment }
+        val bufLen = pos
+        return evaluateRouteArray(
+            buf, bufLen, rewardCache, connDist, returnCosts, homeDistCache,
+            targetDistanceM, config, visited, homeLengthM,
+        )
+    }
+
+    private fun evaluateRouteScore(
+        route: LongArray,
+        len: Int,
+        rewardCache: Map<Long, ComposedReward>,
+        connDist: HashMap<Long, Double>,
+        returnCosts: Map<Long, Double>,
+        homeDistCache: HashMap<Long, Double>,
+        targetDistanceM: Double,
+        config: OrienteerConfig,
+        visited: HashSet<Long>,
+        homeLengthM: Double,
+    ): Double {
+        var distance = homeLengthM
+        for (i in 0 until len - 1) {
+            val d = connDist[pairKey(route[i], route[i + 1])] ?: return Double.NaN
+            distance += d
+        }
+
+        val returnDist = returnCosts[route[len - 1]] ?: return Double.NaN
+        val totalDist = distance + returnDist
+
+        if (totalDist > targetDistanceM * 1.15 || totalDist < targetDistanceM * 0.85) return Double.NaN
+
+        visited.clear()
+        var totalReward = 0.0
+        for (k in 0 until len) {
+            val cId = route[k]
+            val reward = rewardCache[cId] ?: continue
+            if (!visited.add(cId)) {
+                val distFromHome = homeDistCache[cId] ?: continue
+                val penalty = config.reusePenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
+                totalReward += reward.total - penalty
+            } else {
+                totalReward += reward.total
+            }
+        }
+
+        return totalReward
     }
 
     private fun evaluateRouteArray(
@@ -359,8 +463,9 @@ object CorridorOrienteer {
         targetDistanceM: Double,
         config: OrienteerConfig,
         visited: HashSet<Long>,
+        homeLengthM: Double,
     ): CandidateLoop? {
-        var distance = 0.0
+        var distance = homeLengthM
         for (i in 0 until len - 1) {
             val d = connDist[pairKey(route[i], route[i + 1])] ?: return null
             distance += d
@@ -440,6 +545,31 @@ object CorridorOrienteer {
         return intersection / union
     }
 
+    internal fun phaseBearing(directionBearing: Double, clockwise: Boolean, budgetFraction: Double): Double {
+        val phase = when {
+            budgetFraction < 0.25 -> 0
+            budgetFraction < 0.50 -> 1
+            budgetFraction < 0.75 -> 2
+            else -> 3
+        }
+        val offsets = if (clockwise) {
+            doubleArrayOf(-45.0, 45.0, 135.0, 225.0)
+        } else {
+            doubleArrayOf(45.0, -45.0, -135.0, -225.0)
+        }
+        return (directionBearing + offsets[phase] + 360.0) % 360.0
+    }
+
+    internal fun geometricFactor(corridorBearing: Double, phaseBearing: Double, geoWeight: Double): Double {
+        val cosSim = cosineSimilarity(corridorBearing, phaseBearing)
+        return 1.0 + geoWeight * cosSim
+    }
+
+    internal fun cosineSimilarity(bearing1: Double, bearing2: Double): Double {
+        val diff = Math.toRadians(bearing1 - bearing2)
+        return cos(diff)
+    }
+
     internal fun reuseModulation(distanceFromHomeM: Double, homeExitRadiusM: Double): Double {
         if (distanceFromHomeM <= 0.0) return 0.0
         if (distanceFromHomeM >= homeExitRadiusM) return 1.0
@@ -456,13 +586,18 @@ object CorridorOrienteer {
         }
     }
 
-    private fun buildAdjacency(connectors: List<CorridorConnector>): Map<Long, List<AdjEntry>> {
+    private fun buildAdjacency(
+        connectors: List<CorridorConnector>,
+        corridorMap: Map<Long, Corridor>,
+    ): Map<Long, List<AdjEntry>> {
         val result = mutableMapOf<Long, MutableList<AdjEntry>>()
         for (conn in connectors) {
+            val toLength = corridorMap[conn.toCorridor]?.lengthM ?: 0.0
+            val fromLength = corridorMap[conn.fromCorridor]?.lengthM ?: 0.0
             result.getOrPut(conn.fromCorridor) { mutableListOf() }
-                .add(AdjEntry(conn.toCorridor, conn.distanceM))
+                .add(AdjEntry(conn.toCorridor, conn.distanceM + toLength))
             result.getOrPut(conn.toCorridor) { mutableListOf() }
-                .add(AdjEntry(conn.fromCorridor, conn.distanceM))
+                .add(AdjEntry(conn.fromCorridor, conn.distanceM + fromLength))
         }
         return result
     }

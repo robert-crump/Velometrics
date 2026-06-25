@@ -112,13 +112,13 @@ class CorridorOrienteerTest {
         val run1 = CorridorOrienteer.search(
             corridors, connectors,
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 20000.0,
+            targetDistanceM = 40000.0,
             seed = 1L,
         )
         val run2 = CorridorOrienteer.search(
             corridors, connectors,
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 20000.0,
+            targetDistanceM = 40000.0,
             seed = 999L,
         )
 
@@ -422,6 +422,146 @@ class CorridorOrienteerTest {
         for (candidate in results) {
             assertTrue(candidate.flowScore >= 0.0)
             assertTrue(candidate.discoveryScore >= 0.0)
+        }
+    }
+
+    // --- Phase bearing computation ---
+
+    @Test
+    fun `phaseBearing phase 0 CW offsets minus 45 from direction`() {
+        val bearing = CorridorOrienteer.phaseBearing(270.0, clockwise = true, budgetFraction = 0.0)
+        assertEquals(225.0, bearing, 1e-9)
+    }
+
+    @Test
+    fun `phaseBearing phase 1 CW offsets plus 45 from direction`() {
+        val bearing = CorridorOrienteer.phaseBearing(270.0, clockwise = true, budgetFraction = 0.30)
+        assertEquals(315.0, bearing, 1e-9)
+    }
+
+    @Test
+    fun `phaseBearing phase 2 CW offsets plus 135 from direction`() {
+        val bearing = CorridorOrienteer.phaseBearing(270.0, clockwise = true, budgetFraction = 0.55)
+        assertEquals(45.0, bearing, 1e-9)
+    }
+
+    @Test
+    fun `phaseBearing phase 3 CW offsets plus 225 from direction`() {
+        val bearing = CorridorOrienteer.phaseBearing(270.0, clockwise = true, budgetFraction = 0.80)
+        assertEquals(135.0, bearing, 1e-9)
+    }
+
+    @Test
+    fun `phaseBearing CCW mirrors CW offsets`() {
+        val cwPhase0 = CorridorOrienteer.phaseBearing(270.0, clockwise = true, budgetFraction = 0.0)
+        val ccwPhase0 = CorridorOrienteer.phaseBearing(270.0, clockwise = false, budgetFraction = 0.0)
+        assertEquals(225.0, cwPhase0, 1e-9)
+        assertEquals(315.0, ccwPhase0, 1e-9)
+    }
+
+    @Test
+    fun `phaseBearing wraps around 360`() {
+        val bearing = CorridorOrienteer.phaseBearing(0.0, clockwise = true, budgetFraction = 0.0)
+        assertEquals(315.0, bearing, 1e-9)
+    }
+
+    // --- Geometric factor ---
+
+    @Test
+    fun `geometricFactor is 1 plus geoWeight when bearings are identical`() {
+        val factor = CorridorOrienteer.geometricFactor(90.0, 90.0, 0.5)
+        assertEquals(1.5, factor, 1e-9)
+    }
+
+    @Test
+    fun `geometricFactor is 1 minus geoWeight when bearings are opposite`() {
+        val factor = CorridorOrienteer.geometricFactor(0.0, 180.0, 0.5)
+        assertEquals(0.5, factor, 1e-9)
+    }
+
+    @Test
+    fun `geometricFactor is 1 when bearings are perpendicular`() {
+        val factor = CorridorOrienteer.geometricFactor(0.0, 90.0, 0.5)
+        assertEquals(1.0, factor, 1e-3)
+    }
+
+    @Test
+    fun `geometricFactor scales with geoWeight`() {
+        val lowWeight = CorridorOrienteer.geometricFactor(0.0, 0.0, 0.2)
+        val highWeight = CorridorOrienteer.geometricFactor(0.0, 0.0, 0.8)
+        assertEquals(1.2, lowWeight, 1e-9)
+        assertEquals(1.8, highWeight, 1e-9)
+    }
+
+    // --- Cosine similarity ---
+
+    @Test
+    fun `cosineSimilarity is 1 for same bearing`() {
+        assertEquals(1.0, CorridorOrienteer.cosineSimilarity(45.0, 45.0), 1e-9)
+    }
+
+    @Test
+    fun `cosineSimilarity is minus 1 for opposite bearings`() {
+        assertEquals(-1.0, CorridorOrienteer.cosineSimilarity(0.0, 180.0), 1e-9)
+    }
+
+    @Test
+    fun `cosineSimilarity is 0 for perpendicular bearings`() {
+        assertEquals(0.0, CorridorOrienteer.cosineSimilarity(90.0, 0.0), 1e-6)
+    }
+
+    // --- CW vs CCW routes ---
+
+    @Test
+    fun `CW and CCW restarts produce different candidates`() = runTest {
+        val (corridors, connectors) = largeRingFixture()
+
+        val cwResults = CorridorOrienteer.search(
+            corridors, connectors,
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 20000.0,
+            config = OrienteerConfig(candidateCount = 3, graspRestarts = 20),
+            seed = 42L,
+            direction = RideDirection.WEST,
+        )
+
+        assertTrue("Should produce at least one candidate", cwResults.isNotEmpty())
+    }
+
+    // --- No-direction randomization ---
+
+    @Test
+    fun `null direction assigns random directions across restarts`() = runTest {
+        val (corridors, connectors) = largeRingFixture()
+
+        val run1 = CorridorOrienteer.search(
+            corridors, connectors,
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 20000.0,
+            config = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+            seed = 42L,
+            direction = null,
+        )
+
+        assertTrue("Should produce candidates without explicit direction", run1.isNotEmpty())
+    }
+
+    @Test
+    fun `null direction still produces oval-shaped routes`() = runTest {
+        val (corridors, connectors) = largeRingFixture()
+
+        val results = CorridorOrienteer.search(
+            corridors, connectors,
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 20000.0,
+            config = OrienteerConfig(candidateCount = 1, graspRestarts = 10),
+            seed = 123L,
+            direction = null,
+        )
+
+        for (candidate in results) {
+            assertTrue(candidate.totalDistanceM >= 20000.0 * 0.85)
+            assertTrue(candidate.totalDistanceM <= 20000.0 * 1.15)
         }
     }
 

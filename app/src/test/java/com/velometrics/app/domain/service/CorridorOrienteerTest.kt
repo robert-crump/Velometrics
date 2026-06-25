@@ -13,7 +13,7 @@ class CorridorOrienteerTest {
     @Test
     fun `every candidate respects distance budget including return leg`() = runTest {
         val (corridors, connectors) = ringFixture()
-        val targetM = 10000.0
+        val targetM = 12000.0
 
         val results = CorridorOrienteer.search(
             corridors, connectors,
@@ -25,8 +25,8 @@ class CorridorOrienteerTest {
         assertTrue("Expected at least one candidate", results.isNotEmpty())
         for (candidate in results) {
             assertTrue(
-                "Distance ${candidate.totalDistanceM} exceeds budget ${targetM * 1.15}",
-                candidate.totalDistanceM <= targetM * 1.15,
+                "Distance ${candidate.totalDistanceM} exceeds ceiling ${targetM * 0.95}",
+                candidate.totalDistanceM <= targetM * 0.95,
             )
             assertTrue(
                 "Distance ${candidate.totalDistanceM} below minimum ${targetM * 0.85}",
@@ -55,7 +55,7 @@ class CorridorOrienteerTest {
         )
 
         for (candidate in results) {
-            assertTrue(candidate.totalDistanceM <= 12000.0 * 1.15)
+            assertTrue(candidate.totalDistanceM <= 12000.0 * 0.95)
         }
     }
 
@@ -68,7 +68,7 @@ class CorridorOrienteerTest {
         val results = CorridorOrienteer.search(
             corridors, connectors,
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 10000.0,
+            targetDistanceM = 12000.0,
             seed = 42L,
         )
 

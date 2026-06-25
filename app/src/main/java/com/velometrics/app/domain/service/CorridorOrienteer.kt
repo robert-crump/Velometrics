@@ -20,8 +20,9 @@ data class OrienteerConfig(
     val reusePenaltyWeight: Double = 2.0,
     val overlapDiversityWeight: Double = 0.5,
     val maxRouteSteps: Int = 100,
-    val maxRevisitsPerCorridor: Int = 3,
+    val maxRevisitsPerCorridor: Int = 2,
     val geoWeight: Double = 0.5,
+    val distanceCeilingFraction: Double = 0.95,
 )
 
 data class CandidateLoop(
@@ -142,7 +143,7 @@ object CorridorOrienteer {
         direction: RideDirection,
         clockwise: Boolean,
     ): CandidateLoop? {
-        val maxBudget = targetDistanceM * 1.15
+        val maxBudget = targetDistanceM * config.distanceCeilingFraction
         val route = mutableListOf(homeId)
         val visited = mutableSetOf(homeId)
         val visitCounts = mutableMapOf(homeId to 1)
@@ -155,9 +156,11 @@ object CorridorOrienteer {
             step++
             val current = route.last()
             val neighbors = adjacency[current] ?: break
+            val previous = if (route.size >= 2) route[route.size - 2] else -1L
 
             val feasible = neighbors.filter { adj ->
                 if (adj.corridorId == current) return@filter false
+                if (adj.corridorId == previous) return@filter false
                 val visits = visitCounts[adj.corridorId] ?: 0
                 if (visits >= config.maxRevisitsPerCorridor) return@filter false
                 val candidateReturnCost = returnCosts[adj.corridorId] ?: return@filter false
@@ -445,7 +448,7 @@ object CorridorOrienteer {
         val returnDist = returnCosts[route[len - 1]] ?: return Double.NaN
         val totalDist = distance + returnDist
 
-        if (totalDist > targetDistanceM * 1.15 || totalDist < targetDistanceM * 0.85) return Double.NaN
+        if (totalDist > targetDistanceM * config.distanceCeilingFraction || totalDist < targetDistanceM * 0.85) return Double.NaN
 
         visited.clear()
         var totalReward = 0.0
@@ -485,7 +488,7 @@ object CorridorOrienteer {
         val returnDist = returnCosts[route[len - 1]] ?: return null
         val totalDist = distance + returnDist
 
-        if (totalDist > targetDistanceM * 1.15 || totalDist < targetDistanceM * 0.85) return null
+        if (totalDist > targetDistanceM * config.distanceCeilingFraction || totalDist < targetDistanceM * 0.85) return null
 
         visited.clear()
         var totalReward = 0.0

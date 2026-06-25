@@ -1,3 +1,33 @@
+## Route generation bug fixes: budget overshoot, out-and-back, refiner performance
+Completed: 2026-06-25
+
+### What was done
+
+**Bug 1: GRASP budget ceiling too high → 41km result for 30km target**
+- Added `distanceCeilingFraction: Double = 0.95` to `OrienteerConfig`
+- `graspConstruct` now uses `targetDistanceM * config.distanceCeilingFraction` instead of hardcoded `* 1.15`
+- `evaluateRouteScore`/`evaluateRouteArray` distance band uses the same fraction
+- Effect: coarse routes stay ≤95% of target (was 115%), leaving headroom for coarse-to-refined expansion
+
+**Bug 2: Out-and-back patterns from corridor revisits**
+- Added anti-out-and-back check in GRASP feasibility filter: `if (adj.corridorId == previous) return@filter false` prevents visiting the corridor the route just came from (A→B→A)
+- Reduced `maxRevisitsPerCorridor` default from 3 to 2
+
+**Bug 3: Refiner performance — 250ms × 45 segments = 11s per candidate**
+- `refine()` now preloads edges and nodes once for the entire candidate using `computeChainBbox` with 2× margin, then runs all A* segments against the preloaded data
+- Falls back to per-segment bbox loading only when the preloaded data misses a path
+- Effect: N DB queries → 1 DB query per candidate (+ rare per-segment fallback)
+
+**Test fixture fixes**
+- `LoopFixtureRepository` corridor lengths changed from 1000m to 300m (matching internal edge lengths) and connector distances from 800m to 500m (matching connector edge lengths) so coarse and refined distances are consistent
+- Test target distances adjusted to match the new fixture distances (3700m) and budget ceiling (0.95)
+
+### Tests
+Updated 6 existing `RouteGeneratorTest` targets. Updated 2 `CorridorOrienteerTest` targets and budget assertions.
+`compileDebugKotlin` and `testDebugUnitTest` both pass (379 tests, 0 failures).
+
+---
+
 ## Issue #108 — Wire ExitLegPlanner + geometric bias into RouteGenerator
 Completed: 2026-06-25
 

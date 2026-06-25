@@ -52,6 +52,21 @@ object RouteRefiner {
             return null
         }
 
+        val loadStart = System.currentTimeMillis()
+        val chainBbox = computeChainBbox(allWaypointNodes, config.bboxMarginM * 2.0)
+        val preloadedEdges = repository.getRoutingEdgesNear(
+            chainBbox.minLat, chainBbox.minLon, chainBbox.maxLat, chainBbox.maxLon,
+        )
+        val preloadedNodes = repository.getNodesNear(
+            chainBbox.minLat, chainBbox.minLon, chainBbox.maxLat, chainBbox.maxLon,
+        )
+        val preloadedNodeMap = preloadedNodes.associateBy { it.id }
+        val preloadedEdgeIndex = HashMap<Long, MutableList<Int>>(preloadedEdges.size)
+        preloadedEdges.forEachIndexed { idx, edge ->
+            preloadedEdgeIndex.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
+        }
+        Log.d(TAG, "refine: preloaded ${preloadedEdges.size} edges, ${preloadedNodes.size} nodes in ${System.currentTimeMillis() - loadStart}ms")
+
         val astarStart = System.currentTimeMillis()
         val pathNodePairs = mutableListOf<Pair<Long, Long>>()
         var segmentCount = 0
@@ -60,54 +75,47 @@ object RouteRefiner {
             val to = waypoints[i + 1]
             if (from == to) continue
 
-            val fromNode = waypointNodes[from]
-            if (fromNode == null) {
-                Log.d(TAG, "refine: segment[$segmentCount] FAIL fromNode=$from not found")
-                return null
-            }
-            val targetNode = waypointNodes[to]
+            val targetNode = waypointNodes[to] ?: preloadedNodeMap[to]
             if (targetNode == null) {
                 Log.d(TAG, "refine: segment[$segmentCount] FAIL toNode=$to not found")
                 return null
             }
 
-            val segStart = System.currentTimeMillis()
-            var segmentPairs: List<Pair<Long, Long>>? = null
+            var segmentPairs = shortestPathAStar(
+                preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to, targetNode, config,
+            )
 
-            for (marginMultiplier in config.bboxExpansionSteps) {
-                val margin = config.bboxMarginM * marginMultiplier
-                val segBbox = computeSegmentBbox(fromNode, targetNode, margin)
-                val edges = repository.getRoutingEdgesNear(
-                    segBbox.minLat, segBbox.minLon, segBbox.maxLat, segBbox.maxLon,
-                )
-                if (edges.isEmpty()) continue
-
-                val nodeList = repository.getNodesNear(
-                    segBbox.minLat, segBbox.minLon, segBbox.maxLat, segBbox.maxLon,
-                )
-                val nodeMap = nodeList.associateBy { it.id }
-
-                val edgesByFromNode = HashMap<Long, MutableList<Int>>(edges.size)
-                edges.forEachIndexed { idx, edge ->
-                    edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
+            if (segmentPairs == null) {
+                val fromNode = waypointNodes[from] ?: preloadedNodeMap[from]
+                if (fromNode == null) {
+                    Log.d(TAG, "refine: segment[$segmentCount] FAIL fromNode=$from not found")
+                    return null
                 }
-
-                segmentPairs = shortestPathAStar(
-                    edges, nodeMap, edgesByFromNode, from, to, targetNode, config,
-                )
-                if (segmentPairs != null) {
-                    if (marginMultiplier > 1.0) {
-                        Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges (expanded ${marginMultiplier}x) ${System.currentTimeMillis() - segStart}ms")
-                    } else {
-                        Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges ${System.currentTimeMillis() - segStart}ms")
+                for (marginMultiplier in config.bboxExpansionSteps) {
+                    val margin = config.bboxMarginM * marginMultiplier
+                    val segBbox = computeSegmentBbox(fromNode, targetNode, margin)
+                    val edges = repository.getRoutingEdgesNear(
+                        segBbox.minLat, segBbox.minLon, segBbox.maxLat, segBbox.maxLon,
+                    )
+                    if (edges.isEmpty()) continue
+                    val nodeList = repository.getNodesNear(
+                        segBbox.minLat, segBbox.minLon, segBbox.maxLat, segBbox.maxLon,
+                    )
+                    val nodeMap = nodeList.associateBy { it.id }
+                    val edgesByFromNode = HashMap<Long, MutableList<Int>>(edges.size)
+                    edges.forEachIndexed { idx, edge ->
+                        edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
                     }
-                    break
+                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config)
+                    if (segmentPairs != null) {
+                        Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges (fallback ${marginMultiplier}x)")
+                        break
+                    }
                 }
-                Log.d(TAG, "refine: segment[$segmentCount] A* miss at ${marginMultiplier}x margin (${margin.toInt()}m) edges=${edges.size} nodes=${nodeMap.size}")
             }
 
             if (segmentPairs == null) {
-                Log.d(TAG, "refine: segment[$segmentCount] FAIL from=$from to=$to after all bbox expansions ${System.currentTimeMillis() - segStart}ms")
+                Log.d(TAG, "refine: segment[$segmentCount] FAIL from=$from to=$to")
                 return null
             }
             pathNodePairs.addAll(segmentPairs)

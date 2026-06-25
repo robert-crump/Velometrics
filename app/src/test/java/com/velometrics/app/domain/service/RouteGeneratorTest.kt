@@ -25,7 +25,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 4000.0,
+            targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(
                 orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
@@ -53,7 +53,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 4000.0,
+            targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(seed = 42L),
         )
@@ -78,7 +78,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 4000.0,
+            targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(seed = 42L),
         )
@@ -100,7 +100,7 @@ class RouteGeneratorTest {
     @Test
     fun `distance deviation percent is reported per candidate`() = runTest {
         val repo = LoopFixtureRepository()
-        val targetM = 4000.0
+        val targetM = 3700.0
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
@@ -157,7 +157,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 5000.0,
+            targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(
                 degradationConfig = DegradationConfig(minDesiredCandidates = 10),
@@ -235,7 +235,7 @@ class RouteGeneratorTest {
 
         val plan = RouteGenerator.planExitLeg(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 4000.0,
+            targetDistanceM = 3700.0,
             direction = null,
             corridors = repo.getAllCorridors(),
             repository = repo,
@@ -253,7 +253,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 5000.0,
+            targetDistanceM = 5500.0,
             repository = repo,
             config = GeneratorConfig(
                 orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
@@ -284,7 +284,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 4000.0,
+            targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(
                 orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
@@ -373,18 +373,18 @@ class RouteGeneratorTest {
      */
     private inner class LoopFixtureRepository : FakeRepository() {
         private val corridors = listOf(
-            corridor(1, lat = 50.0, lon = 6.0),
-            corridor(2, lat = 50.005, lon = 6.005),
-            corridor(3, lat = 50.01, lon = 6.005),
-            corridor(4, lat = 50.005, lon = 6.0),
+            corridor(1, lat = 50.0, lon = 6.0, lengthM = 300.0),
+            corridor(2, lat = 50.005, lon = 6.005, lengthM = 300.0),
+            corridor(3, lat = 50.01, lon = 6.005, lengthM = 300.0),
+            corridor(4, lat = 50.005, lon = 6.0, lengthM = 300.0),
         )
         private val connectors = listOf(
-            connector(1, 2, 800.0),
-            connector(2, 3, 800.0),
-            connector(3, 4, 800.0),
-            connector(4, 1, 800.0),
-            connector(1, 3, 1200.0),
-            connector(2, 4, 1200.0),
+            connector(1, 2, 500.0),
+            connector(2, 3, 500.0),
+            connector(3, 4, 500.0),
+            connector(4, 1, 500.0),
+            connector(1, 3, 700.0),
+            connector(2, 4, 700.0),
         )
         private val nodes = listOf(
             node(10, 50.0, 6.0),      // C1 entry

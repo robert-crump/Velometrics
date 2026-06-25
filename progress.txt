@@ -1,3 +1,45 @@
+## Issue #106 — ExitLegPlanner: high-traversal exit and return legs
+Completed: 2026-06-25
+
+### What was done
+
+**New `ExitLegPlanner` service** (`domain/service/ExitLegPlanner.kt`)
+- `computeExitLeg()`: finds path from home to nearest corridor entry using familiar roads
+  - Builds 5km × 5km bbox from home, queries edges, finds local max traversalCount
+  - Adaptive threshold: 25% of local max traversalCount
+  - Progressive fallback: 25% → 10% → 5% → 0% (full graph)
+  - Tries up to 5 candidate corridor entry nodes (filtered by direction and 3–8km range)
+  - A* pathfinding on traversal-filtered subgraph (reuses RouteRefiner pattern)
+  - Picks best path by traversal-weighted score (traversal density per meter)
+  - Soft cap: skips exit leg if nearest corridor > 15% of remaining budget
+  - Edge-based fallback: greedy walk along highest-traversal edges when no corridors in range, hands off to nearest corridor
+
+- `computeReturnLeg()`: symmetric path from corridor exit node back to home
+  - Same adaptive threshold and progressive fallback logic
+  - Covering bbox from corridor exit to home with margin
+
+**New data classes**
+- `ExitLegConfig`: configures bbox size, thresholds, corridor range, soft cap, A* iterations
+- `ExitLeg`: result containing edges, distance, and target node
+
+**Unit tests** (`ExitLegPlannerTest.kt`) — 15 tests covering:
+- Happy path (exit leg from home to corridor)
+- Best corridor selection by traversal score
+- Threshold fallback (25% → 0%)
+- Edge-based fallback when no corridors in range
+- Null when no traversed edges exist
+- Soft cap skip when corridor too far for budget
+- Return leg from corridor to home
+- Return leg null when no path exists
+- Direction filtering of candidate corridors
+- Null-direction returns all candidates
+- Score calculation (traversal density)
+- Empty path scoring
+- Bbox construction (symmetric and covering)
+- Nearest node selection
+
+---
+
 ## Issue #104 — Remove dead overlay code (all-rides layer, speed overlay)
 Completed: 2026-06-24
 

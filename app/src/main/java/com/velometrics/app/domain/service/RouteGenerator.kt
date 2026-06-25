@@ -3,6 +3,7 @@ package com.velometrics.app.domain.service
 import android.util.Log
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.repository.MapGraphRepository
+import com.velometrics.app.util.GeoUtils
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 
@@ -10,6 +11,7 @@ data class GeneratorConfig(
     val orienteerConfig: OrienteerConfig = OrienteerConfig(),
     val refinerConfig: RefinerConfig = RefinerConfig(),
     val degradationConfig: DegradationConfig = DegradationConfig(),
+    val exitLegConfig: ExitLegConfig = ExitLegConfig(),
     val direction: RideDirection? = null,
     val seed: Long = System.currentTimeMillis(),
 )
@@ -19,6 +21,13 @@ data class RankedCandidate(
     val coarseLoop: CandidateLoop,
     val rank: Int,
     val distanceDeviationPercent: Double,
+)
+
+data class ExitLegPlan(
+    val exitLeg: ExitLeg,
+    val exitCorridorId: Long,
+    val adjustedTargetM: Double,
+    val estimatedReturnDistM: Double,
 )
 
 sealed interface RoutePlanResult {
@@ -37,6 +46,8 @@ object RouteGenerator {
     private const val TAG = "RouteGenerator"
     private const val REFINED_BUFFER_FACTOR = 2
     private const val REFINEMENT_CANDIDATE_MULTIPLIER = 5
+    internal const val ROAD_DISTANCE_FACTOR = 1.3
+    internal const val MIN_CORRIDOR_BUDGET_FRACTION = 0.3
 
     suspend fun generate(
         homeLat: Double,
@@ -61,6 +72,13 @@ object RouteGenerator {
         }
 
         val corridorMap = corridors.associateBy { it.id }
+
+        val exitPlan = planExitLeg(
+            homeLat, homeLon, targetDistanceM, config.direction,
+            corridors, repository, config.exitLegConfig,
+        )
+        val effectiveTargetM = exitPlan?.adjustedTargetM ?: targetDistanceM
+        Log.d(TAG, "generate: exitPlan=${if (exitPlan != null) "exitCorridor=${exitPlan.exitCorridorId} exitDist=${exitPlan.exitLeg.distanceM.toInt()}m estReturn=${exitPlan.estimatedReturnDistM.toInt()}m adjustedTarget=${exitPlan.adjustedTargetM.toInt()}m" else "null (fallback to home)"}")
 
         val maxCandidates = config.orienteerConfig.candidateCount
         var currentTier = DegradationPolicy.RelaxationTier.NONE
@@ -91,9 +109,10 @@ object RouteGenerator {
             val coarseStart = System.currentTimeMillis()
             val coarseCandidates = CorridorOrienteer.search(
                 corridors, connectors, homeLat, homeLon,
-                targetDistanceM,
+                effectiveTargetM,
                 weights, tierRewardContext, tierOrienteerConfig, config.seed,
                 config.direction,
+                startCorridorId = exitPlan?.exitCorridorId,
             )
             Log.d(TAG, "generate: coarse search found ${coarseCandidates.size} candidates in ${System.currentTimeMillis() - coarseStart}ms")
 
@@ -104,11 +123,24 @@ object RouteGenerator {
                 val refined = RouteRefiner.refine(
                     candidate, corridorMap, repository,
                     config.refinerConfig,
+                    closeLoop = exitPlan == null,
                 )
-                Log.d(TAG, "generate: refine candidate[$idx] corridors=${candidate.corridors.size} -> ${if (refined != null) "${refined.edges.size} edges, ${refined.actualDistanceM.toInt()}m" else "null"} in ${System.currentTimeMillis() - refineStart}ms")
-                if (refined != null) {
-                    allRefined.add(candidate to refined)
+                if (refined == null) {
+                    Log.d(TAG, "generate: refine candidate[$idx] corridors=${candidate.corridors.size} -> null in ${System.currentTimeMillis() - refineStart}ms")
+                    continue
                 }
+
+                val finalRoute = if (exitPlan != null) {
+                    stitchRoute(
+                        exitPlan.exitLeg, refined, candidate, corridorMap,
+                        homeLat, homeLon, repository, config.exitLegConfig,
+                    )
+                } else {
+                    refined
+                }
+
+                Log.d(TAG, "generate: refine candidate[$idx] corridors=${candidate.corridors.size} -> ${finalRoute.edges.size} edges, ${finalRoute.actualDistanceM.toInt()}m${if (exitPlan != null) " (stitched)" else ""} in ${System.currentTimeMillis() - refineStart}ms")
+                allRefined.add(candidate to finalRoute)
             }
 
             trimRefined(allRefined, maxCandidates * REFINED_BUFFER_FACTOR)
@@ -149,6 +181,74 @@ object RouteGenerator {
                 }
             }
         }
+    }
+
+    internal suspend fun planExitLeg(
+        homeLat: Double,
+        homeLon: Double,
+        targetDistanceM: Double,
+        direction: RideDirection?,
+        corridors: List<Corridor>,
+        repository: MapGraphRepository,
+        config: ExitLegConfig,
+    ): ExitLegPlan? {
+        val exitLeg = ExitLegPlanner.computeExitLeg(
+            homeLat, homeLon, direction, corridors, targetDistanceM, repository, config,
+        ) ?: return null
+
+        val exitCorridor = corridors.firstOrNull { it.entryNode == exitLeg.targetNode }
+            ?: return null
+
+        val homeCorridor = CorridorOrienteer.findNearestCorridor(corridors, homeLat, homeLon)
+        if (homeCorridor != null && exitCorridor.id == homeCorridor.id) {
+            Log.d(TAG, "planExitLeg: exit corridor is home corridor, skipping exit leg")
+            return null
+        }
+
+        val estimatedReturnDistM = GeoUtils.haversineDistance(
+            exitCorridor.centroidLat, exitCorridor.centroidLon, homeLat, homeLon,
+        ) * ROAD_DISTANCE_FACTOR
+
+        val adjustedTargetM = targetDistanceM - exitLeg.distanceM - estimatedReturnDistM
+        if (adjustedTargetM < targetDistanceM * MIN_CORRIDOR_BUDGET_FRACTION) {
+            Log.d(TAG, "planExitLeg: adjusted budget ${adjustedTargetM.toInt()}m < ${(targetDistanceM * MIN_CORRIDOR_BUDGET_FRACTION).toInt()}m min, skipping exit leg")
+            return null
+        }
+
+        return ExitLegPlan(exitLeg, exitCorridor.id, adjustedTargetM, estimatedReturnDistM)
+    }
+
+    private suspend fun stitchRoute(
+        exitLeg: ExitLeg,
+        corridorRoute: RefinedRoute,
+        candidate: CandidateLoop,
+        corridorMap: Map<Long, Corridor>,
+        homeLat: Double,
+        homeLon: Double,
+        repository: MapGraphRepository,
+        exitLegConfig: ExitLegConfig,
+    ): RefinedRoute {
+        val lastCorridorId = candidate.corridors.last()
+        val lastCorridor = corridorMap[lastCorridorId]
+        val returnLeg = if (lastCorridor != null) {
+            ExitLegPlanner.computeReturnLeg(
+                lastCorridor.exitNode,
+                lastCorridor.centroidLat, lastCorridor.centroidLon,
+                homeLat, homeLon,
+                repository, exitLegConfig,
+            )
+        } else {
+            null
+        }
+        if (returnLeg != null) {
+            Log.d(TAG, "stitchRoute: return leg ${returnLeg.edges.size} edges, ${returnLeg.distanceM.toInt()}m from corridor $lastCorridorId")
+        } else {
+            Log.d(TAG, "stitchRoute: no return leg from corridor $lastCorridorId")
+        }
+
+        val edges = exitLeg.edges + corridorRoute.edges + (returnLeg?.edges ?: emptyList())
+        val distance = exitLeg.distanceM + corridorRoute.actualDistanceM + (returnLeg?.distanceM ?: 0.0)
+        return RefinedRoute(edges, distance)
     }
 
     private fun trimRefined(

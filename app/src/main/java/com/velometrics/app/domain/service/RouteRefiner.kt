@@ -29,12 +29,13 @@ object RouteRefiner {
         corridorMap: Map<Long, Corridor>,
         repository: MapGraphRepository,
         config: RefinerConfig = RefinerConfig(),
+        closeLoop: Boolean = true,
     ): RefinedRoute? {
         val refineStart = System.currentTimeMillis()
         val candidateCorridors = candidate.corridors.mapNotNull { corridorMap[it] }
         if (candidateCorridors.isEmpty()) return null
 
-        val waypoints = buildWaypoints(candidateCorridors)
+        val waypoints = buildWaypoints(candidateCorridors, closeLoop)
         Log.d(TAG, "refine: ${candidateCorridors.size} corridors -> ${waypoints.size} waypoints")
 
         val waypointNodeIds = waypoints.toSet().toLongArray()
@@ -205,16 +206,18 @@ object RouteRefiner {
         return null
     }
 
-    internal fun buildWaypoints(corridors: List<Corridor>): List<Long> {
+    internal fun buildWaypoints(corridors: List<Corridor>, closeLoop: Boolean = true): List<Long> {
         val waypoints = mutableListOf<Long>()
         for ((idx, c) in corridors.withIndex()) {
-            if (idx == corridors.lastIndex && c.id == corridors.first().id) {
+            if (closeLoop && idx == corridors.lastIndex && c.id == corridors.first().id) {
                 break
             }
             waypoints.add(c.entryNode)
             waypoints.add(c.exitNode)
         }
-        waypoints.add(corridors.first().entryNode)
+        if (closeLoop) {
+            waypoints.add(corridors.first().entryNode)
+        }
         return waypoints
     }
 

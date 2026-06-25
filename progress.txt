@@ -1,3 +1,41 @@
+## Issue #108 — Wire ExitLegPlanner + geometric bias into RouteGenerator
+Completed: 2026-06-25
+
+### What was done
+
+**RouteGenerator pipeline integration (`RouteGenerator.kt`)**
+- `GeneratorConfig` gains `exitLegConfig: ExitLegConfig` (default config)
+- New `ExitLegPlan` data class: bundles `exitLeg`, `exitCorridorId`, `adjustedTargetM`, `estimatedReturnDistM`
+- New `planExitLeg()`: calls `ExitLegPlanner.computeExitLeg()`, finds exit corridor by matching `entryNode == exitLeg.targetNode`, estimates return distance (haversine × 1.3 road factor), computes adjusted budget (`target - exitDist - estimatedReturnDist`)
+  - Skips exit leg if exit corridor is the home corridor (no-op exit)
+  - Skips exit leg if adjusted budget < 30% of original target
+- `generate()` calls `planExitLeg()` before the degradation loop
+- When exit plan exists: passes `startCorridorId` to orienteer, adjusted target as effective budget, `closeLoop = false` to refiner
+- New `stitchRoute()`: computes return leg via `ExitLegPlanner.computeReturnLeg()` from last corridor's exit node, concatenates exit leg edges + corridor route edges + return leg edges into single `RefinedRoute`
+- Graceful fallback: when exit leg fails or is skipped, orienteer starts from home with normal closed-loop behavior (geometric bias still active from #107)
+- Constants: `ROAD_DISTANCE_FACTOR = 1.3`, `MIN_CORRIDOR_BUDGET_FRACTION = 0.3`
+
+**CorridorOrienteer (`CorridorOrienteer.kt`)**
+- `search()` gains `startCorridorId: Long? = null` parameter
+- When provided, uses that corridor as GRASP start point instead of nearest-to-home
+- Ensures start corridor is included in filtered corridor set even if filtered out by radius/direction
+
+**RouteRefiner (`RouteRefiner.kt`)**
+- `refine()` gains `closeLoop: Boolean = true` parameter
+- `buildWaypoints()` gains `closeLoop: Boolean = true`: when false, does not add closing waypoint back to first corridor's entry node, producing an open corridor path
+
+### Tests
+Added 4 new tests to `RouteGeneratorTest`:
+- `planExitLeg returns plan when exit corridor is different from home`: verifies exit leg computation, adjusted target, and exit corridor ≠ home corridor
+- `planExitLeg returns null when exit corridor is home corridor`: verifies skip logic for default config where edge fallback targets home
+- `exit leg stitches exit corridor route and return into single route`: full pipeline happy path with `ExitLegLoopFixtureRepository` (bidirectional edges, 300m corridors, 500m connectors)
+- `fallback to home start when exit leg fails`: pipeline produces closed-loop candidates when exit leg fails (minCorridorDistM = 50km)
+
+New `ExitLegLoopFixtureRepository` fixture: 4 corridors with bidirectional edges, matching corridor lengths (300m) and connector distances (500m) for consistent coarse-to-refined distance alignment.
+`compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
 ## Issue #107 — Geometric bias: four-phase oval scoring in CorridorOrienteer
 Completed: 2026-06-25
 

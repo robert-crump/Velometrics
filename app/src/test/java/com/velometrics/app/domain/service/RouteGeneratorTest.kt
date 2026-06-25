@@ -197,6 +197,119 @@ class RouteGeneratorTest {
         assertTrue(result!! > 0.0)
     }
 
+    // --- Exit leg planning ---
+
+    @Test
+    fun `planExitLeg returns plan when exit corridor is different from home`() = runTest {
+        val repo = LoopFixtureRepository()
+        val corridors = repo.getAllCorridors()
+
+        val plan = RouteGenerator.planExitLeg(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 20000.0,
+            direction = null,
+            corridors = corridors,
+            repository = repo,
+            config = ExitLegConfig(
+                minCorridorDistM = 100.0,
+                maxCorridorDistM = 5000.0,
+                bboxHalfSizeM = 5000.0,
+            ),
+        )
+
+        assertNotNull("Expected exit leg plan", plan)
+        assertTrue(plan!!.exitLeg.edges.isNotEmpty())
+        assertTrue(plan.exitLeg.distanceM > 0.0)
+        assertTrue(plan.adjustedTargetM > 0.0)
+        assertTrue(plan.adjustedTargetM < 20000.0)
+        assertNotEquals(
+            "Exit corridor should differ from home corridor",
+            CorridorOrienteer.findNearestCorridor(corridors, 50.0, 6.0)?.id,
+            plan.exitCorridorId,
+        )
+    }
+
+    @Test
+    fun `planExitLeg returns null when exit corridor is home corridor`() = runTest {
+        val repo = LoopFixtureRepository()
+
+        val plan = RouteGenerator.planExitLeg(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 4000.0,
+            direction = null,
+            corridors = repo.getAllCorridors(),
+            repository = repo,
+            config = ExitLegConfig(),
+        )
+
+        assertNull("Default config should produce exit leg to home corridor (skipped)", plan)
+    }
+
+    // --- Exit leg integration: happy path ---
+
+    @Test
+    fun `exit leg stitches exit corridor route and return into single route`() = runTest {
+        val repo = ExitLegLoopFixtureRepository()
+
+        val result = RouteGenerator.generate(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 5000.0,
+            repository = repo,
+            config = GeneratorConfig(
+                orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+                exitLegConfig = ExitLegConfig(
+                    minCorridorDistM = 100.0,
+                    maxCorridorDistM = 5000.0,
+                    bboxHalfSizeM = 5000.0,
+                ),
+                seed = 42L,
+            ),
+        )
+
+        assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
+        val candidates = (result as RoutePlanResult.Success).candidates
+        assertTrue("Expected at least 1 candidate", candidates.isNotEmpty())
+
+        for (candidate in candidates) {
+            assertTrue(candidate.refinedRoute.edges.isNotEmpty())
+            assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
+        }
+    }
+
+    // --- Exit leg integration: fallback ---
+
+    @Test
+    fun `fallback to home start when exit leg fails`() = runTest {
+        val repo = LoopFixtureRepository()
+
+        val result = RouteGenerator.generate(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 4000.0,
+            repository = repo,
+            config = GeneratorConfig(
+                orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+                exitLegConfig = ExitLegConfig(
+                    minCorridorDistM = 50_000.0,
+                    maxCorridorDistM = 100_000.0,
+                ),
+                seed = 42L,
+            ),
+        )
+
+        assertTrue("Expected Success even without exit legs, got $result", result is RoutePlanResult.Success)
+        val candidates = (result as RoutePlanResult.Success).candidates
+        assertTrue("Expected at least 1 candidate", candidates.isNotEmpty())
+
+        for (candidate in candidates) {
+            val firstEdge = candidate.refinedRoute.edges.first()
+            val lastEdge = candidate.refinedRoute.edges.last()
+            assertEquals(
+                "Fallback loop should return to starting node",
+                firstEdge.fromNode, lastEdge.toNode,
+            )
+        }
+    }
+
     // --- Helpers ---
 
     private fun corridor(
@@ -232,6 +345,7 @@ class RouteGeneratorTest {
         lengthM: Double,
         pedalFlowCount: Int? = 2,
         gravityFlowCount: Int? = 1,
+        traversalCount: Int? = 3,
     ) = MapEdge(
         fromNode = fromNode,
         toNode = toNode,
@@ -244,7 +358,7 @@ class RouteGeneratorTest {
         speedP25 = null, speedP75 = null, speedP90 = null,
         powerMedian = null, powerMean = null, powerCount = null,
         powerP25 = null, powerP75 = null, powerP90 = null,
-        slopePercent = null, traversalCount = null, lastTraversal = null,
+        slopePercent = null, traversalCount = traversalCount, lastTraversal = null,
         timeOfDayDist = null,
         pedalFlowCount = pedalFlowCount,
         gravityFlowCount = gravityFlowCount,
@@ -356,6 +470,71 @@ class RouteGeneratorTest {
             edge(11, 20, 700.0),
             edge(21, 30, 700.0),
             edge(31, 10, 900.0),
+        )
+
+        override suspend fun getAllCorridors() = corridors
+        override suspend fun getAllCorridorConnectors() = connectors
+        override suspend fun getEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges
+        override suspend fun getRoutingEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
+        override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>): List<MapEdge> {
+            val pairSet = pairs.toSet()
+            return edges.filter { (it.fromNode to it.toNode) in pairSet }
+        }
+        override suspend fun getNodesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = nodes
+        override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
+    }
+
+    /**
+     * Fixture with bidirectional edges and 300m corridors for exit leg testing.
+     * Exit leg routes from C1 (home) to C2, orienteer loops through C2→C1→C4→C3,
+     * return leg from C3 back to home.
+     */
+    private inner class ExitLegLoopFixtureRepository : FakeRepository() {
+        private val corridors = listOf(
+            corridor(1, lat = 50.0, lon = 6.0, lengthM = 300.0),
+            corridor(2, lat = 50.005, lon = 6.005, lengthM = 300.0),
+            corridor(3, lat = 50.01, lon = 6.005, lengthM = 300.0),
+            corridor(4, lat = 50.005, lon = 6.0, lengthM = 300.0),
+        )
+        private val connectors = listOf(
+            connector(1, 2, 500.0),
+            connector(2, 3, 500.0),
+            connector(3, 4, 500.0),
+            connector(4, 1, 500.0),
+            connector(1, 3, 800.0),
+            connector(2, 4, 800.0),
+        )
+        private val nodes = listOf(
+            node(10, 50.0, 6.0),
+            node(11, 50.002, 6.002),
+            node(20, 50.005, 6.005),
+            node(21, 50.007, 6.005),
+            node(30, 50.01, 6.005),
+            node(31, 50.008, 6.003),
+            node(40, 50.005, 6.0),
+            node(41, 50.002, 6.0),
+        )
+        private val edges = listOf(
+            // Internal corridor edges (bidirectional)
+            edge(10, 11, 300.0), edge(11, 10, 300.0),
+            edge(20, 21, 300.0), edge(21, 20, 300.0),
+            edge(30, 31, 300.0), edge(31, 30, 300.0),
+            edge(40, 41, 300.0), edge(41, 40, 300.0),
+            // Ring connectors: exit → next entry
+            edge(11, 20, 500.0), edge(21, 30, 500.0),
+            edge(31, 40, 500.0), edge(41, 10, 500.0),
+            // Reverse ring connectors: exit → prev entry
+            edge(21, 10, 500.0), edge(31, 20, 500.0),
+            edge(41, 30, 500.0), edge(11, 40, 500.0),
+            // Cross connectors
+            edge(11, 30, 800.0), edge(21, 40, 800.0),
+            edge(31, 10, 800.0), edge(41, 20, 800.0),
         )
 
         override suspend fun getAllCorridors() = corridors

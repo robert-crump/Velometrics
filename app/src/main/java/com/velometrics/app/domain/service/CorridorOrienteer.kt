@@ -51,18 +51,25 @@ object CorridorOrienteer {
         config: OrienteerConfig = OrienteerConfig(),
         seed: Long = 42L,
         direction: RideDirection? = null,
+        startCorridorId: Long? = null,
     ): List<CandidateLoop> {
         val searchStart = System.currentTimeMillis()
         val random = Random(seed)
 
         val maxRadiusM = targetDistanceM / 2.0
         val reachable = filterByRadius(corridors, homeLat, homeLon, maxRadiusM)
-        val filtered = if (direction != null) {
+        val dirFiltered = if (direction != null) {
             filterByDirection(reachable, homeLat, homeLon, direction, config.homeExitRadiusM)
         } else {
             reachable
         }
-        Log.d(TAG, "search: ${corridors.size} corridors -> ${reachable.size} by radius(${maxRadiusM.toInt()}m) -> ${filtered.size} by direction, restarts=${config.graspRestarts}")
+        val filtered = if (startCorridorId != null && dirFiltered.none { it.id == startCorridorId }) {
+            val startCorridor = corridors.firstOrNull { it.id == startCorridorId }
+            if (startCorridor != null) dirFiltered + startCorridor else dirFiltered
+        } else {
+            dirFiltered
+        }
+        Log.d(TAG, "search: ${corridors.size} corridors -> ${reachable.size} by radius(${maxRadiusM.toInt()}m) -> ${filtered.size} by direction, restarts=${config.graspRestarts} startCorridor=$startCorridorId")
 
         val corridorMap = filtered.associateBy { it.id }
         val filteredConnectors = connectors.filter {
@@ -73,7 +80,11 @@ object CorridorOrienteer {
         val avgCorridorLen = if (filtered.isNotEmpty()) filtered.map { it.lengthM }.average() else 0.0
         Log.d(TAG, "search: ${filteredConnectors.size} connectors, avgCorridorLen=${avgCorridorLen.toInt()}m")
 
-        val homeCorridor = findNearestCorridor(filtered, homeLat, homeLon) ?: return emptyList()
+        val homeCorridor = if (startCorridorId != null) {
+            corridorMap[startCorridorId] ?: findNearestCorridor(filtered, homeLat, homeLon)
+        } else {
+            findNearestCorridor(filtered, homeLat, homeLon)
+        } ?: return emptyList()
         val homeId = homeCorridor.id
         Log.d(TAG, "search: homeCorridor=${homeId} len=${homeCorridor.lengthM.toInt()}m neighbors=${adjacency[homeId]?.size ?: 0}")
 

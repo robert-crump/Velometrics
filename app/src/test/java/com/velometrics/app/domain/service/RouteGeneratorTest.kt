@@ -28,7 +28,7 @@ class RouteGeneratorTest {
             targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(
-                orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+                orienteerConfig = OrienteerConfig(candidateCount = 3),
                 seed = 42L,
             ),
         )
@@ -256,7 +256,7 @@ class RouteGeneratorTest {
             targetDistanceM = 5500.0,
             repository = repo,
             config = GeneratorConfig(
-                orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+                orienteerConfig = OrienteerConfig(candidateCount = 3),
                 exitLegConfig = ExitLegConfig(
                     minCorridorDistM = 100.0,
                     maxCorridorDistM = 5000.0,
@@ -287,7 +287,7 @@ class RouteGeneratorTest {
             targetDistanceM = 3700.0,
             repository = repo,
             config = GeneratorConfig(
-                orienteerConfig = OrienteerConfig(candidateCount = 3, graspRestarts = 30),
+                orienteerConfig = OrienteerConfig(candidateCount = 3),
                 exitLegConfig = ExitLegConfig(
                     minCorridorDistM = 50_000.0,
                     maxCorridorDistM = 100_000.0,

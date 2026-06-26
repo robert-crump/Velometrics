@@ -2,30 +2,18 @@ package com.velometrics.app.domain.service
 
 import android.util.Log
 import com.velometrics.app.domain.model.Corridor
-import com.velometrics.app.domain.model.CorridorConnector
 import com.velometrics.app.util.GeoUtils
-import kotlinx.coroutines.ensureActive
-import java.util.PriorityQueue
-import kotlin.coroutines.coroutineContext
-import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
-import kotlin.random.Random
+import kotlin.math.sin
 
 data class OrienteerConfig(
     val candidateCount: Int = 1,
-    val graspRestarts: Int = 10,
-    val graspAlpha: Double = 0.3,
-    val homeExitRadiusM: Double = 5000.0,
+    // Retained as the base value for DegradationPolicy's relaxation tiers; the
+    // quadrant skeleton itself does not apply a reuse penalty.
     val reusePenaltyWeight: Double = 2.0,
-    val overlapDiversityWeight: Double = 0.5,
-    val maxRouteSteps: Int = 100,
-    val maxRevisitsPerCorridor: Int = 2,
-    val geoWeight: Double = 0.5,
-    val distanceCeilingFraction: Double = 0.95,
-    val outboundBoostWeight: Double = 1.0,
-    val proximityPenaltyRadiusM: Double = 150.0,
-    val proximityPenaltyWeight: Double = 0.7,
+    val farWeight: Double = 1.0,
+    val headingWeight: Double = 0.5,
+    val rewardWeight: Double = 0.1,
 )
 
 data class CandidateLoop(
@@ -36,648 +24,262 @@ data class CandidateLoop(
     val discoveryScore: Double,
 )
 
+/**
+ * Deterministic quadrant-skeleton constructor.
+ *
+ * Reachable corridors (within `reach = target / 3` of home) are classified into four
+ * quadrants of a ride-aligned frame (`u = unit(rideBearing)`, `v = perp(u)`). A single
+ * geometry-first anchor is picked per quadrant and emitted in order Q1->Q2->Q3->Q4. The
+ * ordered corridor-ID list is consumed by [RouteRefiner] to produce a real refined loop.
+ *
+ * This replaces the previous GRASP construction + local-search engine outright.
+ */
 object CorridorOrienteer {
 
     private const val TAG = "CorridorOrienteer"
-    private const val DIRECTION_CONE_HALF_ANGLE = 45.0
-    private const val MAX_LOCAL_SEARCH_ITERATIONS = 20
-    private const val FAR_POINT_BUDGET_FRACTION = 1.0 / 3.0
-    private val DIRECTIONS = RideDirection.entries.toTypedArray()
+
+    /** Outer reach radius as a fraction of the target distance (reach = target / 3). */
+    internal const val FAR_POINT_BUDGET_FRACTION = 1.0 / 3.0
+
+    /** Rough road-vs-straight-line factor for the informational coarse distance estimate. */
+    private const val ROAD_DISTANCE_FACTOR = 1.3
+
+    private const val QUADRANT_COUNT = 4
 
     suspend fun search(
         corridors: List<Corridor>,
-        connectors: List<CorridorConnector>,
         homeLat: Double,
         homeLon: Double,
         targetDistanceM: Double,
         weights: RewardWeights = RewardWeights(),
-        rewardContext: RewardContext = RewardContext(),
         config: OrienteerConfig = OrienteerConfig(),
-        seed: Long = 42L,
         direction: RideDirection? = null,
         startCorridorId: Long? = null,
     ): List<CandidateLoop> {
-        val searchStart = System.currentTimeMillis()
-        val random = Random(seed)
+        if (corridors.isEmpty()) return emptyList()
 
-        val maxRadiusM = targetDistanceM / 2.0
-        val reachable = filterByRadius(corridors, homeLat, homeLon, maxRadiusM)
-        val dirFiltered = if (direction != null) {
-            filterByDirection(reachable, homeLat, homeLon, direction, config.homeExitRadiusM)
-        } else {
-            reachable
-        }
-        val filtered = if (startCorridorId != null && dirFiltered.none { it.id == startCorridorId }) {
-            val startCorridor = corridors.firstOrNull { it.id == startCorridorId }
-            if (startCorridor != null) dirFiltered + startCorridor else dirFiltered
-        } else {
-            dirFiltered
-        }
-        Log.d(TAG, "search: ${corridors.size} corridors -> ${reachable.size} by radius(${maxRadiusM.toInt()}m) -> ${filtered.size} by direction, restarts=${config.graspRestarts} startCorridor=$startCorridorId")
-
-        val corridorMap = filtered.associateBy { it.id }
-        val filteredConnectors = connectors.filter {
-            it.fromCorridor != it.toCorridor &&
-                corridorMap.containsKey(it.fromCorridor) && corridorMap.containsKey(it.toCorridor)
-        }
-        val adjacency = buildAdjacency(filteredConnectors, corridorMap)
-        val avgCorridorLen = if (filtered.isNotEmpty()) filtered.map { it.lengthM }.average() else 0.0
-        Log.d(TAG, "search: ${filteredConnectors.size} connectors, avgCorridorLen=${avgCorridorLen.toInt()}m")
+        val reach = targetDistanceM * FAR_POINT_BUDGET_FRACTION
+        val reachable = filterByRadius(corridors, homeLat, homeLon, reach)
+        if (reachable.isEmpty()) return emptyList()
 
         val homeCorridor = if (startCorridorId != null) {
-            corridorMap[startCorridorId] ?: findNearestCorridor(filtered, homeLat, homeLon)
+            corridors.firstOrNull { it.id == startCorridorId }
+                ?: findNearestCorridor(reachable, homeLat, homeLon)
         } else {
-            findNearestCorridor(filtered, homeLat, homeLon)
+            findNearestCorridor(reachable, homeLat, homeLon)
         } ?: return emptyList()
-        val homeId = homeCorridor.id
-        Log.d(TAG, "search: homeCorridor=${homeId} len=${homeCorridor.lengthM.toInt()}m neighbors=${adjacency[homeId]?.size ?: 0}")
 
-        val rewardCache = filtered.associate { c ->
-            c.id to RewardComposer.composeCorridorReward(c, weights)
+        val rideBearing = direction?.bearingCenter
+            ?: defaultRideBearing(reachable, homeCorridor.id, homeLat, homeLon)
+        Log.d(
+            TAG,
+            "search: ${corridors.size} corridors -> ${reachable.size} within reach(${reach.toInt()}m), " +
+                "rideBearing=${rideBearing.toInt()} home=${homeCorridor.id} startCorridor=$startCorridorId",
+        )
+
+        val rewardCache = reachable.associate { it.id to RewardComposer.composeCorridorReward(it, weights) }
+        val rewardTotals = rewardCache.mapValues { it.value.total }
+        val minReward = rewardTotals.values.minOrNull() ?: 0.0
+        val maxReward = rewardTotals.values.maxOrNull() ?: 0.0
+
+        // --- Classify reachable corridors into the four ride-aligned quadrants ---
+        val quadrants = Array(QUADRANT_COUNT) { mutableListOf<Corridor>() }
+        for (c in reachable) {
+            if (c.id == homeCorridor.id) continue
+            val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
+            val (along, lateral) = alongLateral(east, north, rideBearing)
+            quadrants[quadrantOf(along, lateral)].add(c)
         }
 
-        val returnCosts = dijkstraFromHome(homeId, adjacency)
-        Log.d(TAG, "search: dijkstra reached ${returnCosts.size}/${filtered.size} corridors")
-
-        val allCandidates = mutableListOf<CandidateLoop>()
-
-        repeat(config.graspRestarts) { restart ->
-            coroutineContext.ensureActive()
-            val restartStart = System.currentTimeMillis()
-            val clockwise = restart % 2 == 0
-            val restartDirection = direction ?: DIRECTIONS[random.nextInt(DIRECTIONS.size)]
-            val candidate = graspConstruct(
-                corridorMap, adjacency, rewardCache, returnCosts, homeId, homeLat, homeLon,
-                targetDistanceM, config, random, restartDirection, clockwise,
-            )
-            val graspMs = System.currentTimeMillis() - restartStart
-            if (candidate != null) {
-                val localStart = System.currentTimeMillis()
-                val improved = localSearch(
-                    candidate, corridorMap, adjacency, rewardCache, returnCosts,
-                    homeId, homeLat, homeLon, targetDistanceM, config,
-                )
-                val localMs = System.currentTimeMillis() - localStart
-                Log.d(TAG, "search: restart[$restart] cw=$clockwise dir=$restartDirection corridors=${improved.corridors.size} dist=${improved.totalDistanceM.toInt()}m grasp=${graspMs}ms local=${localMs}ms")
-                allCandidates.add(improved)
-            } else {
-                Log.d(TAG, "search: restart[$restart] no feasible candidate grasp=${graspMs}ms")
-            }
-        }
-
-        Log.d(TAG, "search: ${allCandidates.size}/${config.graspRestarts} feasible candidates in ${System.currentTimeMillis() - searchStart}ms")
-
-        if (allCandidates.isEmpty()) return emptyList()
-
-        return selectDiverse(allCandidates, config)
-    }
-
-    private suspend fun graspConstruct(
-        corridorMap: Map<Long, Corridor>,
-        adjacency: Map<Long, List<AdjEntry>>,
-        rewardCache: Map<Long, ComposedReward>,
-        returnCosts: Map<Long, Double>,
-        homeId: Long,
-        homeLat: Double,
-        homeLon: Double,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
-        random: Random,
-        direction: RideDirection,
-        clockwise: Boolean,
-    ): CandidateLoop? {
-        val maxBudget = targetDistanceM * config.distanceCeilingFraction
-        val route = mutableListOf(homeId)
-        val visited = mutableSetOf(homeId)
-        val visitCounts = mutableMapOf(homeId to 1)
-        var usedDistance = corridorMap[homeId]?.lengthM ?: 0.0
-        var totalReward = rewardCache[homeId]?.total ?: 0.0
-
-        var step = 0
-        while (step < config.maxRouteSteps) {
-            coroutineContext.ensureActive()
-            step++
-            val current = route.last()
-            val neighbors = adjacency[current] ?: break
-            val previous = if (route.size >= 2) route[route.size - 2] else -1L
-
-            val feasible = neighbors.filter { adj ->
-                if (adj.corridorId == current) return@filter false
-                if (adj.corridorId == previous) return@filter false
-                val visits = visitCounts[adj.corridorId] ?: 0
-                if (visits >= config.maxRevisitsPerCorridor) return@filter false
-                val candidateReturnCost = returnCosts[adj.corridorId] ?: return@filter false
-                corridorMap.containsKey(adj.corridorId) &&
-                    usedDistance + adj.distanceM + candidateReturnCost <= maxBudget
-            }
-            if (feasible.isEmpty()) break
-
-            val budgetFraction = usedDistance / maxBudget
-            val phaseBearing = phaseBearing(direction.bearingCenter, clockwise, budgetFraction)
-            val currentLat = corridorMap[current]?.centroidLat ?: homeLat
-            val currentLon = corridorMap[current]?.centroidLon ?: homeLon
-            val currentDistFromHome = GeoUtils.haversineDistance(homeLat, homeLon, currentLat, currentLon)
-            val proximityLatThresh = config.proximityPenaltyRadiusM / 111320.0
-            val proximityLonThresh = config.proximityPenaltyRadiusM / (111320.0 * cos(Math.toRadians(currentLat)))
-
-            val scored = feasible.map { adj ->
-                val cId = adj.corridorId
-                val corridor = corridorMap[cId]!!
-                val baseReward = rewardCache[cId]?.total ?: 0.0
-                val distFromHome = GeoUtils.haversineDistance(
-                    homeLat, homeLon, corridor.centroidLat, corridor.centroidLon,
-                )
-                val reusePenalty = if (visited.contains(cId)) {
-                    config.reusePenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
-                } else {
-                    0.0
-                }
-                val proximityFactor = if (!visited.contains(cId) && config.proximityPenaltyWeight > 0.0) {
-                    val hasNearby = visited.any { visitedId ->
-                        val vc = corridorMap[visitedId] ?: return@any false
-                        abs(corridor.centroidLat - vc.centroidLat) < proximityLatThresh &&
-                            abs(corridor.centroidLon - vc.centroidLon) < proximityLonThresh
-                    }
-                    if (hasNearby) {
-                        1.0 - config.proximityPenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
-                    } else 1.0
-                } else 1.0
+        // --- One geometry-first anchor per quadrant ---
+        val anchors = arrayOfNulls<Corridor>(QUADRANT_COUNT)
+        for (q in 0 until QUADRANT_COUNT) {
+            anchors[q] = quadrants[q].maxByOrNull { c ->
+                val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
+                val (along, _) = alongLateral(east, north, rideBearing)
                 val corridorBearing = GeoUtils.computeBearing(
-                    currentLat, currentLon, corridor.centroidLat, corridor.centroidLon,
+                    homeLat, homeLon, c.centroidLat, c.centroidLon,
                 )
-                val geoFactor = geometricFactor(corridorBearing, phaseBearing, config.geoWeight)
-                val outboundBoost = outboundFactor(
-                    distFromHome, currentDistFromHome,
-                    adj.distanceM, budgetFraction, config.outboundBoostWeight,
-                )
-                val effectiveReward = (baseReward / max(adj.distanceM, 1.0)) * geoFactor * outboundBoost * proximityFactor - reusePenalty
-                ScoredCandidate(adj, effectiveReward)
+                val rewardNorm = normalizeReward(rewardTotals[c.id] ?: 0.0, minReward, maxReward)
+                anchorScore(along, reach, corridorBearing, rideBearing, q, rewardNorm, config)
             }
-
-            val maxScore = scored.maxOf { it.score }
-            val minScore = scored.minOf { it.score }
-            val threshold = if (maxScore == minScore) {
-                minScore
-            } else {
-                maxScore - config.graspAlpha * (maxScore - minScore)
-            }
-            val rcl = scored.filter { it.score >= threshold }
-
-            val chosen = rcl[random.nextInt(rcl.size)]
-            route.add(chosen.adj.corridorId)
-            visited.add(chosen.adj.corridorId)
-            visitCounts[chosen.adj.corridorId] = (visitCounts[chosen.adj.corridorId] ?: 0) + 1
-            usedDistance += chosen.adj.distanceM
-            totalReward += rewardCache[chosen.adj.corridorId]?.total ?: 0.0
         }
-        val maxReachM = route.maxOfOrNull { id ->
-            corridorMap[id]?.let { c ->
-                GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon)
-            } ?: 0.0
-        } ?: 0.0
-        Log.d(TAG, "graspConstruct: $step steps, ${route.size} corridors (${visited.size} unique), dist=${usedDistance.toInt()}m budget=${maxBudget.toInt()}m maxReach=${maxReachM.toInt()}m")
 
-        if (route.size < 2) return null
+        // --- Emit the ordered corridor-ID skeleton ---
+        val corridorById = HashMap<Long, Corridor>()
+        reachable.forEach { corridorById[it.id] = it }
+        corridorById[homeCorridor.id] = homeCorridor
 
-        val returnDist = returnCosts[route.last()] ?: return null
-        val totalDist = usedDistance + returnDist
+        // The exit-plan start corridor is honored as the Q1 anchor (emitted first); the exit leg
+        // already reaches it, so the home corridor is not prepended. Otherwise the home corridor
+        // opens and closes the loop. Natural quadrant anchors follow in order Q1->Q2->Q3->Q4.
+        val startCorridor = startCorridorId?.let { id -> corridors.firstOrNull { it.id == id } }
+        val ordered = mutableListOf<Long>()
+        if (startCorridor != null) {
+            corridorById[startCorridor.id] = startCorridor
+            ordered.add(startCorridor.id)
+        } else {
+            ordered.add(homeCorridor.id)
+        }
+        for (q in 0 until QUADRANT_COUNT) {
+            val anchor = anchors[q] ?: continue
+            if (anchor.id == startCorridor?.id || anchor.id == homeCorridor.id) continue
+            corridorById[anchor.id] = anchor
+            if (ordered.lastOrNull() != anchor.id) ordered.add(anchor.id)
+        }
 
-        if (totalDist < targetDistanceM * 0.85) return null
+        val distinct = ordered.distinct()
+        if (distinct.size < 2) {
+            Log.d(TAG, "search: skeleton has ${distinct.size} distinct corridors, no loop possible")
+            return emptyList()
+        }
+        Log.d(TAG, "search: skeleton corridors=$ordered")
 
-        val corridorSet = route.toSet()
-        val flowScore = corridorSet.sumOf { rewardCache[it]?.flow ?: 0.0 }
-        val discoveryScore = corridorSet.sumOf { rewardCache[it]?.explore ?: 0.0 }
-
-        return CandidateLoop(
-            corridors = route.toList(),
-            totalDistanceM = totalDist,
-            totalReward = totalReward,
-            flowScore = flowScore,
-            discoveryScore = discoveryScore,
-        )
+        val candidate = buildCandidate(ordered, corridorById, rewardCache)
+        return listOf(candidate)
     }
 
-    private suspend fun localSearch(
-        candidate: CandidateLoop,
-        corridorMap: Map<Long, Corridor>,
-        adjacency: Map<Long, List<AdjEntry>>,
+    private fun buildCandidate(
+        ordered: List<Long>,
+        corridorById: Map<Long, Corridor>,
         rewardCache: Map<Long, ComposedReward>,
-        returnCosts: Map<Long, Double>,
-        homeId: Long,
-        homeLat: Double,
-        homeLon: Double,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
     ): CandidateLoop {
-        val connDist = precomputeConnectionDistances(adjacency)
-        val homeDistCache = precomputeHomeDistances(corridorMap, homeLat, homeLon)
-        val homeLengthM = corridorMap[homeId]?.lengthM ?: 0.0
-        val visited = HashSet<Long>(candidate.corridors.size * 2)
-
-        var best = candidate
-        var improved = true
-        var iteration = 0
-
-        while (improved && iteration < MAX_LOCAL_SEARCH_ITERATIONS) {
-            coroutineContext.ensureActive()
-            improved = false
-            val iterStart = System.currentTimeMillis()
-
-            val twoOptResult = tryTwoOpt(
-                best, rewardCache, connDist, returnCosts, homeDistCache,
-                targetDistanceM, config, visited, homeLengthM,
-            )
-            if (twoOptResult != null && twoOptResult.totalReward > best.totalReward) {
-                best = twoOptResult
-                improved = true
-            }
-
-            val orOptResult = tryOrOpt(
-                best, rewardCache, connDist, returnCosts, homeDistCache,
-                targetDistanceM, config, visited, homeLengthM,
-            )
-            if (orOptResult != null && orOptResult.totalReward > best.totalReward) {
-                best = orOptResult
-                improved = true
-            }
-
-            Log.d(TAG, "localSearch: iter=$iteration routeSize=${best.corridors.size} improved=$improved in ${System.currentTimeMillis() - iterStart}ms")
-            iteration++
-        }
-
-        return best
-    }
-
-    private fun precomputeConnectionDistances(
-        adjacency: Map<Long, List<AdjEntry>>,
-    ): HashMap<Long, Double> {
-        val result = HashMap<Long, Double>()
-        for ((fromId, entries) in adjacency) {
-            for (entry in entries) {
-                result[pairKey(fromId, entry.corridorId)] = entry.distanceM
-            }
-        }
-        return result
-    }
-
-    private fun precomputeHomeDistances(
-        corridorMap: Map<Long, Corridor>,
-        homeLat: Double,
-        homeLon: Double,
-    ): HashMap<Long, Double> {
-        val result = HashMap<Long, Double>(corridorMap.size * 2)
-        for ((id, c) in corridorMap) {
-            result[id] = GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon)
-        }
-        return result
-    }
-
-    private fun pairKey(a: Long, b: Long): Long = (a shl 32) or (b and 0xFFFFFFFFL)
-
-    private suspend fun tryTwoOpt(
-        candidate: CandidateLoop,
-        rewardCache: Map<Long, ComposedReward>,
-        connDist: HashMap<Long, Double>,
-        returnCosts: Map<Long, Double>,
-        homeDistCache: HashMap<Long, Double>,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
-        visited: HashSet<Long>,
-        homeLengthM: Double,
-    ): CandidateLoop? {
-        val route = candidate.corridors
-        val n = route.size
-        if (n < 4) return null
-
-        val buf = route.toLongArray()
-        var bestScore = Double.NaN
-        var bestI = -1
-        var bestJ = -1
-
-        for (i in 1 until n - 2) {
-            coroutineContext.ensureActive()
-            for (j in i + 1 until n - 1) {
-                var lo = i; var hi = j
-                while (lo < hi) { val tmp = buf[lo]; buf[lo] = buf[hi]; buf[hi] = tmp; lo++; hi-- }
-
-                val score = evaluateRouteScore(
-                    buf, n, rewardCache, connDist, returnCosts, homeDistCache,
-                    targetDistanceM, config, visited, homeLengthM,
-                )
-                if (!score.isNaN() && (bestScore.isNaN() || score > bestScore)) {
-                    bestScore = score
-                    bestI = i
-                    bestJ = j
-                }
-
-                lo = i; hi = j
-                while (lo < hi) { val tmp = buf[lo]; buf[lo] = buf[hi]; buf[hi] = tmp; lo++; hi-- }
-            }
-        }
-
-        if (bestI < 0) return null
-
-        var lo = bestI; var hi = bestJ
-        while (lo < hi) { val tmp = buf[lo]; buf[lo] = buf[hi]; buf[hi] = tmp; lo++; hi-- }
-        return evaluateRouteArray(
-            buf, n, rewardCache, connDist, returnCosts, homeDistCache,
-            targetDistanceM, config, visited, homeLengthM,
-        )
-    }
-
-    private suspend fun tryOrOpt(
-        candidate: CandidateLoop,
-        rewardCache: Map<Long, ComposedReward>,
-        connDist: HashMap<Long, Double>,
-        returnCosts: Map<Long, Double>,
-        homeDistCache: HashMap<Long, Double>,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
-        visited: HashSet<Long>,
-        homeLengthM: Double,
-    ): CandidateLoop? {
-        val route = candidate.corridors
-        val n = route.size
-        if (n < 4) return null
-
-        val buf = LongArray(n)
-        var bestScore = Double.NaN
-        var bestI = -1
-        var bestJ = -1
-
-        for (i in 1 until n - 1) {
-            coroutineContext.ensureActive()
-            val segment = route[i]
-
-            for (j in 1 until n - 1) {
-                if (j == i || j == i - 1) continue
-
-                var pos = 0
-                val insertAt = if (j > i) j else j
-                for (k in 0 until n) {
-                    if (k == i) continue
-                    if (pos == insertAt) { buf[pos++] = segment }
-                    buf[pos++] = route[k]
-                }
-                if (pos == insertAt) { buf[pos++] = segment }
-                val bufLen = pos
-
-                val score = evaluateRouteScore(
-                    buf, bufLen, rewardCache, connDist, returnCosts, homeDistCache,
-                    targetDistanceM, config, visited, homeLengthM,
-                )
-                if (!score.isNaN() && (bestScore.isNaN() || score > bestScore)) {
-                    bestScore = score
-                    bestI = i
-                    bestJ = j
-                }
-            }
-        }
-
-        if (bestI < 0) return null
-
-        val winnerSegment = route[bestI]
-        var pos = 0
-        val insertAt = if (bestJ > bestI) bestJ else bestJ
-        for (k in 0 until n) {
-            if (k == bestI) continue
-            if (pos == insertAt) { buf[pos++] = winnerSegment }
-            buf[pos++] = route[k]
-        }
-        if (pos == insertAt) { buf[pos++] = winnerSegment }
-        val bufLen = pos
-        return evaluateRouteArray(
-            buf, bufLen, rewardCache, connDist, returnCosts, homeDistCache,
-            targetDistanceM, config, visited, homeLengthM,
-        )
-    }
-
-    private fun evaluateRouteScore(
-        route: LongArray,
-        len: Int,
-        rewardCache: Map<Long, ComposedReward>,
-        connDist: HashMap<Long, Double>,
-        returnCosts: Map<Long, Double>,
-        homeDistCache: HashMap<Long, Double>,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
-        visited: HashSet<Long>,
-        homeLengthM: Double,
-    ): Double {
-        var distance = homeLengthM
-        for (i in 0 until len - 1) {
-            val d = connDist[pairKey(route[i], route[i + 1])] ?: return Double.NaN
-            distance += d
-        }
-
-        val returnDist = returnCosts[route[len - 1]] ?: return Double.NaN
-        val totalDist = distance + returnDist
-
-        if (totalDist > targetDistanceM * config.distanceCeilingFraction || totalDist < targetDistanceM * 0.85) return Double.NaN
-
-        visited.clear()
-        var totalReward = 0.0
-        for (k in 0 until len) {
-            val cId = route[k]
-            val reward = rewardCache[cId] ?: continue
-            if (!visited.add(cId)) {
-                val distFromHome = homeDistCache[cId] ?: continue
-                val penalty = config.reusePenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
-                totalReward += reward.total - penalty
-            } else {
-                totalReward += reward.total
-            }
-        }
-
-        return totalReward
-    }
-
-    private fun evaluateRouteArray(
-        route: LongArray,
-        len: Int,
-        rewardCache: Map<Long, ComposedReward>,
-        connDist: HashMap<Long, Double>,
-        returnCosts: Map<Long, Double>,
-        homeDistCache: HashMap<Long, Double>,
-        targetDistanceM: Double,
-        config: OrienteerConfig,
-        visited: HashSet<Long>,
-        homeLengthM: Double,
-    ): CandidateLoop? {
-        var distance = homeLengthM
-        for (i in 0 until len - 1) {
-            val d = connDist[pairKey(route[i], route[i + 1])] ?: return null
-            distance += d
-        }
-
-        val returnDist = returnCosts[route[len - 1]] ?: return null
-        val totalDist = distance + returnDist
-
-        if (totalDist > targetDistanceM * config.distanceCeilingFraction || totalDist < targetDistanceM * 0.85) return null
-
-        visited.clear()
+        val distinctIds = ordered.distinct()
         var totalReward = 0.0
         var flowScore = 0.0
         var discoveryScore = 0.0
-        for (k in 0 until len) {
-            val cId = route[k]
-            val reward = rewardCache[cId] ?: continue
-            if (!visited.add(cId)) {
-                val distFromHome = homeDistCache[cId] ?: continue
-                val penalty = config.reusePenaltyWeight * reuseModulation(distFromHome, config.homeExitRadiusM)
-                totalReward += reward.total - penalty
-            } else {
-                totalReward += reward.total
-                flowScore += reward.flow
-                discoveryScore += reward.explore
-            }
+        for (id in distinctIds) {
+            val reward = rewardCache[id] ?: continue
+            totalReward += reward.total
+            flowScore += reward.flow
+            discoveryScore += reward.explore
         }
 
-        val routeList = ArrayList<Long>(len)
-        for (k in 0 until len) routeList.add(route[k])
+        var straightLine = 0.0
+        for (i in 0 until ordered.size - 1) {
+            val a = corridorById[ordered[i]] ?: continue
+            val b = corridorById[ordered[i + 1]] ?: continue
+            straightLine += GeoUtils.haversineDistance(a.centroidLat, a.centroidLon, b.centroidLat, b.centroidLon)
+        }
+        // Closing leg back to the first corridor.
+        val first = corridorById[ordered.first()]
+        val last = corridorById[ordered.last()]
+        if (first != null && last != null) {
+            straightLine += GeoUtils.haversineDistance(last.centroidLat, last.centroidLon, first.centroidLat, first.centroidLon)
+        }
+        val corridorLength = distinctIds.sumOf { corridorById[it]?.lengthM ?: 0.0 }
 
         return CandidateLoop(
-            corridors = routeList,
-            totalDistanceM = totalDist,
+            corridors = ordered,
+            totalDistanceM = straightLine * ROAD_DISTANCE_FACTOR + corridorLength,
             totalReward = totalReward,
             flowScore = flowScore,
             discoveryScore = discoveryScore,
         )
     }
 
-    internal fun selectDiverse(
-        candidates: List<CandidateLoop>,
+    // --- Ride-aligned frame helpers ---
+
+    /** Local east/north offset (metres) of a point from home using an equirectangular approximation. */
+    internal fun toLocalMeters(
+        homeLat: Double,
+        homeLon: Double,
+        lat: Double,
+        lon: Double,
+    ): Pair<Double, Double> {
+        val metersPerDegLat = 111_320.0
+        val metersPerDegLon = 111_320.0 * cos(Math.toRadians(homeLat))
+        val east = (lon - homeLon) * metersPerDegLon
+        val north = (lat - homeLat) * metersPerDegLat
+        return east to north
+    }
+
+    /**
+     * Projects a local east/north offset onto the ride-aligned frame.
+     * `along` is the component in the ride direction (`u`); `lateral` is the component to the
+     * right of travel (`v = perp(u)`).
+     */
+    internal fun alongLateral(east: Double, north: Double, rideBearingDeg: Double): Pair<Double, Double> {
+        val r = Math.toRadians(rideBearingDeg)
+        val ux = sin(r)
+        val uy = cos(r)
+        val vx = cos(r)
+        val vy = -sin(r)
+        val along = east * ux + north * uy
+        val lateral = east * vx + north * vy
+        return along to lateral
+    }
+
+    /**
+     * Quadrant index in the ride-aligned frame, ordered for a single winding:
+     * Q1 front-right (0), Q2 front-left (1), Q3 back-left (2), Q4 back-right (3).
+     */
+    internal fun quadrantOf(along: Double, lateral: Double): Int = when {
+        along >= 0 && lateral >= 0 -> 0
+        along >= 0 && lateral < 0 -> 1
+        along < 0 && lateral < 0 -> 2
+        else -> 3
+    }
+
+    /**
+     * Geometry-first anchor score for a corridor within its quadrant.
+     * `anchorScore = wFar*(along/reach) + wHead*headingAlignment + wReward*rewardNorm`,
+     * where reward is only a tiebreak.
+     */
+    internal fun anchorScore(
+        along: Double,
+        reach: Double,
+        corridorBearing: Double,
+        rideBearingDeg: Double,
+        quadrant: Int,
+        rewardNorm: Double,
         config: OrienteerConfig,
-    ): List<CandidateLoop> {
-        if (candidates.isEmpty()) return emptyList()
-
-        val remaining = candidates.sortedByDescending { it.totalReward }.toMutableList()
-        val selected = mutableListOf(remaining.removeFirst())
-
-        while (selected.size < config.candidateCount && remaining.isNotEmpty()) {
-            val best = remaining.maxByOrNull { candidate ->
-                val maxOverlap = selected.maxOf { existing ->
-                    corridorOverlap(candidate.corridors, existing.corridors)
-                }
-                candidate.totalReward * (1.0 - maxOverlap * config.overlapDiversityWeight)
-            } ?: break
-
-            val maxOverlap = selected.maxOf { existing ->
-                corridorOverlap(best.corridors, existing.corridors)
-            }
-            val penalizedReward = best.totalReward * (1.0 - maxOverlap * config.overlapDiversityWeight)
-            if (penalizedReward <= 0) break
-
-            remaining.remove(best)
-            selected.add(best)
-        }
-
-        return selected
-    }
-
-    internal fun corridorOverlap(a: List<Long>, b: List<Long>): Double {
-        val setA = a.toSet()
-        val setB = b.toSet()
-        val intersection = setA.intersect(setB).size.toDouble()
-        val union = setA.union(setB).size.toDouble()
-        if (union == 0.0) return 0.0
-        return intersection / union
-    }
-
-    internal fun phaseBearing(directionBearing: Double, clockwise: Boolean, budgetFraction: Double): Double {
-        val phase = when {
-            budgetFraction < 0.25 -> 0
-            budgetFraction < 0.50 -> 1
-            budgetFraction < 0.75 -> 2
-            else -> 3
-        }
-        val offsets = if (clockwise) {
-            doubleArrayOf(-45.0, 45.0, 135.0, 225.0)
-        } else {
-            doubleArrayOf(45.0, -45.0, -135.0, -225.0)
-        }
-        return (directionBearing + offsets[phase] + 360.0) % 360.0
-    }
-
-    internal fun geometricFactor(corridorBearing: Double, phaseBearing: Double, geoWeight: Double): Double {
-        val cosSim = cosineSimilarity(corridorBearing, phaseBearing)
-        return 1.0 + geoWeight * cosSim
-    }
-
-    internal fun cosineSimilarity(bearing1: Double, bearing2: Double): Double {
-        val diff = Math.toRadians(bearing1 - bearing2)
-        return cos(diff)
-    }
-
-    internal fun reuseModulation(distanceFromHomeM: Double, homeExitRadiusM: Double): Double {
-        if (distanceFromHomeM <= 0.0) return 0.0
-        if (distanceFromHomeM >= homeExitRadiusM) return 1.0
-        return distanceFromHomeM / homeExitRadiusM
-    }
-
-    internal fun outboundFactor(
-        candidateDistFromHomeM: Double,
-        currentDistFromHomeM: Double,
-        stepDistanceM: Double,
-        budgetFraction: Double,
-        weight: Double,
     ): Double {
-        if (budgetFraction >= 0.5 || weight <= 0.0) return 1.0
-        val gain = (candidateDistFromHomeM - currentDistFromHomeM) / max(stepDistanceM, 1.0)
-        return 1.0 + weight * max(gain, 0.0)
+        val farTerm = config.farWeight * (along / reach)
+        val arcTangent = arcTangentBearing(rideBearingDeg, quadrant)
+        val headTerm = config.headingWeight * cosineSimilarity(corridorBearing, arcTangent)
+        val rewardTerm = config.rewardWeight * rewardNorm
+        return farTerm + headTerm + rewardTerm
+    }
+
+    /** Bisector bearing of a quadrant in the ride-aligned frame (right of travel = +90). */
+    internal fun arcTangentBearing(rideBearingDeg: Double, quadrant: Int): Double {
+        val offset = when (quadrant) {
+            0 -> 45.0
+            1 -> -45.0
+            2 -> -135.0
+            else -> 135.0
+        }
+        return (rideBearingDeg + offset + 360.0) % 360.0
+    }
+
+    internal fun cosineSimilarity(bearing1: Double, bearing2: Double): Double =
+        cos(Math.toRadians(bearing1 - bearing2))
+
+    private fun normalizeReward(reward: Double, minReward: Double, maxReward: Double): Double {
+        if (maxReward <= minReward) return 0.0
+        return (reward - minReward) / (maxReward - minReward)
+    }
+
+    private fun defaultRideBearing(
+        reachable: List<Corridor>,
+        homeCorridorId: Long,
+        homeLat: Double,
+        homeLon: Double,
+    ): Double {
+        val farthest = reachable
+            .filter { it.id != homeCorridorId }
+            .maxByOrNull { GeoUtils.haversineDistance(homeLat, homeLon, it.centroidLat, it.centroidLon) }
+            ?: return 0.0
+        return GeoUtils.computeBearing(homeLat, homeLon, farthest.centroidLat, farthest.centroidLon)
     }
 
     internal fun findNearestCorridor(
         corridors: List<Corridor>,
         lat: Double,
         lon: Double,
-    ): Corridor? {
-        return corridors.minByOrNull {
-            GeoUtils.haversineDistance(lat, lon, it.centroidLat, it.centroidLon)
-        }
-    }
-
-    private fun buildAdjacency(
-        connectors: List<CorridorConnector>,
-        corridorMap: Map<Long, Corridor>,
-    ): Map<Long, List<AdjEntry>> {
-        val result = mutableMapOf<Long, MutableList<AdjEntry>>()
-        for (conn in connectors) {
-            val toLength = corridorMap[conn.toCorridor]?.lengthM ?: 0.0
-            val fromLength = corridorMap[conn.fromCorridor]?.lengthM ?: 0.0
-            result.getOrPut(conn.fromCorridor) { mutableListOf() }
-                .add(AdjEntry(conn.toCorridor, conn.distanceM + toLength))
-            result.getOrPut(conn.toCorridor) { mutableListOf() }
-                .add(AdjEntry(conn.fromCorridor, conn.distanceM + fromLength))
-        }
-        return result
-    }
-
-    private fun dijkstraFromHome(
-        homeId: Long,
-        adjacency: Map<Long, List<AdjEntry>>,
-    ): Map<Long, Double> {
-        val dist = mutableMapOf(homeId to 0.0)
-        val visited = mutableSetOf<Long>()
-        val pq = PriorityQueue<Pair<Long, Double>>(compareBy { it.second })
-        pq.add(homeId to 0.0)
-
-        while (pq.isNotEmpty()) {
-            val (current, currentDist) = pq.poll() ?: break
-            if (!visited.add(current)) continue
-            if (currentDist > (dist[current] ?: Double.MAX_VALUE)) continue
-
-            val neighbors = adjacency[current] ?: continue
-            for (adj in neighbors) {
-                val newDist = currentDist + adj.distanceM
-                if (newDist < (dist[adj.corridorId] ?: Double.MAX_VALUE)) {
-                    dist[adj.corridorId] = newDist
-                    pq.add(adj.corridorId to newDist)
-                }
-            }
-        }
-
-        return dist
+    ): Corridor? = corridors.minByOrNull {
+        GeoUtils.haversineDistance(lat, lon, it.centroidLat, it.centroidLon)
     }
 
     internal fun filterByRadius(
@@ -688,22 +290,4 @@ object CorridorOrienteer {
     ): List<Corridor> = corridors.filter { c ->
         GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon) <= maxRadiusM
     }
-
-    internal fun filterByDirection(
-        corridors: List<Corridor>,
-        homeLat: Double,
-        homeLon: Double,
-        direction: RideDirection,
-        homeExitRadiusM: Double,
-    ): List<Corridor> = corridors.filter { c ->
-        val dist = GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon)
-        if (dist <= homeExitRadiusM) return@filter true
-        val bearing = GeoUtils.computeBearing(homeLat, homeLon, c.centroidLat, c.centroidLon)
-        val diff = abs(bearing - direction.bearingCenter) % 360
-        val angularDiff = if (diff > 180) 360 - diff else diff
-        angularDiff <= DIRECTION_CONE_HALF_ANGLE
-    }
-
-    internal data class AdjEntry(val corridorId: Long, val distanceM: Double)
-    private data class ScoredCandidate(val adj: AdjEntry, val score: Double)
 }

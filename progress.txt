@@ -1,3 +1,58 @@
+## Issue #113 — Quadrant skeleton replaces GRASP corridor ordering (tracer bullet)
+Completed: 2026-06-26
+
+### What was done
+
+**`CorridorOrienteer.kt` — outright replacement of the GRASP engine**
+- Removed the entire GRASP construction + local-search path: `graspConstruct`,
+  `localSearch`, `tryTwoOpt`, `tryOrOpt`, `evaluateRouteScore`, `evaluateRouteArray`,
+  `precomputeConnectionDistances`, `precomputeHomeDistances`, `pairKey`,
+  `buildAdjacency`, `dijkstraFromHome`, `selectDiverse`, `corridorOverlap`,
+  `reuseModulation`, `outboundFactor`, `phaseBearing`, `geometricFactor`,
+  `filterByDirection`, and the `AdjEntry`/`ScoredCandidate` helpers. No config flag —
+  the quadrant skeleton is the only path.
+- New deterministic `search()` (signature dropped `connectors`, `rewardContext`, `seed`):
+  1. `reach = target * FAR_POINT_BUDGET_FRACTION` (= target/3) drives the radius filter,
+     replacing the old `target/2`. The previously-dead `FAR_POINT_BUDGET_FRACTION` constant
+     is now wired up.
+  2. Builds a ride-aligned frame: `rideBearing` = `direction.bearingCenter`, or — when no
+     direction is given — the bearing to the farthest reachable corridor. `u = unit(rideBearing)`,
+     `v = perp(u)` (right of travel).
+  3. Classifies each reachable corridor by `along = (c-home)·u` / `lateral = (c-home)·v` into
+     four quadrants (Q1 front-right, Q2 front-left, Q3 back-left, Q4 back-right).
+  4. Picks one geometry-first anchor per quadrant by
+     `anchorScore = farWeight*(along/reach) + headingWeight*headingAlignment(corridorBearing,
+     arcTangent) + rewardWeight*rewardNorm` (reward is tiebreak only). `arcTangent` is the
+     quadrant bisector bearing in the aligned frame.
+  5. Emits an ordered corridor-ID skeleton: home corridor (or the exit-plan start corridor as
+     Q1) followed by the natural Q1->Q2->Q3->Q4 anchors (deduped). Returns a single
+     `CandidateLoop` with summed reward/flow/discovery sub-scores and an informational coarse
+     distance estimate. Returns empty when fewer than two distinct corridors are reachable.
+- New internal helpers (unit-tested): `toLocalMeters`, `alongLateral`, `quadrantOf`,
+  `anchorScore`, `arcTangentBearing`, `cosineSimilarity` (kept). `filterByRadius` and
+  `findNearestCorridor` retained.
+- `OrienteerConfig` trimmed to `candidateCount`, `reusePenaltyWeight` (retained only as the
+  base for `DegradationPolicy`'s relaxation tiers), and the new `farWeight`/`headingWeight`/
+  `rewardWeight`. All GRASP-only fields removed.
+
+**`RouteGenerator.kt`**
+- `search()` call updated to the new signature (no connectors/rewardContext/seed). Removed the
+  now-unused `tierRewardContext`. The exit-plan start corridor is still passed via
+  `startCorridorId`; closed-loop vs stitched-route paths unchanged.
+
+### Tests
+- Rewrote `CorridorOrienteerTest`: quadrant classification end-to-end (home + one corridor per
+  compass quadrant -> ordered `[1,2,3,4,5]` skeleton), best-anchor selection within a crowded
+  quadrant, start corridor honored as Q1, reach (target/3) exclusion, determinism, empty/single
+  inputs, and unit tests for `toLocalMeters`, `alongLateral`, `quadrantOf`, `arcTangentBearing`,
+  `cosineSimilarity`, `anchorScore` (far-bias + reward tiebreak), `filterByRadius`,
+  `findNearestCorridor`.
+- `RouteGeneratorTest`: dropped the removed `graspRestarts` config arg; existing end-to-end,
+  exit-leg-stitch, fallback, and degradation tests still pass against the skeleton.
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
 ## Route generation bug fixes: budget overshoot, out-and-back, refiner performance
 Completed: 2026-06-25
 

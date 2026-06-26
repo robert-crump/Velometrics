@@ -96,10 +96,6 @@ object RouteGenerator {
                 config = config.degradationConfig,
             )
 
-            val tierRewardContext = RewardContext(
-                exploreExploitBalance = tierParams.exploreExploitBalance,
-                confidenceFloor = rewardContext.confidenceFloor,
-            )
             val refinementCount = maxCandidates * REFINEMENT_CANDIDATE_MULTIPLIER
             val tierOrienteerConfig = config.orienteerConfig.copy(
                 reusePenaltyWeight = tierParams.reusePenaltyWeight,
@@ -108,9 +104,9 @@ object RouteGenerator {
 
             val coarseStart = System.currentTimeMillis()
             val coarseCandidates = CorridorOrienteer.search(
-                corridors, connectors, homeLat, homeLon,
+                corridors, homeLat, homeLon,
                 effectiveTargetM,
-                weights, tierRewardContext, tierOrienteerConfig, config.seed,
+                weights, tierOrienteerConfig,
                 config.direction,
                 startCorridorId = exitPlan?.exitCorridorId,
             )

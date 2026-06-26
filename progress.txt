@@ -1,3 +1,46 @@
+## Issue #114 — 2km any-node separation rule for skeleton corridors
+Completed: 2026-06-26
+
+### What was done
+
+**`CorridorOrienteer.kt` — adaptive any-node separation during anchor selection**
+- New constants: `SEPARATION_M = 2000.0` (full air-distance minimum between any node of two
+  chosen corridors) and `SEPARATION_REACH_FRACTION = 0.5`. `separationDistance(reach) =
+  min(SEPARATION_M, reach * SEPARATION_REACH_FRACTION)` keeps short-target routes fillable
+  (sep reaches the full 2km only at reach >= 4km, i.e. target >= 12km).
+- `search()` gains a `nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double,Double>>`
+  parameter (defaults to an empty resolver so the pure scoring tests need no coordinates).
+  After classifying reachable corridors into quadrants, it batch-resolves node coordinates
+  **once** for every quadrant candidate (`corridorNodeIds` = entry + exit + both ends of each
+  `edgeList` edge).
+- Anchor selection is now **sequential and separation-aware**: each quadrant's candidates are
+  ranked by the existing geometry-first `anchorScore`, and the highest-scoring candidate that
+  stays separated from all previously-chosen anchors is picked. The home/start origin is the
+  fixed loop endpoint and is intentionally **not** part of the spread set — anchors are kept
+  apart from one another only (seeding the set with the origin would force every anchor >=2km
+  from home, which is impossible for short loops and pointless since the loop returns home).
+- New `corridorsSeparated(a, b, sep, nodeCoords)`: cheap centroid + half-length prefilter
+  (`centroidDist > sep + lenA/2 + lenB/2` => definitely separated, no node lookup) short-circuits
+  far pairs; only survivors compare resolved node lat/lon pairwise. When coordinates are
+  unavailable for a near pair, the pair is treated as separated (overlap cannot be proven).
+
+**`RouteGenerator.kt`**
+- Wires `nodeResolver` to `repository.getNodesByIds(...)`, mapping each `MapNode` to its
+  `(lat, lon)`. Empty id sets short-circuit to an empty map (no DB call).
+
+### Tests
+- `CorridorOrienteerTest`: cross-quadrant rejection end-to-end (a top-reward Q2 candidate whose
+  node hugs the Q1 anchor is rejected in favour of a well-separated candidate), `corridorsSeparated`
+  rejects overlapping parallels / accepts well-separated, prefilter short-circuits far pairs with
+  no coords, unresolvable near pairs treated as separated, `separationDistance` adaptive on short
+  reach, `corridorNodeIds` collects entry/exit/edge nodes.
+- All existing `CorridorOrienteerTest` and `RouteGeneratorTest` cases unchanged and passing
+  (fixtures carry empty `edgeList`, so separation falls back to entry/exit nodes and the tiny
+  graphs still form loops).
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
 ## Issue #113 — Quadrant skeleton replaces GRASP corridor ordering (tracer bullet)
 Completed: 2026-06-26
 

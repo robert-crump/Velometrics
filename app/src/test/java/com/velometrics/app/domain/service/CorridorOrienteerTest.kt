@@ -124,6 +124,97 @@ class CorridorOrienteerTest {
         assertTrue(candidate.totalDistanceM > 0.0)
     }
 
+    // --- 2km any-node separation rule ---
+
+    @Test
+    fun `search rejects an anchor candidate within separation of a chosen anchor`() = runTest {
+        // Q1 anchor id=2 (NE). Q2 has two candidates: id=3 scores highest (max reward) but has a
+        // node ~70m from the Q1 anchor, so the separation rule must reject it in favour of the
+        // well-separated id=4. id=3 is a long corridor, so the centroid prefilter cannot clear it.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val q1 = corridor(id = 2, lat = 50.05, lon = 6.05)                       // NE -> Q1
+        val q2Overlap = corridor(
+            id = 3, lat = 50.05, lon = 5.95,                                     // NW -> Q2
+            pedalReward = 20.0, gravityReward = 20.0, lengthM = 12000.0,         // top reward, long
+        )
+        val q2Clean = corridor(id = 4, lat = 50.05, lon = 5.96)                  // NW -> Q2
+
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.001 to 6.0),
+            20L to (50.05 to 6.05), 21L to (50.051 to 6.05),
+            30L to (50.05 to 5.95), 31L to (50.05 to 6.049),  // id=3 exit node hugs the Q1 anchor
+            40L to (50.05 to 5.96), 41L to (50.051 to 5.96),
+        )
+
+        val results = CorridorOrienteer.search(
+            listOf(home, q1, q2Overlap, q2Clean),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 30000.0, // reach = 10km, sep = 2km
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        )
+
+        val skeleton = results.single().corridors
+        assertTrue("Q1 anchor present", skeleton.contains(2L))
+        assertFalse("Overlapping high-reward Q2 candidate must be rejected", skeleton.contains(3L))
+        assertTrue("Well-separated Q2 candidate chosen instead", skeleton.contains(4L))
+    }
+
+    @Test
+    fun `corridorsSeparated rejects overlapping parallel corridors`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0, lengthM = 1000.0)      // nodes 10, 11
+        val b = corridor(id = 2, lat = 50.0, lon = 6.0003, lengthM = 1000.0)   // nodes 20, 21
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.005 to 6.0),
+            20L to (50.0 to 6.0003), 21L to (50.005 to 6.0003), // ~21m east of a's nodes
+        )
+        assertFalse(CorridorOrienteer.corridorsSeparated(a, b, sep = 2000.0, nodeCoords = coords))
+    }
+
+    @Test
+    fun `corridorsSeparated accepts well-separated corridors`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0, lengthM = 1000.0)
+        val b = corridor(id = 2, lat = 50.1, lon = 6.0, lengthM = 1000.0) // ~11km north
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.005 to 6.0),
+            20L to (50.1 to 6.0), 21L to (50.105 to 6.0),
+        )
+        assertTrue(CorridorOrienteer.corridorsSeparated(a, b, sep = 2000.0, nodeCoords = coords))
+    }
+
+    @Test
+    fun `corridorsSeparated prefilter short-circuits far pairs without node coords`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0, lengthM = 1000.0)
+        val b = corridor(id = 2, lat = 50.1, lon = 6.0, lengthM = 1000.0) // ~11km north
+        // No node coordinates supplied: the centroid+half-length prefilter alone proves separation.
+        assertTrue(CorridorOrienteer.corridorsSeparated(a, b, sep = 2000.0, nodeCoords = emptyMap()))
+    }
+
+    @Test
+    fun `corridorsSeparated treats unresolvable near pairs as separated`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0, lengthM = 1000.0)
+        val b = corridor(id = 2, lat = 50.0, lon = 6.0003, lengthM = 1000.0) // close centroids
+        // Near pair survives the prefilter but no coordinates exist: overlap cannot be proven.
+        assertTrue(CorridorOrienteer.corridorsSeparated(a, b, sep = 2000.0, nodeCoords = emptyMap()))
+    }
+
+    @Test
+    fun `separationDistance is adaptive on short reach`() {
+        assertEquals(2000.0, CorridorOrienteer.separationDistance(10000.0), 1e-9) // min(2km, 5km)
+        assertEquals(1000.0, CorridorOrienteer.separationDistance(2000.0), 1e-9)  // min(2km, 1km)
+    }
+
+    @Test
+    fun `corridorNodeIds collects entry exit and edge nodes`() {
+        val c = com.velometrics.app.domain.model.Corridor(
+            id = 1, entryNode = 7, exitNode = 8, lengthM = 100.0,
+            pedalReward = 0.0, gravityReward = 0.0, exitHazardScore = 0.0,
+            centroidLat = 50.0, centroidLon = 6.0,
+            edgeList = listOf(1L to 2L, 2L to 3L), popularity = 0, groupId = 1,
+        )
+        assertEquals(setOf(7L, 8L, 1L, 2L, 3L), CorridorOrienteer.corridorNodeIds(c))
+    }
+
     // --- Ride-aligned frame helpers ---
 
     @Test

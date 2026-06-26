@@ -46,6 +46,20 @@ object CorridorOrienteer {
 
     private const val QUADRANT_COUNT = 4
 
+    /** Full minimum air separation between any node of two chosen corridors. */
+    internal const val SEPARATION_M = 2000.0
+
+    /**
+     * Fraction of `reach` used as the adaptive separation cap, so short-target routes still
+     * populate all four quadrants: `sep = min(SEPARATION_M, reach * SEPARATION_REACH_FRACTION)`.
+     */
+    internal const val SEPARATION_REACH_FRACTION = 0.5
+
+    /**
+     * Resolves node IDs to (lat, lon). Defaults to an empty resolver so the pure scoring tests
+     * need not supply coordinates; [RouteGenerator] wires this to the repository. When a pair of
+     * separation-candidate corridors cannot be resolved, the pair is treated as separated.
+     */
     suspend fun search(
         corridors: List<Corridor>,
         homeLat: Double,
@@ -55,6 +69,7 @@ object CorridorOrienteer {
         config: OrienteerConfig = OrienteerConfig(),
         direction: RideDirection? = null,
         startCorridorId: Long? = null,
+        nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double, Double>> = { emptyMap() },
     ): List<CandidateLoop> {
         if (corridors.isEmpty()) return emptyList()
 
@@ -82,19 +97,38 @@ object CorridorOrienteer {
         val minReward = rewardTotals.values.minOrNull() ?: 0.0
         val maxReward = rewardTotals.values.maxOrNull() ?: 0.0
 
+        // The exit-plan start corridor (when present) is the loop origin; otherwise the home
+        // corridor is. Anchors are kept clear of the origin and of each other by the separation
+        // rule below.
+        val startCorridor = startCorridorId?.let { id -> corridors.firstOrNull { it.id == id } }
+        val origin = startCorridor ?: homeCorridor
+
         // --- Classify reachable corridors into the four ride-aligned quadrants ---
         val quadrants = Array(QUADRANT_COUNT) { mutableListOf<Corridor>() }
         for (c in reachable) {
-            if (c.id == homeCorridor.id) continue
+            if (c.id == homeCorridor.id || c.id == origin.id) continue
             val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
             val (along, lateral) = alongLateral(east, north, rideBearing)
             quadrants[quadrantOf(along, lateral)].add(c)
         }
 
-        // --- One geometry-first anchor per quadrant ---
+        // Batch-resolve node coordinates once for the candidate corridors (every reachable
+        // quadrant candidate). The cheap centroid+half-length prefilter in [corridorsSeparated]
+        // short-circuits far pairs without consulting this map.
+        val candidateCorridors = quadrants.flatMap { it }
+        val neededNodeIds = buildSet { candidateCorridors.forEach { addAll(corridorNodeIds(it)) } }
+        val nodeCoords = nodeResolver(neededNodeIds)
+        val sep = separationDistance(reach)
+
+        // --- One geometry-first anchor per quadrant, respecting the separation rule ---
+        // Selection is sequential so each pick is checked against the anchors chosen for earlier
+        // quadrants. Within a quadrant, the highest geometry-first score that stays separated
+        // wins. The home/start origin is the fixed loop endpoint and is not part of the spread
+        // set — anchors are only kept apart from one another.
         val anchors = arrayOfNulls<Corridor>(QUADRANT_COUNT)
+        val chosen = mutableListOf<Corridor>()
         for (q in 0 until QUADRANT_COUNT) {
-            anchors[q] = quadrants[q].maxByOrNull { c ->
+            val ranked = quadrants[q].sortedByDescending { c ->
                 val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
                 val (along, _) = alongLateral(east, north, rideBearing)
                 val corridorBearing = GeoUtils.computeBearing(
@@ -102,6 +136,13 @@ object CorridorOrienteer {
                 )
                 val rewardNorm = normalizeReward(rewardTotals[c.id] ?: 0.0, minReward, maxReward)
                 anchorScore(along, reach, corridorBearing, rideBearing, q, rewardNorm, config)
+            }
+            val pick = ranked.firstOrNull { cand ->
+                chosen.all { corridorsSeparated(cand, it, sep, nodeCoords) }
+            }
+            if (pick != null) {
+                anchors[q] = pick
+                chosen.add(pick)
             }
         }
 
@@ -113,7 +154,6 @@ object CorridorOrienteer {
         // The exit-plan start corridor is honored as the Q1 anchor (emitted first); the exit leg
         // already reaches it, so the home corridor is not prepended. Otherwise the home corridor
         // opens and closes the loop. Natural quadrant anchors follow in order Q1->Q2->Q3->Q4.
-        val startCorridor = startCorridorId?.let { id -> corridors.firstOrNull { it.id == id } }
         val ordered = mutableListOf<Long>()
         if (startCorridor != null) {
             corridorById[startCorridor.id] = startCorridor
@@ -289,5 +329,54 @@ object CorridorOrienteer {
         maxRadiusM: Double,
     ): List<Corridor> = corridors.filter { c ->
         GeoUtils.haversineDistance(homeLat, homeLon, c.centroidLat, c.centroidLon) <= maxRadiusM
+    }
+
+    // --- Separation rule helpers ---
+
+    /** Adaptive separation: full 2km, shrinking with reach so short targets stay fillable. */
+    internal fun separationDistance(reach: Double): Double =
+        minOf(SEPARATION_M, reach * SEPARATION_REACH_FRACTION)
+
+    /** Every node a corridor touches: both ends of each edge plus the entry/exit nodes. */
+    internal fun corridorNodeIds(c: Corridor): Set<Long> = buildSet {
+        add(c.entryNode)
+        add(c.exitNode)
+        for ((from, to) in c.edgeList) {
+            add(from)
+            add(to)
+        }
+    }
+
+    /**
+     * True when corridors [a] and [b] are at least [sep] apart — i.e. no node of one is within
+     * [sep] (air distance) of any node of the other.
+     *
+     * A cheap centroid + half-length prefilter short-circuits far pairs without any node lookup:
+     * if the centroids are farther apart than `sep + lenA/2 + lenB/2`, the corridors cannot
+     * possibly have nodes within [sep], so they are definitely separated. Only pairs surviving the
+     * prefilter resolve node coordinates. When those coordinates are unavailable (e.g. a corridor
+     * carries no `edgeList`), the pair is treated as separated — overlap cannot be proven.
+     */
+    internal fun corridorsSeparated(
+        a: Corridor,
+        b: Corridor,
+        sep: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Boolean {
+        val centroidDist = GeoUtils.haversineDistance(
+            a.centroidLat, a.centroidLon, b.centroidLat, b.centroidLon,
+        )
+        if (centroidDist > sep + a.lengthM / 2.0 + b.lengthM / 2.0) return true
+
+        val aNodes = corridorNodeIds(a).mapNotNull { nodeCoords[it] }
+        val bNodes = corridorNodeIds(b).mapNotNull { nodeCoords[it] }
+        if (aNodes.isEmpty() || bNodes.isEmpty()) return true
+
+        for ((aLat, aLon) in aNodes) {
+            for ((bLat, bLon) in bNodes) {
+                if (GeoUtils.haversineDistance(aLat, aLon, bLat, bLon) < sep) return false
+            }
+        }
+        return true
     }
 }

@@ -109,6 +109,14 @@ object RouteGenerator {
                 weights, tierOrienteerConfig,
                 config.direction,
                 startCorridorId = exitPlan?.exitCorridorId,
+                nodeResolver = { ids ->
+                    if (ids.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        repository.getNodesByIds(*ids.toLongArray())
+                            .associate { it.id to (it.lat to it.lon) }
+                    }
+                },
             )
             Log.d(TAG, "generate: coarse search found ${coarseCandidates.size} candidates in ${System.currentTimeMillis() - coarseStart}ms")
 

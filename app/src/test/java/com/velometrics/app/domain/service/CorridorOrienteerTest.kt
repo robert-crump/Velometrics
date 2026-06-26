@@ -41,7 +41,11 @@ class CorridorOrienteerTest {
 
         val skeleton = results.single().corridors
         assertTrue("Farther NE corridor should be the Q1 anchor", skeleton.contains(3L))
-        assertFalse("Nearer NE corridor should not win Q1", skeleton.contains(2L))
+        // The nearer corridor loses the Q1 anchor to the farther one, but with a 12km target the
+        // anchor-only skeleton falls short, so fill inserts it into the home->anchor gap. Its
+        // position (before the anchor it fills toward) confirms it was a fill, not the anchor.
+        assertTrue("Nearer NE corridor is added only as fill", skeleton.contains(2L))
+        assertTrue("Fill sits before the anchor it reaches toward", skeleton.indexOf(2L) < skeleton.indexOf(3L))
     }
 
     // --- Exit-plan start corridor honored as Q1 ---
@@ -122,6 +126,124 @@ class CorridorOrienteerTest {
         assertTrue(candidate.flowScore >= 0.0)
         assertTrue(candidate.discoveryScore >= 0.0)
         assertTrue(candidate.totalDistanceM > 0.0)
+    }
+
+    // --- Fill toward target length ---
+
+    @Test
+    fun `fill raises the skeleton length into the target band`() = runTest {
+        // Home + a far Q1 anchor whose out-and-back falls short of the 0.9x band; a chain of Q1
+        // corridors between home and the anchor is available as fill.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),
+            corridor(id = 2, lat = 50.06, lon = 6.0),   // farthest north -> Q1 anchor
+            corridor(id = 3, lat = 50.01, lon = 6.0),
+            corridor(id = 4, lat = 50.02, lon = 6.0),
+            corridor(id = 5, lat = 50.03, lon = 6.0),
+            corridor(id = 6, lat = 50.04, lon = 6.0),
+            corridor(id = 7, lat = 50.05, lon = 6.0),
+        )
+
+        val result = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 24000.0, // reach = 8000m, band floor = 21600m
+            direction = RideDirection.NORTH,
+        ).single()
+
+        assertTrue("Fill must add corridors beyond the anchor", result.corridors.size > 2)
+        assertTrue(
+            "Filled length must reach the 0.9x band floor (was ${result.totalDistanceM})",
+            result.totalDistanceM >= 24000.0 * CorridorOrienteer.FILL_TARGET_FRACTION,
+        )
+    }
+
+    @Test
+    fun `fill picks the higher-reward candidate and separation blocks its near twin`() = runTest {
+        // Q1 anchor id=2. Two fill candidates between home and the anchor: id=3 carries top reward,
+        // id=4 is the default-reward near-twin ~65m east of id=3. The largest gap fills with id=3
+        // (higher reward); id=4 is then rejected by the 2km separation rule against id=3.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),
+            corridor(id = 2, lat = 50.05, lon = 6.0),                                  // Q1 anchor
+            corridor(id = 3, lat = 50.025, lon = 6.0, pedalReward = 30.0, gravityReward = 30.0),
+            corridor(id = 4, lat = 50.025, lon = 6.0009),                              // near-twin of 3
+        )
+        val coords = mapOf(
+            30L to (50.020 to 6.0), 31L to (50.030 to 6.0),         // id=3 entry/exit, heading north
+            40L to (50.020 to 6.0009), 41L to (50.030 to 6.0009),  // id=4 ~65m east of id=3
+        )
+
+        val skeleton = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 30000.0, // reach = 10km, sep = 2km
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        ).single().corridors
+
+        assertTrue("Higher-reward fill chosen", skeleton.contains(3L))
+        assertFalse("Near-twin rejected by separation", skeleton.contains(4L))
+    }
+
+    @Test
+    fun `fill terminates when no valid candidate remains`() = runTest {
+        // The only fill candidate (id=3) sits within 2km of the anchor it would fill toward, so the
+        // separation rule rejects it and the fill loop terminates with the bare anchor skeleton.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),
+            corridor(id = 2, lat = 50.05, lon = 6.0),     // Q1 anchor
+            corridor(id = 3, lat = 50.045, lon = 6.0),    // between home and anchor, but hugs it
+        )
+        val coords = mapOf(
+            20L to (50.05 to 6.0), 21L to (50.051 to 6.0),
+            30L to (50.045 to 6.0), 31L to (50.046 to 6.0), // id=3 ~556m from the anchor
+        )
+
+        val skeleton = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 30000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        ).single().corridors
+
+        assertEquals("No valid fill -> bare anchor skeleton", listOf(1L, 2L), skeleton)
+    }
+
+    @Test
+    fun `connectorEstimate is haversine times the road factor`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0)        // exit node 11
+        val b = corridor(id = 2, lat = 50.0, lon = 6.0)        // entry node 20
+        val coords = mapOf(11L to (50.0 to 6.0), 20L to (50.01 to 6.0)) // ~1113m apart
+        val est = CorridorOrienteer.connectorEstimate(a, b, coords)
+        assertEquals(1113.2 * 1.3, est, 5.0)
+    }
+
+    @Test
+    fun `connectorEstimate falls back to centroids when nodes unresolved`() {
+        val a = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val b = corridor(id = 2, lat = 50.01, lon = 6.0) // ~1113m north
+        val est = CorridorOrienteer.connectorEstimate(a, b, emptyMap())
+        assertEquals(1113.2 * 1.3, est, 5.0)
+    }
+
+    @Test
+    fun `isBetween accepts a mid corridor and rejects one beyond the endpoints`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 2, lat = 50.04, lon = 6.0)
+        val mid = corridor(id = 3, lat = 50.02, lon = 6.0)
+        val beyond = corridor(id = 4, lat = 49.99, lon = 6.0) // south of `before`
+        assertTrue(CorridorOrienteer.isBetween(mid, before, after))
+        assertFalse(CorridorOrienteer.isBetween(beyond, before, after))
+    }
+
+    @Test
+    fun `headingConsistent rejects a corridor traversed against travel`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 2, lat = 50.04, lon = 6.0) // travel heads north
+        val c = corridor(id = 3, lat = 50.02, lon = 6.0)     // entry 30, exit 31
+        val northbound = mapOf(30L to (50.015 to 6.0), 31L to (50.025 to 6.0))
+        val southbound = mapOf(30L to (50.025 to 6.0), 31L to (50.015 to 6.0))
+        assertTrue(CorridorOrienteer.headingConsistent(c, before, after, northbound))
+        assertFalse(CorridorOrienteer.headingConsistent(c, before, after, southbound))
     }
 
     // --- 2km any-node separation rule ---

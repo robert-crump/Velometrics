@@ -44,6 +44,12 @@ object CorridorOrienteer {
     /** Rough road-vs-straight-line factor for the informational coarse distance estimate. */
     private const val ROAD_DISTANCE_FACTOR = 1.3
 
+    /**
+     * Fill stops once the estimated perimeter reaches this fraction of target. Anchors land the
+     * skeleton at ~0.7-0.9x target; fill raises it toward target while harvesting reward.
+     */
+    internal const val FILL_TARGET_FRACTION = 0.9
+
     private const val QUADRANT_COUNT = 4
 
     /** Full minimum air separation between any node of two chosen corridors. */
@@ -146,34 +152,40 @@ object CorridorOrienteer {
             }
         }
 
-        // --- Emit the ordered corridor-ID skeleton ---
-        val corridorById = HashMap<Long, Corridor>()
-        reachable.forEach { corridorById[it.id] = it }
-        corridorById[homeCorridor.id] = homeCorridor
-
+        // --- Build the ordered loop: origin first, then quadrant anchors Q1->Q4 ---
         // The exit-plan start corridor is honored as the Q1 anchor (emitted first); the exit leg
         // already reaches it, so the home corridor is not prepended. Otherwise the home corridor
         // opens and closes the loop. Natural quadrant anchors follow in order Q1->Q2->Q3->Q4.
-        val ordered = mutableListOf<Long>()
-        if (startCorridor != null) {
-            corridorById[startCorridor.id] = startCorridor
-            ordered.add(startCorridor.id)
-        } else {
-            ordered.add(homeCorridor.id)
-        }
+        val loop = mutableListOf<Corridor>()
+        loop.add(startCorridor ?: homeCorridor)
         for (q in 0 until QUADRANT_COUNT) {
             val anchor = anchors[q] ?: continue
             if (anchor.id == startCorridor?.id || anchor.id == homeCorridor.id) continue
-            corridorById[anchor.id] = anchor
-            if (ordered.lastOrNull() != anchor.id) ordered.add(anchor.id)
+            if (loop.lastOrNull()?.id != anchor.id) loop.add(anchor)
         }
+
+        // --- Fill toward target length ---
+        // Anchors usually reach only ~0.7-0.9x target. Iteratively insert the highest-reward valid
+        // candidate into the largest connector gap until the estimated perimeter reaches
+        // target * FILL_TARGET_FRACTION or no valid fill remains. Each corridor is used once.
+        val usedIds = loop.mapTo(mutableSetOf()) { it.id }
+        val fillPool = candidateCorridors.filter { it.id !in usedIds }.toMutableList()
+        fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals)
+
+        // --- Emit the ordered corridor-ID skeleton ---
+        val ordered = loop.map { it.id }
+        val corridorById = HashMap<Long, Corridor>()
+        reachable.forEach { corridorById[it.id] = it }
+        corridorById[homeCorridor.id] = homeCorridor
+        startCorridor?.let { corridorById[it.id] = it }
+        loop.forEach { corridorById[it.id] = it }
 
         val distinct = ordered.distinct()
         if (distinct.size < 2) {
             Log.d(TAG, "search: skeleton has ${distinct.size} distinct corridors, no loop possible")
             return emptyList()
         }
-        Log.d(TAG, "search: skeleton corridors=$ordered")
+        Log.d(TAG, "search: skeleton corridors=$ordered (${fillPool.size} fill candidates unused)")
 
         val candidate = buildCandidate(ordered, corridorById, rewardCache)
         return listOf(candidate)
@@ -216,6 +228,134 @@ object CorridorOrienteer {
             flowScore = flowScore,
             discoveryScore = discoveryScore,
         )
+    }
+
+    // --- Fill helpers ---
+
+    /**
+     * Inserts fill corridors into [loop] until the estimated perimeter reaches
+     * `target * FILL_TARGET_FRACTION` or no valid fill remains. Each iteration locates the largest
+     * connector gap and inserts the highest-reward candidate that lies between the gap's two
+     * neighbours, stays separated from every chosen corridor, and keeps a consistent heading.
+     * Inserted fills are appended to [chosen] so later picks honour the separation rule against
+     * them; each corridor leaves [fillPool] when used, so the loop is finite.
+     */
+    private fun fillToTarget(
+        loop: MutableList<Corridor>,
+        fillPool: MutableList<Corridor>,
+        chosen: MutableList<Corridor>,
+        targetDistanceM: Double,
+        sep: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+        rewardTotals: Map<Long, Double>,
+    ) {
+        if (loop.size < 2) return
+        val ceiling = targetDistanceM * FILL_TARGET_FRACTION
+        while (fillPool.isNotEmpty() && estimatedPerimeter(loop, nodeCoords) < ceiling) {
+            val gapIndex = indexOfLargestGap(loop, nodeCoords)
+            val before = loop[gapIndex]
+            val after = loop[(gapIndex + 1) % loop.size]
+            val best = fillPool
+                .filter { isValidFill(it, before, after, chosen, sep, nodeCoords) }
+                .maxByOrNull { rewardTotals[it.id] ?: 0.0 }
+                ?: break
+            loop.add(gapIndex + 1, best)
+            fillPool.remove(best)
+            chosen.add(best)
+        }
+    }
+
+    /** Estimated loop perimeter: corridor lengths plus haversine*1.3 connector gaps (cyclic). */
+    internal fun estimatedPerimeter(
+        loop: List<Corridor>,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Double {
+        if (loop.isEmpty()) return 0.0
+        var total = loop.sumOf { it.lengthM }
+        for (i in loop.indices) {
+            total += connectorEstimate(loop[i], loop[(i + 1) % loop.size], nodeCoords)
+        }
+        return total
+    }
+
+    /** Index of the connector gap (`loop[i] -> loop[i+1]`, cyclic) with the largest estimate. */
+    private fun indexOfLargestGap(
+        loop: List<Corridor>,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Int {
+        var bestIdx = 0
+        var bestDist = -1.0
+        for (i in loop.indices) {
+            val d = connectorEstimate(loop[i], loop[(i + 1) % loop.size], nodeCoords)
+            if (d > bestDist) {
+                bestDist = d
+                bestIdx = i
+            }
+        }
+        return bestIdx
+    }
+
+    /**
+     * Coarse connector distance: `haversine(exit(a), entry(b)) * ROAD_DISTANCE_FACTOR`. Falls back
+     * to corridor centroids when a node coordinate is unresolved (the CorridorConnector table is
+     * deliberately not consulted during construction).
+     */
+    internal fun connectorEstimate(
+        a: Corridor,
+        b: Corridor,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Double {
+        val (aLat, aLon) = nodeCoords[a.exitNode] ?: (a.centroidLat to a.centroidLon)
+        val (bLat, bLon) = nodeCoords[b.entryNode] ?: (b.centroidLat to b.centroidLon)
+        return GeoUtils.haversineDistance(aLat, aLon, bLat, bLon) * ROAD_DISTANCE_FACTOR
+    }
+
+    /** A fill is valid when it sits between the gap neighbours, stays separated, and heads forward. */
+    internal fun isValidFill(
+        c: Corridor,
+        before: Corridor,
+        after: Corridor,
+        chosen: List<Corridor>,
+        sep: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Boolean {
+        if (!isBetween(c, before, after)) return false
+        if (chosen.any { !corridorsSeparated(c, it, sep, nodeCoords) }) return false
+        return headingConsistent(c, before, after, nodeCoords)
+    }
+
+    /**
+     * True when [c]'s centroid projects onto the segment [before]->[after] at a parameter in
+     * `[0, 1]` — i.e. it lies geographically between the two gap neighbours rather than off either
+     * end. A degenerate (zero-length) segment admits no fill.
+     */
+    internal fun isBetween(c: Corridor, before: Corridor, after: Corridor): Boolean {
+        val (bx, by) = toLocalMeters(before.centroidLat, before.centroidLon, after.centroidLat, after.centroidLon)
+        val (cx, cy) = toLocalMeters(before.centroidLat, before.centroidLon, c.centroidLat, c.centroidLon)
+        val segLenSq = bx * bx + by * by
+        if (segLenSq == 0.0) return false
+        val t = (cx * bx + cy * by) / segLenSq
+        return t in 0.0..1.0
+    }
+
+    /**
+     * True when traversing [c] entry->exit does not oppose travel from [before] to [after] (within
+     * 90 degrees). When the entry/exit node coordinates are unresolved the heading cannot be
+     * evaluated, so the fill is accepted; direction-aware twin selection is handled separately.
+     */
+    internal fun headingConsistent(
+        c: Corridor,
+        before: Corridor,
+        after: Corridor,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Boolean {
+        val entry = nodeCoords[c.entryNode] ?: return true
+        val exit = nodeCoords[c.exitNode] ?: return true
+        val corridorHeading = GeoUtils.computeBearing(entry.first, entry.second, exit.first, exit.second)
+        val travelBearing = GeoUtils.computeBearing(
+            before.centroidLat, before.centroidLon, after.centroidLat, after.centroidLon,
+        )
+        return cosineSimilarity(corridorHeading, travelBearing) >= 0.0
     }
 
     // --- Ride-aligned frame helpers ---

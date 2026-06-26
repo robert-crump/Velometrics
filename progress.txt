@@ -1445,3 +1445,47 @@ Completed: 2026-06-14 | Closed: pending
 No new tests added (UI/Compose layer, consistent with existing test
 coverage for `InfoScreen`/other screen composables — none exist).
 `compileDebugKotlin` and `testDebugUnitTest` pass.
+
+## Issue #116 — Fill corridors to reach target length
+Completed: 2026-06-26 | Closed: pending
+
+### What was done
+
+The quadrant skeleton emits at most one anchor per quadrant, landing routes at
+only ~0.7-0.9x target. Added a fill stage in `CorridorOrienteer` that raises the
+skeleton toward target while harvesting reward.
+
+**`domain/service/CorridorOrienteer.kt`**
+- New `FILL_TARGET_FRACTION = 0.9` constant — fill stops once the estimated
+  perimeter reaches `target * 0.9`.
+- Reworked the emit section to build an ordered `loop: MutableList<Corridor>`
+  (origin/start corridor first, then quadrant anchors Q1->Q4) and run
+  `fillToTarget(...)` over it before deriving the corridor-ID list.
+- `fillToTarget(...)`: each iteration finds the largest connector gap and inserts
+  the highest-reward valid candidate between that gap's two neighbours. Inserted
+  fills join `chosen` so later picks honour the separation rule against them;
+  each candidate leaves the fill pool once used, so the loop is finite. Stops at
+  est. perimeter >= `target * 0.9` or when no valid fill remains.
+- `connectorEstimate(a, b)` = `haversine(exit(a), entry(b)) * ROAD_DISTANCE_FACTOR`
+  (1.3), falling back to corridor centroids when a node coordinate is unresolved.
+  The CorridorConnector table is deliberately not consulted during construction.
+- `estimatedPerimeter(loop)` = corridor lengths + cyclic connector estimates.
+- `indexOfLargestGap(loop)` selects the gap to fill (first on ties -> deterministic).
+- Fill validity (`isValidFill`): `isBetween` (centroid projects onto the
+  neighbour segment at t in [0,1]) + separation (`corridorsSeparated` vs every
+  chosen corridor) + `headingConsistent` (entry->exit bearing within 90 deg of
+  travel; accepted when node coords are unresolved — direction-aware twin
+  selection is #115).
+
+### Tests
+`CorridorOrienteerTest`:
+- Updated `search picks the best-scoring anchor within a crowded quadrant`: the
+  nearer corridor now appears as fill (positioned before the anchor it reaches
+  toward), confirming it lost the anchor but is harvested as fill.
+- New: fill raises length into the 0.9x band; fill picks the higher-reward
+  candidate and separation blocks its near twin; fill terminates when no valid
+  candidate remains; `connectorEstimate` (node-based and centroid fallback);
+  `isBetween`; `headingConsistent` (rejects against-travel traversal).
+
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and `testDebugUnitTest` all
+pass (33 tests in `CorridorOrienteerTest`, full suite green).

@@ -147,8 +147,14 @@ object CorridorOrienteer {
                 chosen.all { corridorsSeparated(cand, it, sep, nodeCoords) }
             }
             if (pick != null) {
-                anchors[q] = pick
-                chosen.add(pick)
+                // Twin orientation: among a group_id pair (same physical road, opposite directions)
+                // this swaps to the twin whose entry->exit heading matches the quadrant's arc
+                // tangent, so RouteRefiner traverses the road in the geometrically-correct
+                // direction. Solo corridors are returned unchanged; the twin shares geometry with
+                // the pick, so it satisfies the same separation check.
+                val anchor = headingAlignedTwin(pick, arcTangentBearing(rideBearing, q), quadrants[q], nodeCoords)
+                anchors[q] = anchor
+                chosen.add(anchor)
             }
         }
 
@@ -356,6 +362,49 @@ object CorridorOrienteer {
             before.centroidLat, before.centroidLon, after.centroidLat, after.centroidLon,
         )
         return cosineSimilarity(corridorHeading, travelBearing) >= 0.0
+    }
+
+    // --- Twin orientation (group_id) ---
+
+    /**
+     * Twin orientation. When [corridor] belongs to a `group_id` pair whose partner is also present
+     * in [pool], returns the twin whose entry->exit heading better matches [referenceBearing] (e.g.
+     * a quadrant arc tangent), so the route traverses the shared physical road in the correct
+     * direction. A corridor with no partner in [pool] (a solo road) is returned unchanged — note a
+     * twin's `group_id` equals the pair's minimum `id`, so the lower-id member has `group_id == id`
+     * too and cannot be told apart from a solo by id alone; only a real partner triggers a swap. A
+     * pair whose entry/exit node coordinates are unresolved is also returned unchanged. This selects
+     * direction only; the group_id anti-reuse guard is a separate concern (#111).
+     *
+     * Fills do not need this: a fill candidate is rejected by [headingConsistent] unless it is
+     * traversed in the travel direction, so the surviving fill is already correctly oriented.
+     */
+    internal fun headingAlignedTwin(
+        corridor: Corridor,
+        referenceBearing: Double,
+        pool: List<Corridor>,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Corridor {
+        val twin = pool.firstOrNull { it.id != corridor.id && it.groupId == corridor.groupId }
+            ?: return corridor
+        val ownAlignment = headingAlignment(corridor, referenceBearing, nodeCoords) ?: return corridor
+        val twinAlignment = headingAlignment(twin, referenceBearing, nodeCoords) ?: return corridor
+        return if (twinAlignment > ownAlignment) twin else corridor
+    }
+
+    /**
+     * Cosine similarity between [c]'s entry->exit heading and [referenceBearing], or null when
+     * either endpoint's coordinates are unresolved (heading cannot be evaluated).
+     */
+    private fun headingAlignment(
+        c: Corridor,
+        referenceBearing: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Double? {
+        val entry = nodeCoords[c.entryNode] ?: return null
+        val exit = nodeCoords[c.exitNode] ?: return null
+        val heading = GeoUtils.computeBearing(entry.first, entry.second, exit.first, exit.second)
+        return cosineSimilarity(heading, referenceBearing)
     }
 
     // --- Ride-aligned frame helpers ---

@@ -1489,3 +1489,51 @@ skeleton toward target while harvesting reward.
 
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and `testDebugUnitTest` all
 pass (33 tests in `CorridorOrienteerTest`, full suite green).
+
+## Issue #115 — group_id twin orientation in anchor selection
+Completed: 2026-06-26 | Closed: pending
+
+### What was done
+
+Corridors are directed (entry->exit). A `group_id` twin pair is the same physical
+road in opposite directions, sharing `group_id == min(id)`. Until now anchor
+selection picked between twins arbitrarily: twins share a centroid, so they tie on
+`anchorScore`, and the deterministic sort fell back to input order — a route could
+traverse a road against its quadrant's arc tangent.
+
+**`domain/service/CorridorOrienteer.kt`**
+- New `headingAlignedTwin(corridor, referenceBearing, pool, nodeCoords)`: when the
+  corridor has a same-`group_id` partner in `pool`, returns the twin whose
+  entry->exit heading better matches `referenceBearing`; otherwise returns the
+  corridor unchanged. Solo detection is by *absence of a partner*, not `groupId ==
+  id` — the lower-id member of a pair also satisfies `groupId == id`, so id alone
+  can't distinguish a solo. Unresolved entry/exit coords -> returned unchanged.
+- Private `headingAlignment(c, referenceBearing, nodeCoords)`: cosine similarity of
+  `c`'s entry->exit bearing vs the reference, or null when an endpoint is unresolved.
+- Anchor selection now swaps each `pick` to `headingAlignedTwin(pick,
+  arcTangentBearing(rideBearing, q), quadrants[q], nodeCoords)` before recording it.
+  The twin shares geometry with the pick, so it satisfies the same separation check;
+  `quadrants[q]` is a safe twin pool because twins share a centroid and land in the
+  same quadrant.
+
+Scope is orientation only — the `group_id` anti-reuse guard remains #111. Fills are
+deliberately untouched: a fill candidate is already rejected by `headingConsistent`
+unless traversed in the travel direction, so the surviving fill is correctly
+oriented. (And a twin of a chosen anchor can never become a fill — it shares
+geometry with the anchor, so the separation rule excludes it.) RouteRefiner's
+`buildWaypoints` emits each corridor's entry then exit node, so picking the
+correctly-oriented twin id is exactly what feeds nodes to A* in travel direction.
+
+### Tests
+`CorridorOrienteerTest`:
+- `headingAlignedTwin selects the twin aligned with the reference bearing` (both
+  pass-in orders + opposite reference).
+- `headingAlignedTwin leaves a solo corridor unchanged`.
+- `headingAlignedTwin returns the original when node coords are unresolved`.
+- `search picks the heading-aligned twin for the quadrant arc` (end-to-end: NE-arc
+  twin chosen, SW twin excluded).
+- `search keeps a solo anchor when no twin is present`.
+- Extended the `corridor(...)` test helper with `groupId`/`entryNode`/`exitNode`
+  params (defaults preserve every existing call).
+
+`testDebugUnitTest` passes (full suite green).

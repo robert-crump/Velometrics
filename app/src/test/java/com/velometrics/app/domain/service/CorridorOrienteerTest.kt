@@ -337,6 +337,90 @@ class CorridorOrienteerTest {
         assertEquals(setOf(7L, 8L, 1L, 2L, 3L), CorridorOrienteer.corridorNodeIds(c))
     }
 
+    // --- group_id twin orientation ---
+
+    @Test
+    fun `headingAlignedTwin selects the twin aligned with the reference bearing`() {
+        // Twin pair sharing group_id=2: id=2 traverses north, id=3 traverses south.
+        val north = corridor(id = 2, groupId = 2, entryNode = 20, exitNode = 21)
+        val south = corridor(id = 3, groupId = 2, entryNode = 30, exitNode = 31)
+        val coords = mapOf(
+            20L to (50.00 to 6.0), 21L to (50.01 to 6.0), // id=2 heads north
+            30L to (50.01 to 6.0), 31L to (50.00 to 6.0), // id=3 heads south
+        )
+        val pool = listOf(north, south)
+        // Reference bearing north (0): the northbound twin wins regardless of which is passed in.
+        assertEquals(2L, CorridorOrienteer.headingAlignedTwin(north, 0.0, pool, coords).id)
+        assertEquals(2L, CorridorOrienteer.headingAlignedTwin(south, 0.0, pool, coords).id)
+        // Reference bearing south (180): the southbound twin wins.
+        assertEquals(3L, CorridorOrienteer.headingAlignedTwin(north, 180.0, pool, coords).id)
+    }
+
+    @Test
+    fun `headingAlignedTwin leaves a solo corridor unchanged`() {
+        // No partner shares the solo's group_id, so the corridor is returned as-is even though a
+        // hypothetical opposite would align better with the reference bearing.
+        val solo = corridor(id = 2, groupId = 2, entryNode = 20, exitNode = 21)
+        val other = corridor(id = 3, groupId = 3, entryNode = 30, exitNode = 31)
+        val coords = mapOf(
+            20L to (50.00 to 6.0), 21L to (50.01 to 6.0), // solo heads north
+            30L to (50.01 to 6.0), 31L to (50.00 to 6.0),
+        )
+        assertEquals(2L, CorridorOrienteer.headingAlignedTwin(solo, 180.0, listOf(solo, other), coords).id)
+    }
+
+    @Test
+    fun `headingAlignedTwin returns the original when node coords are unresolved`() {
+        val a = corridor(id = 2, groupId = 2, entryNode = 20, exitNode = 21)
+        val b = corridor(id = 3, groupId = 2, entryNode = 30, exitNode = 31)
+        assertEquals(2L, CorridorOrienteer.headingAlignedTwin(a, 0.0, listOf(a, b), emptyMap()).id)
+    }
+
+    @Test
+    fun `search picks the heading-aligned twin for the quadrant arc`() = runTest {
+        // Twin pair at the same NE centroid (-> Q1, arc tangent 45). id=2 traverses NE (aligned),
+        // id=3 traverses SW (opposed). The skeleton must carry id=2, not its opposite-direction
+        // twin, so RouteRefiner walks the road in travel direction. id=3 can never appear: it
+        // shares geometry with the chosen anchor, so the separation rule excludes it as a fill.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val neHeading = corridor(id = 2, lat = 50.02, lon = 6.02, groupId = 2)
+        val swHeading = corridor(id = 3, lat = 50.02, lon = 6.02, groupId = 2)
+        val coords = mapOf(
+            20L to (50.015 to 6.015), 21L to (50.025 to 6.025), // id=2 heads NE
+            30L to (50.025 to 6.025), 31L to (50.015 to 6.015), // id=3 heads SW
+        )
+
+        val skeleton = CorridorOrienteer.search(
+            listOf(home, neHeading, swHeading),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        ).single().corridors
+
+        assertTrue("NE-heading twin chosen for the Q1 arc", skeleton.contains(2L))
+        assertFalse("SW-heading twin excluded", skeleton.contains(3L))
+    }
+
+    @Test
+    fun `search keeps a solo anchor when no twin is present`() = runTest {
+        // A lone NE corridor with no group_id partner is selected directly, unaffected by twin
+        // orientation, confirming solo roads are untouched end-to-end.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val solo = corridor(id = 2, lat = 50.02, lon = 6.02, groupId = 2)
+        val coords = mapOf(20L to (50.025 to 6.025), 21L to (50.015 to 6.015)) // heads SW
+
+        val skeleton = CorridorOrienteer.search(
+            listOf(home, solo),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        ).single().corridors
+
+        assertEquals(listOf(1L, 2L), skeleton)
+    }
+
     // --- Ride-aligned frame helpers ---
 
     @Test
@@ -455,10 +539,13 @@ class CorridorOrienteerTest {
         pedalReward: Double = 3.0,
         gravityReward: Double = 2.0,
         lengthM: Double = 1000.0,
+        groupId: Long = id,
+        entryNode: Long = id * 10,
+        exitNode: Long = id * 10 + 1,
     ) = Corridor(
         id = id,
-        entryNode = id * 10,
-        exitNode = id * 10 + 1,
+        entryNode = entryNode,
+        exitNode = exitNode,
         lengthM = lengthM,
         pedalReward = pedalReward,
         gravityReward = gravityReward,
@@ -467,7 +554,7 @@ class CorridorOrienteerTest {
         centroidLon = lon,
         edgeList = emptyList(),
         popularity = 0,
-        groupId = id,
+        groupId = groupId,
     )
 
     /**

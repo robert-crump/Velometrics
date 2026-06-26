@@ -89,17 +89,14 @@ object RouteGenerator {
             val tierStart = System.currentTimeMillis()
             Log.d(TAG, "generate: tier=$currentTier starting")
 
-            val tierParams = DegradationPolicy.tierParams(
-                currentTier,
-                baseExploreExploitBalance = rewardContext.exploreExploitBalance,
-                baseReusePenaltyWeight = config.orienteerConfig.reusePenaltyWeight,
-                config = config.degradationConfig,
-            )
+            val tierParams = DegradationPolicy.tierParams(currentTier, config.degradationConfig)
 
             val refinementCount = maxCandidates * REFINEMENT_CANDIDATE_MULTIPLIER
             val tierOrienteerConfig = config.orienteerConfig.copy(
-                reusePenaltyWeight = tierParams.reusePenaltyWeight,
                 candidateCount = refinementCount,
+                reachFraction = tierParams.reachFraction,
+                separationM = tierParams.separationM,
+                headingConeCosine = tierParams.headingConeCosine,
             )
 
             val coarseStart = System.currentTimeMillis()
@@ -160,7 +157,14 @@ object RouteGenerator {
 
             when (outcome) {
                 is DegradationPolicy.EvaluationOutcome.Sufficient -> {
+                    // Keep only routes whose actual refined distance lands in the accepted band for
+                    // the applied tier, then rank the survivors by reward. evaluate() judged the same
+                    // (post-trim) survivors against this band, so at least minDesired remain here.
+                    val band = tierParams.distanceBandFraction
+                    val lower = targetDistanceM * (1.0 - band)
+                    val upper = targetDistanceM * (1.0 + band)
                     val ranked = allRefined
+                        .filter { it.second.actualDistanceM in lower..upper }
                         .sortedByDescending { it.first.totalReward }
                         .take(maxCandidates)
                         .mapIndexed { index, (coarse, refined) ->

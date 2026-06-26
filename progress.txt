@@ -1,3 +1,57 @@
+## Issue #119 — Re-target DegradationPolicy tiers to skeleton levers
+Completed: 2026-06-26
+
+### What was done
+
+The relaxation loop was dead: tiers tweaked `exploreExploitBalance`/`reusePenaltyWeight` — GRASP
+knobs the deterministic quadrant skeleton ignores — and `evaluate()` accepted on candidate *count*,
+never on actual distance, so a loop at 0.5x or 1.5x target was returned as "success". This retargets
+the tiers to the skeleton's real levers and judges acceptance on the actual refined distance.
+
+**`DegradationPolicy.kt`**
+- `RelaxationTier` renamed to the skeleton's levers, tightest-first and cumulative:
+  `NONE -> WIDEN_CONE -> EXTEND_REACH -> SHRINK_SEPARATION -> WIDEN_BAND`. Each tier turns one more
+  lever on and keeps the earlier ones on.
+- `TierParams` now carries `headingConeCosine`, `reachFraction`, `separationM`, `distanceBandFraction`
+  (was `exploreExploitBalance`/`reusePenaltyWeight`). `tierParams()` drops the GRASP base args and
+  derives each lever from the tier ordinal.
+- `DegradationConfig` replaces the eased-GRASP fields with base+relaxed lever values:
+  cone `0.0 -> -0.5` (90deg -> 120deg), reach `1/3 -> 1/2` of target, separation `2000m -> 1000m`,
+  band `0.15 -> 0.30`.
+- `evaluate()` now filters candidates to those whose **actual refined distance** lands within
+  `[1-band, 1+band] x target` for the current tier. Too few in-band -> request the next tier; at the
+  loosest tier any in-band candidate is accepted, zero is a `HardFailure` with the existing reason.
+
+**`CorridorOrienteer.kt`**
+- `OrienteerConfig` drops the vestigial `reusePenaltyWeight` and gains the three relaxation levers
+  `reachFraction`, `separationM`, `headingConeCosine` (defaults preserve prior behaviour: reach =
+  target/3, sep cap = 2km, 90deg cone).
+- `search()` reads `reach` from `config.reachFraction`, caps separation via
+  `separationDistance(reach, config.separationM)`, and threads `config.headingConeCosine` through
+  `fillToTarget -> isValidFill -> headingConsistent` (the hard heading gate on fills). The cone
+  cutoff and separation cap are no longer hardcoded.
+
+**`RouteGenerator.kt`**
+- Builds the per-tier `OrienteerConfig` from the new `TierParams` (reach/separation/cone) instead of
+  the dead reuse-penalty copy, and on `Sufficient` filters the refined routes to the applied tier's
+  acceptance band before ranking by reward.
+
+### Tests
+- Rewrote `DegradationPolicyTest`: new tier order, per-tier lever params + cumulative monotonicity,
+  custom config, and acceptance-on-actual-distance — in-band accepted, out-of-band excluded,
+  no-in-band relaxes, a route that fails tier 0 is accepted once the band widens at the loosest tier,
+  partial set accepted at loosest tier, and the zero-in-band hard-failure path.
+- `CorridorOrienteerTest`: heading cone widens when the cosine threshold is lowered;
+  `separationDistance` honours a lowered cap.
+- `RouteGeneratorTest`: realistic 3000m targets for the ~2600m ring fixture (the old 3700m target
+  relied on count-only acceptance); new tests assert an in-band route is accepted at NONE within
+  +/-15% and that an unreachable 6km request now fails instead of returning a wildly short loop. The
+  exit-leg stitching test widens its own band (the soft cap forces a large target the tiny fixture
+  cannot fill) since it verifies stitching, not distance fit.
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
 ## Issue #114 — 2km any-node separation rule for skeleton corridors
 Completed: 2026-06-26
 

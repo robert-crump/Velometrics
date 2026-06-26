@@ -246,6 +246,18 @@ class CorridorOrienteerTest {
         assertFalse(CorridorOrienteer.headingConsistent(c, before, after, southbound))
     }
 
+    @Test
+    fun `headingConsistent cone widens when the cosine threshold is lowered`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 2, lat = 50.04, lon = 6.0) // travel heads north
+        val c = corridor(id = 3, lat = 50.02, lon = 6.0)     // entry 30, exit 31
+        // Corridor heads east-south-east, ~105deg off due-north travel: cosine is negative.
+        val skewed = mapOf(30L to (50.02 to 6.0), 31L to (50.018 to 6.01))
+        // Default 90deg cone rejects it; the relaxed cone (DegradationPolicy's WIDEN_CONE) admits it.
+        assertFalse(CorridorOrienteer.headingConsistent(c, before, after, skewed))
+        assertTrue(CorridorOrienteer.headingConsistent(c, before, after, skewed, coneCosine = -0.9))
+    }
+
     // --- 2km any-node separation rule ---
 
     @Test
@@ -324,6 +336,14 @@ class CorridorOrienteerTest {
     fun `separationDistance is adaptive on short reach`() {
         assertEquals(2000.0, CorridorOrienteer.separationDistance(10000.0), 1e-9) // min(2km, 5km)
         assertEquals(1000.0, CorridorOrienteer.separationDistance(2000.0), 1e-9)  // min(2km, 1km)
+    }
+
+    @Test
+    fun `separationDistance honours a lowered separation cap`() {
+        // DegradationPolicy's SHRINK_SEPARATION tier lowers the cap to 1km: long-reach routes that
+        // would otherwise demand 2km between anchors can pack them closer on retry.
+        assertEquals(1000.0, CorridorOrienteer.separationDistance(10000.0, sepM = 1000.0), 1e-9)
+        assertEquals(2000.0, CorridorOrienteer.separationDistance(10000.0, sepM = 2000.0), 1e-9)
     }
 
     @Test

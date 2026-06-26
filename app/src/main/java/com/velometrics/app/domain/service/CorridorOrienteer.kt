@@ -8,12 +8,15 @@ import kotlin.math.sin
 
 data class OrienteerConfig(
     val candidateCount: Int = 1,
-    // Retained as the base value for DegradationPolicy's relaxation tiers; the
-    // quadrant skeleton itself does not apply a reuse penalty.
-    val reusePenaltyWeight: Double = 2.0,
     val farWeight: Double = 1.0,
     val headingWeight: Double = 0.5,
     val rewardWeight: Double = 0.1,
+    // Skeleton relaxation levers. DegradationPolicy retargets these per tier so a failed
+    // retry actually changes the geometry the builder can assemble: a wider reach, a smaller
+    // any-node separation, and a wider heading cone each admit more anchors and fills.
+    val reachFraction: Double = CorridorOrienteer.FAR_POINT_BUDGET_FRACTION,
+    val separationM: Double = CorridorOrienteer.SEPARATION_M,
+    val headingConeCosine: Double = 0.0,
 )
 
 data class CandidateLoop(
@@ -79,7 +82,7 @@ object CorridorOrienteer {
     ): List<CandidateLoop> {
         if (corridors.isEmpty()) return emptyList()
 
-        val reach = targetDistanceM * FAR_POINT_BUDGET_FRACTION
+        val reach = targetDistanceM * config.reachFraction
         val reachable = filterByRadius(corridors, homeLat, homeLon, reach)
         if (reachable.isEmpty()) return emptyList()
 
@@ -124,7 +127,7 @@ object CorridorOrienteer {
         val candidateCorridors = quadrants.flatMap { it }
         val neededNodeIds = buildSet { candidateCorridors.forEach { addAll(corridorNodeIds(it)) } }
         val nodeCoords = nodeResolver(neededNodeIds)
-        val sep = separationDistance(reach)
+        val sep = separationDistance(reach, config.separationM)
 
         // --- One geometry-first anchor per quadrant, respecting the separation rule ---
         // Selection is sequential so each pick is checked against the anchors chosen for earlier
@@ -176,7 +179,7 @@ object CorridorOrienteer {
         // target * FILL_TARGET_FRACTION or no valid fill remains. Each corridor is used once.
         val usedIds = loop.mapTo(mutableSetOf()) { it.id }
         val fillPool = candidateCorridors.filter { it.id !in usedIds }.toMutableList()
-        fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals)
+        fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals, config.headingConeCosine)
 
         // --- Emit the ordered corridor-ID skeleton ---
         val ordered = loop.map { it.id }
@@ -254,6 +257,7 @@ object CorridorOrienteer {
         sep: Double,
         nodeCoords: Map<Long, Pair<Double, Double>>,
         rewardTotals: Map<Long, Double>,
+        headingConeCosine: Double,
     ) {
         if (loop.size < 2) return
         val ceiling = targetDistanceM * FILL_TARGET_FRACTION
@@ -262,7 +266,7 @@ object CorridorOrienteer {
             val before = loop[gapIndex]
             val after = loop[(gapIndex + 1) % loop.size]
             val best = fillPool
-                .filter { isValidFill(it, before, after, chosen, sep, nodeCoords) }
+                .filter { isValidFill(it, before, after, chosen, sep, nodeCoords, headingConeCosine) }
                 .maxByOrNull { rewardTotals[it.id] ?: 0.0 }
                 ?: break
             loop.add(gapIndex + 1, best)
@@ -324,10 +328,11 @@ object CorridorOrienteer {
         chosen: List<Corridor>,
         sep: Double,
         nodeCoords: Map<Long, Pair<Double, Double>>,
+        headingConeCosine: Double = 0.0,
     ): Boolean {
         if (!isBetween(c, before, after)) return false
         if (chosen.any { !corridorsSeparated(c, it, sep, nodeCoords) }) return false
-        return headingConsistent(c, before, after, nodeCoords)
+        return headingConsistent(c, before, after, nodeCoords, headingConeCosine)
     }
 
     /**
@@ -345,15 +350,19 @@ object CorridorOrienteer {
     }
 
     /**
-     * True when traversing [c] entry->exit does not oppose travel from [before] to [after] (within
-     * 90 degrees). When the entry/exit node coordinates are unresolved the heading cannot be
-     * evaluated, so the fill is accepted; direction-aware twin selection is handled separately.
+     * True when traversing [c] entry->exit does not oppose travel from [before] to [after] beyond
+     * the heading cone. The cone half-angle is set by [coneCosine]: the default `0.0` is a 90-degree
+     * cone, and DegradationPolicy widens it (toward -1.0) on relaxation so a stuck retry can admit
+     * more loosely-aligned fills. When the entry/exit node coordinates are unresolved the heading
+     * cannot be evaluated, so the fill is accepted; direction-aware twin selection is handled
+     * separately.
      */
     internal fun headingConsistent(
         c: Corridor,
         before: Corridor,
         after: Corridor,
         nodeCoords: Map<Long, Pair<Double, Double>>,
+        coneCosine: Double = 0.0,
     ): Boolean {
         val entry = nodeCoords[c.entryNode] ?: return true
         val exit = nodeCoords[c.exitNode] ?: return true
@@ -361,7 +370,7 @@ object CorridorOrienteer {
         val travelBearing = GeoUtils.computeBearing(
             before.centroidLat, before.centroidLon, after.centroidLat, after.centroidLon,
         )
-        return cosineSimilarity(corridorHeading, travelBearing) >= 0.0
+        return cosineSimilarity(corridorHeading, travelBearing) >= coneCosine
     }
 
     // --- Twin orientation (group_id) ---
@@ -522,9 +531,13 @@ object CorridorOrienteer {
 
     // --- Separation rule helpers ---
 
-    /** Adaptive separation: full 2km, shrinking with reach so short targets stay fillable. */
-    internal fun separationDistance(reach: Double): Double =
-        minOf(SEPARATION_M, reach * SEPARATION_REACH_FRACTION)
+    /**
+     * Adaptive separation: capped at [sepM] (full 2km by default), shrinking with reach so short
+     * targets stay fillable. DegradationPolicy lowers [sepM] on relaxation so a stuck retry can pack
+     * more anchors into the same area.
+     */
+    internal fun separationDistance(reach: Double, sepM: Double = SEPARATION_M): Double =
+        minOf(sepM, reach * SEPARATION_REACH_FRACTION)
 
     /** Every node a corridor touches: both ends of each edge plus the entry/exit nodes. */
     internal fun corridorNodeIds(c: Corridor): Set<Long> = buildSet {

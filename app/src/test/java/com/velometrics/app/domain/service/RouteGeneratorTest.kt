@@ -19,13 +19,17 @@ class RouteGeneratorTest {
 
     // --- End-to-end smoke test ---
 
+    // The 4-corridor ring fixture refines to a ~2600 m loop, so 3000 m keeps the actual distance
+    // inside the default +/-15% acceptance band ([2550, 3450]).
+    private val fixtureTargetM = 3000.0
+
     @Test
     fun `generates ranked candidates with sub-scores on small fixture`() = runTest {
         val repo = LoopFixtureRepository()
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 3700.0,
+            targetDistanceM = fixtureTargetM,
             repository = repo,
             config = GeneratorConfig(
                 orienteerConfig = OrienteerConfig(candidateCount = 3),
@@ -45,6 +49,50 @@ class RouteGeneratorTest {
         }
     }
 
+    // --- Acceptance is judged on actual refined distance ---
+
+    @Test
+    fun `accepts a candidate whose actual distance lands inside the band`() = runTest {
+        val repo = LoopFixtureRepository()
+
+        val result = RouteGenerator.generate(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = fixtureTargetM,
+            repository = repo,
+            config = GeneratorConfig(seed = 42L),
+        )
+
+        assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
+        val success = result as RoutePlanResult.Success
+        assertEquals(
+            "An in-band route should be accepted at the tightest tier",
+            DegradationPolicy.RelaxationTier.NONE, success.appliedTier,
+        )
+        for (candidate in success.candidates) {
+            assertTrue(
+                "Accepted candidate ${candidate.refinedRoute.actualDistanceM}m should be within +/-15%",
+                kotlin.math.abs(candidate.distanceDeviationPercent) <= 15.0,
+            )
+        }
+    }
+
+    @Test
+    fun `rejects a route whose actual distance falls outside every band`() = runTest {
+        // This fixture cannot form a loop longer than ~2.6 km; asking for 6 km leaves the only
+        // achievable loop far below even the widened band, so generation fails rather than
+        // returning a wildly short "match".
+        val repo = LoopFixtureRepository()
+
+        val result = RouteGenerator.generate(
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 6000.0,
+            repository = repo,
+            config = GeneratorConfig(seed = 42L),
+        )
+
+        assertTrue("Expected Failure for an unreachable distance, got $result", result is RoutePlanResult.Failure)
+    }
+
     // --- Candidates are ranked by reward ---
 
     @Test
@@ -53,7 +101,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 3700.0,
+            targetDistanceM = fixtureTargetM,
             repository = repo,
             config = GeneratorConfig(seed = 42L),
         )
@@ -78,7 +126,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 3700.0,
+            targetDistanceM = fixtureTargetM,
             repository = repo,
             config = GeneratorConfig(seed = 42L),
         )
@@ -100,7 +148,7 @@ class RouteGeneratorTest {
     @Test
     fun `distance deviation percent is reported per candidate`() = runTest {
         val repo = LoopFixtureRepository()
-        val targetM = 3700.0
+        val targetM = fixtureTargetM
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
@@ -251,6 +299,10 @@ class RouteGeneratorTest {
     fun `exit leg stitches exit corridor route and return into single route`() = runTest {
         val repo = ExitLegLoopFixtureRepository()
 
+        // The exit-leg soft cap needs a sizeable target to fire, but this tiny fixture's stitched
+        // loop (exit + corridor route + return) is only ~2.7 km. This test verifies stitching
+        // mechanics, so it widens the acceptance band to admit the short loop; distance-band
+        // enforcement is covered by the dedicated acceptance tests above.
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 5500.0,
@@ -262,6 +314,7 @@ class RouteGeneratorTest {
                     maxCorridorDistM = 5000.0,
                     bboxHalfSizeM = 5000.0,
                 ),
+                degradationConfig = DegradationConfig(baseDistanceBandFraction = 1.0),
                 seed = 42L,
             ),
         )
@@ -284,7 +337,7 @@ class RouteGeneratorTest {
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 3700.0,
+            targetDistanceM = fixtureTargetM,
             repository = repo,
             config = GeneratorConfig(
                 orienteerConfig = OrienteerConfig(candidateCount = 3),

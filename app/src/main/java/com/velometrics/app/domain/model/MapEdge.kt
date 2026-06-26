@@ -34,7 +34,11 @@ data class MapEdge(
     val curvature: Double? = null,
     val stopPenalty: Double? = null,
     val stopPenaltySource: String? = null,
-    val predictedFlowScore: Double? = null,
     val flowConfidence: Double? = null,
     val hazardScore: Double? = null,
+    val brakingProbability: Double? = null,
+    val maxspeedKmh: Double? = null,
+    val medianKeDelta: Double? = null,
+    val predictedGravityFlowProbability: Double? = null,
+    val predictedPedalFlowProbability: Double? = null,
 )

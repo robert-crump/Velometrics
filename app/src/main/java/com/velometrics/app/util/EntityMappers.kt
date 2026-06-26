@@ -9,6 +9,25 @@ import java.time.Instant
 
 private val gson = Gson()
 
+fun CorridorEntity.toDomain(): Corridor {
+    val listType = object : TypeToken<List<List<Long>>>() {}.type
+    val edges: List<List<Long>> = gson.fromJson(edgeList, listType)
+    return Corridor(
+        id = id,
+        entryNode = entryNode,
+        exitNode = exitNode,
+        lengthM = lengthM,
+        pedalReward = pedalReward,
+        gravityReward = gravityReward,
+        exitHazardScore = exitHazardScore,
+        centroidLat = centroidLat,
+        centroidLon = centroidLon,
+        edgeList = edges.map { Pair(it[0], it[1]) },
+        popularity = popularity,
+        groupId = groupId,
+    )
+}
+
 // CyclingSession mappers
 fun CyclingSessionEntity.toDomain(): CyclingSession {
     val mapType = object : TypeToken<Map<String, Int>>() {}.type

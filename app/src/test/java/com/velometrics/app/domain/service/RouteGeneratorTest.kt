@@ -326,11 +326,12 @@ class RouteGeneratorTest {
         lengthM = lengthM,
         pedalReward = pedalReward,
         gravityReward = gravityReward,
-        predictedReward = 0.0,
         exitHazardScore = 0.0,
-        type = "measured",
         centroidLat = lat,
         centroidLon = lon,
+        edgeList = emptyList(),
+        popularity = 0,
+        groupId = id,
     )
 
     private fun connector(from: Long, to: Long, distanceM: Double) = CorridorConnector(

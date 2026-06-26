@@ -23,7 +23,7 @@ import com.velometrics.app.data.local.entity.PoiEntity
         CorridorEntity::class,
         CorridorConnectorEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class CyclingAssetDatabase : RoomDatabase() {

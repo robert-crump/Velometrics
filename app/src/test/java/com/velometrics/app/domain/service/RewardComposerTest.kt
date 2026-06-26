@@ -141,28 +141,6 @@ class RewardComposerTest {
     }
 
     @Test
-    fun `predicted corridor gets explore term, measured does not`() {
-        val predicted = corridor(
-            type = "predicted",
-            pedalReward = 0.0,
-            gravityReward = 0.0,
-            predictedReward = 5.0,
-        )
-        val measured = corridor(
-            type = "measured",
-            pedalReward = 0.0,
-            gravityReward = 0.0,
-            predictedReward = 5.0,
-        )
-
-        val predictedReward = RewardComposer.composeCorridorReward(predicted)
-        val measuredReward = RewardComposer.composeCorridorReward(measured)
-
-        assertTrue(predictedReward.explore > 0.0)
-        assertEquals(0.0, measuredReward.explore, 1e-9)
-    }
-
-    @Test
     fun `corridor pedal and gravity reward contribute equally`() {
         val pedalOnly = corridor(pedalReward = 8.0, gravityReward = 0.0)
         val gravityOnly = corridor(pedalReward = 0.0, gravityReward = 8.0)
@@ -216,8 +194,6 @@ class RewardComposerTest {
     private fun corridor(
         pedalReward: Double = 0.0,
         gravityReward: Double = 0.0,
-        predictedReward: Double = 0.0,
-        type: String = "measured",
     ) = Corridor(
         id = 1L,
         entryNode = 10L,
@@ -225,10 +201,11 @@ class RewardComposerTest {
         lengthM = 1000.0,
         pedalReward = pedalReward,
         gravityReward = gravityReward,
-        predictedReward = predictedReward,
         exitHazardScore = 0.0,
-        type = type,
         centroidLat = 50.78,
         centroidLon = 6.08,
+        edgeList = emptyList(),
+        popularity = 0,
+        groupId = 1L,
     )
 }

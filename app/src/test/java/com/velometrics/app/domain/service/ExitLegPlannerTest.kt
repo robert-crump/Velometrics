@@ -370,8 +370,8 @@ class ExitLegPlannerTest {
     ) = Corridor(
         id = id, entryNode = entryNode, exitNode = exitNode,
         lengthM = 1000.0, pedalReward = 3.0, gravityReward = 2.0,
-        predictedReward = 0.0, exitHazardScore = 0.0,
-        type = "measured", centroidLat = lat, centroidLon = lon,
+        exitHazardScore = 0.0, centroidLat = lat, centroidLon = lon,
+        edgeList = emptyList(), popularity = 0, groupId = id,
     )
 
     private fun configWithSmallBbox() = ExitLegConfig(

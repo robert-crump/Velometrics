@@ -636,8 +636,6 @@ class CorridorOrienteerTest {
         lon: Double = 6.0,
         pedalReward: Double = 3.0,
         gravityReward: Double = 2.0,
-        predictedReward: Double = 0.0,
-        type: String = "measured",
         lengthM: Double = 1000.0,
     ) = Corridor(
         id = id,
@@ -646,11 +644,12 @@ class CorridorOrienteerTest {
         lengthM = lengthM,
         pedalReward = pedalReward,
         gravityReward = gravityReward,
-        predictedReward = predictedReward,
         exitHazardScore = 0.0,
-        type = type,
         centroidLat = lat,
         centroidLon = lon,
+        edgeList = emptyList(),
+        popularity = 0,
+        groupId = id,
     )
 
     private fun connector(from: Long, to: Long, distanceM: Double) = CorridorConnector(

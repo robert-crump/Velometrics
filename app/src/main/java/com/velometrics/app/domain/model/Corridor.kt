@@ -7,9 +7,10 @@ data class Corridor(
     val lengthM: Double,
     val pedalReward: Double,
     val gravityReward: Double,
-    val predictedReward: Double,
     val exitHazardScore: Double,
-    val type: String,
     val centroidLat: Double,
     val centroidLon: Double,
+    val edgeList: List<Pair<Long, Long>>,
+    val popularity: Int,
+    val groupId: Long,
 )

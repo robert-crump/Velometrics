@@ -69,32 +69,14 @@ object RewardComposer {
     fun composeCorridorReward(
         corridor: Corridor,
         weights: RewardWeights = DEFAULT_WEIGHTS,
-        context: RewardContext = DEFAULT_CONTEXT,
     ): ComposedReward {
         val flowTerm = corridor.pedalReward + corridor.gravityReward
-
-        val stopTerm = 0.0
-
-        val exploreTerm = if (corridor.type == "predicted") {
-            computeExploreTerm(
-                novelty = 1.0,
-                predictedFlowScore = corridor.predictedReward,
-                flowConfidence = 1.0,
-                confidenceFloor = context.confidenceFloor,
-                balance = context.exploreExploitBalance,
-            )
-        } else {
-            0.0
-        }
-
-        val total = weights.flow * flowTerm +
-            weights.stop * stopTerm +
-            weights.explore * exploreTerm
+        val total = weights.flow * flowTerm
 
         return ComposedReward(
             flow = weights.flow * flowTerm,
-            stop = weights.stop * stopTerm,
-            explore = weights.explore * exploreTerm,
+            stop = 0.0,
+            explore = 0.0,
             total = total,
         )
     }

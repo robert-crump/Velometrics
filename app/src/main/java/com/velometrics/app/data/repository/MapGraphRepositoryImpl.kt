@@ -15,6 +15,7 @@ import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.toDomain
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject

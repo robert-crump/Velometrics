@@ -93,7 +93,7 @@ object CorridorOrienteer {
         Log.d(TAG, "search: homeCorridor=${homeId} len=${homeCorridor.lengthM.toInt()}m neighbors=${adjacency[homeId]?.size ?: 0}")
 
         val rewardCache = filtered.associate { c ->
-            c.id to RewardComposer.composeCorridorReward(c, weights, rewardContext)
+            c.id to RewardComposer.composeCorridorReward(c, weights)
         }
 
         val returnCosts = dijkstraFromHome(homeId, adjacency)

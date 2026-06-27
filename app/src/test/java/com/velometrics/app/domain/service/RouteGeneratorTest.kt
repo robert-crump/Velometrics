@@ -24,29 +24,21 @@ class RouteGeneratorTest {
     private val fixtureTargetM = 3000.0
 
     @Test
-    fun `generates ranked candidates with sub-scores on small fixture`() = runTest {
+    fun `generates a candidate with sub-scores on small fixture`() = runTest {
         val repo = LoopFixtureRepository()
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = fixtureTargetM,
             repository = repo,
-            config = GeneratorConfig(
-                orienteerConfig = OrienteerConfig(candidateCount = 3),
-                seed = 42L,
-            ),
+            config = GeneratorConfig(seed = 42L),
         )
 
         assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
-        val success = result as RoutePlanResult.Success
-        assertTrue("Expected at least 1 candidate", success.candidates.isNotEmpty())
-        assertTrue("Expected at most 3 candidates", success.candidates.size <= 3)
-
-        for (candidate in success.candidates) {
-            assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
-            assertTrue(candidate.refinedRoute.edges.isNotEmpty())
-            assertTrue(candidate.rank >= 1)
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
+        assertTrue(candidate.refinedRoute.edges.isNotEmpty())
+        assertEquals(1, candidate.rank)
     }
 
     // --- Acceptance is judged on actual refined distance ---
@@ -68,12 +60,10 @@ class RouteGeneratorTest {
             "An in-band route should be accepted at the tightest tier",
             DegradationPolicy.RelaxationTier.NONE, success.appliedTier,
         )
-        for (candidate in success.candidates) {
-            assertTrue(
-                "Accepted candidate ${candidate.refinedRoute.actualDistanceM}m should be within +/-15%",
-                kotlin.math.abs(candidate.distanceDeviationPercent) <= 15.0,
-            )
-        }
+        assertTrue(
+            "Accepted candidate ${success.candidate.refinedRoute.actualDistanceM}m should be within +/-15%",
+            kotlin.math.abs(success.candidate.distanceDeviationPercent) <= 15.0,
+        )
     }
 
     @Test
@@ -93,10 +83,10 @@ class RouteGeneratorTest {
         assertTrue("Expected Failure for an unreachable distance, got $result", result is RoutePlanResult.Failure)
     }
 
-    // --- Candidates are ranked by reward ---
+    // --- Best candidate is selected by reward ---
 
     @Test
-    fun `candidates are ranked by descending total reward`() = runTest {
+    fun `returned candidate has positive total reward`() = runTest {
         val repo = LoopFixtureRepository()
 
         val result = RouteGenerator.generate(
@@ -107,15 +97,11 @@ class RouteGeneratorTest {
         )
 
         assertTrue(result is RoutePlanResult.Success)
-        val candidates = (result as RoutePlanResult.Success).candidates
-        if (candidates.size >= 2) {
-            for (i in 0 until candidates.size - 1) {
-                assertTrue(
-                    "Candidate ${i + 1} should have >= coarse reward than candidate ${i + 2}",
-                    candidates[i].coarseLoop.totalReward >= candidates[i + 1].coarseLoop.totalReward,
-                )
-            }
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        assertTrue(
+            "Returned candidate should have non-negative total reward",
+            candidate.coarseLoop.totalReward >= 0.0,
+        )
     }
 
     // --- Home snapping ---
@@ -132,21 +118,19 @@ class RouteGeneratorTest {
         )
 
         assertTrue(result is RoutePlanResult.Success)
-        val candidates = (result as RoutePlanResult.Success).candidates
-        for (candidate in candidates) {
-            val firstEdge = candidate.refinedRoute.edges.first()
-            val lastEdge = candidate.refinedRoute.edges.last()
-            assertEquals(
-                "Loop should return to starting node",
-                firstEdge.fromNode, lastEdge.toNode,
-            )
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        val firstEdge = candidate.refinedRoute.edges.first()
+        val lastEdge = candidate.refinedRoute.edges.last()
+        assertEquals(
+            "Loop should return to starting node",
+            firstEdge.fromNode, lastEdge.toNode,
+        )
     }
 
     // --- Distance deviation reported ---
 
     @Test
-    fun `distance deviation percent is reported per candidate`() = runTest {
+    fun `distance deviation percent is reported`() = runTest {
         val repo = LoopFixtureRepository()
         val targetM = fixtureTargetM
 
@@ -158,11 +142,10 @@ class RouteGeneratorTest {
         )
 
         assertTrue(result is RoutePlanResult.Success)
-        for (candidate in (result as RoutePlanResult.Success).candidates) {
-            val expectedDeviation =
-                (candidate.refinedRoute.actualDistanceM - targetM) / targetM * 100.0
-            assertEquals(expectedDeviation, candidate.distanceDeviationPercent, 1e-6)
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        val expectedDeviation =
+            (candidate.refinedRoute.actualDistanceM - targetM) / targetM * 100.0
+        assertEquals(expectedDeviation, candidate.distanceDeviationPercent, 1e-6)
     }
 
     // --- Failure on empty corridors ---
@@ -215,9 +198,9 @@ class RouteGeneratorTest {
 
         if (result is RoutePlanResult.Success) {
             assertTrue(
-                "Expected relaxation beyond NONE when asking for 10 candidates with a sparse graph",
+                "Expected relaxation beyond NONE when asking for 10 min candidates with a sparse graph",
                 result.appliedTier != DegradationPolicy.RelaxationTier.NONE ||
-                    result.candidates.isNotEmpty(),
+                    result.candidate.refinedRoute.edges.isNotEmpty(),
             )
         }
     }
@@ -320,13 +303,9 @@ class RouteGeneratorTest {
         )
 
         assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
-        val candidates = (result as RoutePlanResult.Success).candidates
-        assertTrue("Expected at least 1 candidate", candidates.isNotEmpty())
-
-        for (candidate in candidates) {
-            assertTrue(candidate.refinedRoute.edges.isNotEmpty())
-            assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        assertTrue(candidate.refinedRoute.edges.isNotEmpty())
+        assertTrue(candidate.refinedRoute.actualDistanceM > 0.0)
     }
 
     // --- Exit leg integration: fallback ---
@@ -340,7 +319,6 @@ class RouteGeneratorTest {
             targetDistanceM = fixtureTargetM,
             repository = repo,
             config = GeneratorConfig(
-                orienteerConfig = OrienteerConfig(candidateCount = 3),
                 exitLegConfig = ExitLegConfig(
                     minCorridorDistM = 50_000.0,
                     maxCorridorDistM = 100_000.0,
@@ -350,17 +328,13 @@ class RouteGeneratorTest {
         )
 
         assertTrue("Expected Success even without exit legs, got $result", result is RoutePlanResult.Success)
-        val candidates = (result as RoutePlanResult.Success).candidates
-        assertTrue("Expected at least 1 candidate", candidates.isNotEmpty())
-
-        for (candidate in candidates) {
-            val firstEdge = candidate.refinedRoute.edges.first()
-            val lastEdge = candidate.refinedRoute.edges.last()
-            assertEquals(
-                "Fallback loop should return to starting node",
-                firstEdge.fromNode, lastEdge.toNode,
-            )
-        }
+        val candidate = (result as RoutePlanResult.Success).candidate
+        val firstEdge = candidate.refinedRoute.edges.first()
+        val lastEdge = candidate.refinedRoute.edges.last()
+        assertEquals(
+            "Fallback loop should return to starting node",
+            firstEdge.fromNode, lastEdge.toNode,
+        )
     }
 
     // --- Helpers ---

@@ -292,6 +292,117 @@ class RouteRefinerTest {
         assertEquals(listOf(10L, 11L, 20L, 21L, 30L, 31L, 10L), waypoints)
     }
 
+    // --- Reward detour tests ---
+
+    @Test
+    fun `reward detour chosen when within budget cap`() = runTest {
+        val (edges, nodes) = rewardDetourGraph(detourLegLength = 190.0)
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 10, exitNode = 12, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 12, exitNode = 10, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = 1.5),
+        )
+
+        assertNotNull(result)
+        // detour 10→13→12 (290m) has reward=5; shortest 10→11→12 (200m) has reward=0
+        assertTrue(
+            "Reward detour via node 13 should be chosen",
+            result!!.edges.any { it.fromNode == 10L && it.toNode == 13L },
+        )
+    }
+
+    @Test
+    fun `reward detour rejected when it exceeds budget cap`() = runTest {
+        val (edges, nodes) = rewardDetourGraph(detourLegLength = 210.0)
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 10, exitNode = 12, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 12, exitNode = 10, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = 1.5),
+        )
+
+        assertNotNull(result)
+        // detour 10→13→12 (310m) exceeds 1.5×200=300m cap; must fall back to shortest
+        assertTrue(
+            "Shortest path via node 11 should be used when detour exceeds cap",
+            result!!.edges.any { it.fromNode == 10L && it.toNode == 11L },
+        )
+    }
+
+    @Test
+    fun `flag off reproduces shortest path output`() = runTest {
+        val (edges, nodes) = rewardDetourGraph(detourLegLength = 190.0)
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 10, exitNode = 12, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 12, exitNode = 10, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = null),
+        )
+
+        assertNotNull(result)
+        // with flag off, detour (290m, reward=5) is ignored; shortest (200m) used
+        assertTrue(
+            "Shortest path via node 11 should be used when flag is off",
+            result!!.edges.any { it.fromNode == 10L && it.toNode == 11L },
+        )
+    }
+
+    @Test
+    fun `connector path length never exceeds budget fraction of shortest`() = runTest {
+        val (edges, nodes) = rewardDetourGraph(detourLegLength = 190.0)
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 10, exitNode = 12, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 12, exitNode = 10, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+        val fraction = 1.5
+        val shortestForwardLength = 200.0  // 10→11 (100m) + 11→12 (100m)
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = fraction),
+        )
+
+        assertNotNull(result)
+        // Collect only the forward segment (10→12); stop once we include the edge arriving at node 12.
+        val fwdEdges = buildList {
+            for (e in result!!.edges) {
+                add(e)
+                if (e.toNode == 12L) break
+            }
+        }
+        val forwardLength = fwdEdges.sumOf { it.lengthM }
+        assertTrue(
+            "Forward connector length $forwardLength must not exceed ${shortestForwardLength * fraction}",
+            forwardLength <= shortestForwardLength * fraction,
+        )
+    }
+
     // --- Test fixtures ---
 
     private fun edge(
@@ -299,6 +410,7 @@ class RouteRefinerTest {
         toNode: Long,
         lengthM: Double,
         highway: String = "residential",
+        pedalFlowCount: Int? = null,
     ) = MapEdge(
         fromNode = fromNode,
         toNode = toNode,
@@ -313,6 +425,7 @@ class RouteRefinerTest {
         powerP25 = null, powerP75 = null, powerP90 = null,
         slopePercent = null, traversalCount = null, lastTraversal = null,
         timeOfDayDist = null,
+        pedalFlowCount = pedalFlowCount,
     )
 
     private fun node(id: Long, lat: Double, lon: Double) = MapNode(id, lat, lon)
@@ -385,6 +498,32 @@ class RouteRefinerTest {
         return edges to nodes
     }
 
+    /**
+     * Graph with two paths from node 10 to node 12:
+     *   Short path:  10 → 11 → 12  (100 + 100 = 200m, reward = 0)
+     *   Detour:      10 → 13 → 12  (100 + detourLegLength, reward = 5 on edge 10→13)
+     * And symmetric return paths.
+     */
+    private fun rewardDetourGraph(detourLegLength: Double): Pair<List<MapEdge>, List<MapNode>> {
+        val nodes = listOf(
+            node(10, 50.0, 6.0),
+            node(11, 50.001, 6.001),
+            node(12, 50.002, 6.002),
+            node(13, 50.001, 6.003),
+        )
+        val edges = listOf(
+            edge(10, 11, 100.0),
+            edge(11, 12, 100.0),
+            edge(10, 13, 100.0, pedalFlowCount = 5),
+            edge(13, 12, detourLegLength),
+            edge(12, 11, 100.0),
+            edge(11, 10, 100.0),
+            edge(12, 13, detourLegLength),
+            edge(13, 10, 100.0),
+        )
+        return edges to nodes
+    }
+
     // --- Fake repositories ---
 
     private open class FakeRepository(
@@ -406,7 +545,7 @@ class RouteRefinerTest {
         override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
         override suspend fun getRoutingEdgesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
-        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
+        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM, RewardComposer.composeEdgeReward(it).total) }
         override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

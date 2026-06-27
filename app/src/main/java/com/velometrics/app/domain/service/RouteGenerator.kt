@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import android.util.Log
 import com.velometrics.app.domain.model.Corridor
+import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.GeoUtils
 import kotlinx.coroutines.ensureActive
@@ -21,6 +22,7 @@ data class RankedCandidate(
     val coarseLoop: CandidateLoop,
     val rank: Int,
     val distanceDeviationPercent: Double,
+    val corridorEdges: List<MapEdge>,
 )
 
 data class ExitLegPlan(
@@ -32,7 +34,7 @@ data class ExitLegPlan(
 
 sealed interface RoutePlanResult {
     data class Success(
-        val candidates: List<RankedCandidate>,
+        val candidate: RankedCandidate,
         val appliedTier: DegradationPolicy.RelaxationTier,
     ) : RoutePlanResult
 
@@ -155,10 +157,20 @@ object RouteGenerator {
                 allRefined.add(candidate to finalRoute)
             }
 
-            trimRefined(allRefined, maxCandidates * REFINED_BUFFER_FACTOR)
+            val band = tierParams.distanceBandFraction
+            trimRefined(allRefined, maxCandidates * REFINED_BUFFER_FACTOR, targetDistanceM, band)
 
             val refinedDistances = allRefined.map { it.second.actualDistanceM }
             val maxReachable = estimateMaxReachable(corridors, connectors)
+
+            val bandLo = (targetDistanceM * (1.0 - band) / 1000.0).toInt()
+            val bandHi = (targetDistanceM * (1.0 + band) / 1000.0).toInt()
+            val distSummary = if (refinedDistances.isEmpty()) "none" else
+                refinedDistances.joinToString { d ->
+                    val km = (d / 1000.0).toInt()
+                    if (d in targetDistanceM * (1.0 - band)..targetDistanceM * (1.0 + band)) "${km}km✓" else "${km}km✗"
+                }
+            Log.d(TAG, "generate: tier=$currentTier band=[${bandLo}km,${bandHi}km] distances=[$distSummary]")
 
             val outcome = DegradationPolicy.evaluate(
                 refinedDistances, targetDistanceM, currentTier,
@@ -168,26 +180,29 @@ object RouteGenerator {
 
             when (outcome) {
                 is DegradationPolicy.EvaluationOutcome.Sufficient -> {
-                    // Keep only routes whose actual refined distance lands in the accepted band for
-                    // the applied tier, then rank the survivors by reward. evaluate() judged the same
-                    // (post-trim) survivors against this band, so at least minDesired remain here.
                     val band = tierParams.distanceBandFraction
                     val lower = targetDistanceM * (1.0 - band)
                     val upper = targetDistanceM * (1.0 + band)
-                    val ranked = allRefined
+                    val (coarse, refined) = allRefined
                         .filter { it.second.actualDistanceM in lower..upper }
-                        .sortedByDescending { it.first.totalReward }
-                        .take(maxCandidates)
-                        .mapIndexed { index, (coarse, refined) ->
-                            val deviation = if (targetDistanceM > 0) {
-                                (refined.actualDistanceM - targetDistanceM) / targetDistanceM * 100.0
-                            } else {
-                                0.0
-                            }
-                            RankedCandidate(refined, coarse, index + 1, deviation)
-                        }
-                    Log.d(TAG, "generate: done in ${System.currentTimeMillis() - genStart}ms, ${ranked.size} candidates")
-                    return RoutePlanResult.Success(ranked, outcome.appliedTier)
+                        .maxByOrNull { it.first.totalReward }
+                        ?: continue
+                    val deviation = if (targetDistanceM > 0) {
+                        (refined.actualDistanceM - targetDistanceM) / targetDistanceM * 100.0
+                    } else {
+                        0.0
+                    }
+                    val effectiveMap = if (coarse.syntheticCorridors.isEmpty()) corridorMap
+                        else corridorMap + coarse.syntheticCorridors
+                    val corridorEdgePairs = coarse.corridors
+                        .mapNotNull { effectiveMap[it] }
+                        .flatMapTo(HashSet()) { c -> c.edgeList }
+                    val corridorEdges = refined.edges.filter { (it.fromNode to it.toNode) in corridorEdgePairs }
+                    Log.d(TAG, "generate: done in ${System.currentTimeMillis() - genStart}ms, corridorEdges=${corridorEdges.size}")
+                    return RoutePlanResult.Success(
+                        RankedCandidate(refined, coarse, 1, deviation, corridorEdges),
+                        outcome.appliedTier,
+                    )
                 }
 
                 is DegradationPolicy.EvaluationOutcome.NeedsRelaxation -> {
@@ -273,9 +288,17 @@ object RouteGenerator {
     private fun trimRefined(
         refined: MutableList<Pair<CandidateLoop, RefinedRoute>>,
         maxKeep: Int,
+        targetDistanceM: Double,
+        bandFraction: Double,
     ) {
         if (refined.size <= maxKeep) return
-        refined.sortByDescending { it.first.totalReward }
+        val lo = targetDistanceM * (1.0 - bandFraction)
+        val hi = targetDistanceM * (1.0 + bandFraction)
+        // In-band routes are kept before out-of-band routes; within each group, higher reward wins.
+        refined.sortWith(
+            compareByDescending<Pair<CandidateLoop, RefinedRoute>> { it.second.actualDistanceM in lo..hi }
+                .thenByDescending { it.first.totalReward },
+        )
         while (refined.size > maxKeep) {
             refined.removeAt(refined.lastIndex)
         }

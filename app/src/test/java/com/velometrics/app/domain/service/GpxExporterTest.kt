@@ -1,6 +1,8 @@
 ﻿package com.velometrics.app.domain.service
 
+import com.velometrics.app.data.gpx.GpxParser
 import com.velometrics.app.domain.model.MapEdge
+import com.velometrics.app.util.PolylineDecoder
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -77,5 +79,21 @@ class GpxExporterTest {
         val edges = listOf(makeEdge())
         val gpx = exporter.toGpxString(edges, "Test")
         assertTrue("GPX should contain at least one trkpt", gpx.contains("<trkpt"))
+    }
+
+    @Test
+    fun `round-trip export then parse preserves track points`() {
+        val edges = listOf(makeEdge())
+        val routeName = "42k_Velometrics_260627"
+        val gpx = exporter.toGpxString(edges, routeName)
+
+        val expectedPoints = PolylineDecoder.decode(edges[0].geometryEncoded)
+        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
+
+        assertEquals("Point count should match decoded geometry", expectedPoints.size, track.points.size)
+        for (i in expectedPoints.indices) {
+            assertEquals(expectedPoints[i].latitude, track.points[i].latitude, 1e-5)
+            assertEquals(expectedPoints[i].longitude, track.points[i].longitude, 1e-5)
+        }
     }
 }

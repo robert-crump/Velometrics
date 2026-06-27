@@ -56,7 +56,7 @@ class MapGraphRepositoryImpl @Inject constructor(
 
     override suspend fun getRoutingEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<com.velometrics.app.domain.repository.RoutingEdge> =
         edgeDao.getRoutingEdgesNear(minLat, maxLat, minLon, maxLon).map {
-            com.velometrics.app.domain.repository.RoutingEdge(it.fromNode, it.toNode, it.lengthM)
+            com.velometrics.app.domain.repository.RoutingEdge(it.fromNode, it.toNode, it.lengthM, it.reward)
         }
 
     override fun getTraversedEdges(): Flow<List<MapEdge>> =

@@ -184,10 +184,11 @@ object CyclingConstants {
     const val PLAN_A_RIDE_DEFAULT_DISTANCE_KM = 50.0
     const val PLAN_A_RIDE_TRACK_WIDTH = 5f
     val PLAN_A_RIDE_TRACK_COLORS = listOf(
-        "#4CAF50", // Green — best candidate
+        "#4CAF50", // Green — route
         "#FF9800", // Orange — second
         "#9C27B0", // Purple — third
     )
+    const val PLAN_A_RIDE_CORRIDOR_COLOR = "#FFB300" // Amber — flow corridor highlight
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

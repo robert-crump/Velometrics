@@ -9,7 +9,7 @@ import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import kotlinx.coroutines.flow.Flow
 
-data class RoutingEdge(val fromNode: Long, val toNode: Long, val lengthM: Double)
+data class RoutingEdge(val fromNode: Long, val toNode: Long, val lengthM: Double, val reward: Double = 0.0)
 
 interface MapGraphRepository {
     fun getAllEdges(): Flow<List<MapEdge>>

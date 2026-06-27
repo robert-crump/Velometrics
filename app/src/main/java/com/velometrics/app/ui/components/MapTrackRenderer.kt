@@ -7,6 +7,7 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.LineString
+import org.maplibre.geojson.MultiLineString
 import org.maplibre.geojson.Point
 
 object MapTrackRenderer {
@@ -35,6 +36,31 @@ object MapTrackRenderer {
             PropertyFactory.lineWidth(lineWidth),
             PropertyFactory.lineJoin("round"),
             PropertyFactory.lineCap("round")
+        )
+        style.addLayer(layer)
+    }
+
+    fun addMultiLineTrack(
+        style: Style,
+        trackId: String,
+        segments: List<List<LatLng>>,
+        color: String,
+        lineWidth: Float = com.velometrics.app.util.CyclingConstants.TRACK_LINE_WIDTH,
+    ) {
+        val lines = segments
+            .filter { it.size >= 2 }
+            .map { pts -> pts.map { Point.fromLngLat(it.longitude, it.latitude) } }
+        if (lines.isEmpty()) return
+
+        val multiLine = MultiLineString.fromLngLats(lines)
+        val feature = Feature.fromGeometry(multiLine)
+        val source = GeoJsonSource(sourceId(trackId), feature)
+        style.addSource(source)
+        val layer = LineLayer(layerId(trackId), sourceId(trackId)).withProperties(
+            PropertyFactory.lineColor(color),
+            PropertyFactory.lineWidth(lineWidth),
+            PropertyFactory.lineJoin("round"),
+            PropertyFactory.lineCap("round"),
         )
         style.addLayer(layer)
     }

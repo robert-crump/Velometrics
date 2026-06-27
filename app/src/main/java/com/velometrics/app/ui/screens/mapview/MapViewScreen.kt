@@ -70,6 +70,7 @@ import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_CORRIDOR_COLOR
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
@@ -157,11 +158,10 @@ fun MapViewScreen(
     val showFastWayHomeCard = isFindingFastWayHome || fastWayHomeResult != null || fastWayHomeMessage != null
 
     // Plan a ride state
-    val planCandidates by planARideViewModel.candidates.collectAsState()
-    val planSelectedIndex by planARideViewModel.selectedCandidateIndex.collectAsState()
+    val planCandidate by planARideViewModel.candidate.collectAsState()
     val isGeneratingPlan by planARideViewModel.isGenerating.collectAsState()
     val planMessage by planARideViewModel.message.collectAsState()
-    val showPlanARideCard = isGeneratingPlan || planCandidates.isNotEmpty() || planMessage != null
+    val showPlanARideCard = isGeneratingPlan || planCandidate != null || planMessage != null
     var showPlanDistanceDialog by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -192,6 +192,10 @@ fun MapViewScreen(
     }
 
     val context = LocalContext.current
+
+    LaunchedEffect(planARideViewModel) {
+        planARideViewModel.shareIntent.collect { context.startActivity(it) }
+    }
 
     // Load a GPX file opened from another app (ACTION_VIEW / ACTION_SEND)
     LaunchedEffect(pendingGpxUri) {
@@ -392,43 +396,35 @@ fun MapViewScreen(
         )
     }
 
-    // Plan-a-ride candidate tracks sync
-    LaunchedEffect(planCandidates, planSelectedIndex, mapAndStyle) {
+    // Plan-a-ride track sync
+    LaunchedEffect(planCandidate, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         for (id in planARideRenderedIds) {
             try { MapTrackRenderer.removeTrack(ms.second, id) } catch (_: Exception) {}
         }
         planARideRenderedIds = emptySet()
 
-        if (planCandidates.isEmpty()) return@LaunchedEffect
-
+        val candidate = planCandidate ?: return@LaunchedEffect
         val newIds = mutableSetOf<String>()
-        val selected = planSelectedIndex ?: 0
-        // Render non-selected candidates first (thinner), then selected on top
-        for (i in planCandidates.indices) {
-            if (i == selected) continue
-            val candidate = planCandidates[i]
-            val trackId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}$i"
-            val points = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
-            if (points.size >= 2) {
-                val color = PLAN_A_RIDE_TRACK_COLORS[i % PLAN_A_RIDE_TRACK_COLORS.size]
-                MapTrackRenderer.addTrack(ms.second, trackId, points, color, PLAN_A_RIDE_TRACK_WIDTH * 0.6f)
-                newIds.add(trackId)
-            }
+
+        // Full route in green
+        val routePoints = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+        if (routePoints.size >= 2) {
+            val routeId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}route"
+            MapTrackRenderer.addTrack(ms.second, routeId, routePoints, PLAN_A_RIDE_TRACK_COLORS[0], PLAN_A_RIDE_TRACK_WIDTH)
+            newIds.add(routeId)
+            val bounds = LatLngBounds.Builder().apply { routePoints.forEach { include(it) } }.build()
+            ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600)
         }
-        // Selected candidate rendered last (on top, full width)
-        if (selected in planCandidates.indices) {
-            val candidate = planCandidates[selected]
-            val trackId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}$selected"
-            val points = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
-            if (points.size >= 2) {
-                val color = PLAN_A_RIDE_TRACK_COLORS[selected % PLAN_A_RIDE_TRACK_COLORS.size]
-                MapTrackRenderer.addTrack(ms.second, trackId, points, color, PLAN_A_RIDE_TRACK_WIDTH)
-                newIds.add(trackId)
-                val bounds = LatLngBounds.Builder().apply { points.forEach { include(it) } }.build()
-                ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600)
-            }
+
+        // Flow corridor segments overlaid in amber (each segment drawn independently)
+        val corridorSegments = candidate.corridorEdges.map { PolylineDecoder.decode(it.geometryEncoded) }
+        if (corridorSegments.any { it.size >= 2 }) {
+            val corridorId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}corridors"
+            MapTrackRenderer.addMultiLineTrack(ms.second, corridorId, corridorSegments, PLAN_A_RIDE_CORRIDOR_COLOR, PLAN_A_RIDE_TRACK_WIDTH)
+            newIds.add(corridorId)
         }
+
         planARideRenderedIds = newIds
     }
 
@@ -703,11 +699,10 @@ fun MapViewScreen(
             // Plan a ride result card
             if (showPlanARideCard) {
                 PlanARideCard(
-                    candidates = planCandidates,
-                    selectedIndex = planSelectedIndex,
+                    candidate = planCandidate,
                     message = planMessage,
                     isLoading = isGeneratingPlan,
-                    onSelectCandidate = { planARideViewModel.selectCandidate(it) },
+                    onExportGpx = { planARideViewModel.exportGpx() },
                     onDismiss = { planARideViewModel.clearPlan() },
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )

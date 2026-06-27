@@ -19,6 +19,7 @@ data class RefinerConfig(
     val maxAStarIterations: Int = 50_000,
     val bboxExpansionSteps: List<Double> = listOf(1.0, 2.0, 4.0),
     val edgeReusePenalty: Double = 5.0,
+    val connectorRewardBudgetFraction: Double? = 1.5,
 )
 
 object RouteRefiner {
@@ -68,6 +69,14 @@ object RouteRefiner {
         }
         Log.d(TAG, "refine: preloaded ${preloadedEdges.size} edges, ${preloadedNodes.size} nodes in ${System.currentTimeMillis() - loadStart}ms")
 
+        val edgePairToLength = HashMap<Pair<Long, Long>, Double>(preloadedEdges.size)
+        val edgePairToReward = HashMap<Pair<Long, Long>, Double>(preloadedEdges.size)
+        for (e in preloadedEdges) {
+            val key = e.fromNode to e.toNode
+            edgePairToLength[key] = e.lengthM
+            edgePairToReward[key] = e.reward
+        }
+
         val astarStart = System.currentTimeMillis()
         val pathNodePairs = mutableListOf<Pair<Long, Long>>()
         var segmentCount = 0
@@ -83,10 +92,11 @@ object RouteRefiner {
                 return null
             }
 
-            var segmentPairs = shortestPathAStar(
+            val shortestPairsFromPreload = shortestPathAStar(
                 preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to, targetNode, config,
                 usedNodePairs,
             )
+            var segmentPairs = shortestPairsFromPreload
 
             if (segmentPairs == null) {
                 val fromNode = waypointNodes[from] ?: preloadedNodeMap[from]
@@ -121,6 +131,24 @@ object RouteRefiner {
                 Log.d(TAG, "refine: segment[$segmentCount] FAIL from=$from to=$to")
                 return null
             }
+
+            val rewardFraction = config.connectorRewardBudgetFraction
+            if (rewardFraction != null && shortestPairsFromPreload != null) {
+                val shortestLength = shortestPairsFromPreload.sumOf { edgePairToLength[it] ?: 0.0 }
+                val pass1Reward = shortestPairsFromPreload.sumOf { edgePairToReward[it] ?: 0.0 }
+                val rewardPairs = rewardMaxDijkstra(
+                    preloadedEdges, preloadedEdgeIndex, from, to,
+                    shortestLength * rewardFraction, config.maxAStarIterations,
+                )
+                if (rewardPairs != null) {
+                    val pass2Reward = rewardPairs.sumOf { edgePairToReward[it] ?: 0.0 }
+                    if (pass2Reward > pass1Reward) {
+                        Log.d(TAG, "refine: segment[$segmentCount] reward detour reward=$pass2Reward vs $pass1Reward cap=${(shortestLength * rewardFraction).toInt()}m")
+                        segmentPairs = rewardPairs
+                    }
+                }
+            }
+
             pathNodePairs.addAll(segmentPairs)
             for (pair in segmentPairs) {
                 usedNodePairs.add(pair)
@@ -258,6 +286,77 @@ object RouteRefiner {
             maxLat = maxLat + latBuffer,
             maxLon = maxLon + lonBuffer,
         )
+    }
+
+    private fun rewardMaxDijkstra(
+        edges: List<RoutingEdge>,
+        edgesByFromNode: Map<Long, List<Int>>,
+        fromNode: Long,
+        toNode: Long,
+        maxLength: Double,
+        maxIterations: Int,
+    ): List<Pair<Long, Long>>? {
+        data class Entry(val edgeIdx: Int, val accLength: Double, val accReward: Double)
+
+        val open = PriorityQueue<Entry>(compareByDescending { it.accReward })
+        // Keyed by edge index so each edge is settled at most once, preventing cameFrom cycles.
+        val settled = HashSet<Int>()
+        val gReward = HashMap<Int, Double>()
+        val cameFrom = HashMap<Int, Int>()
+
+        val starts = edgesByFromNode[fromNode] ?: return null
+        for (idx in starts) {
+            val e = edges[idx]
+            if (e.lengthM > maxLength) continue
+            gReward[idx] = e.reward
+            open.add(Entry(idx, e.lengthM, e.reward))
+        }
+
+        var bestDestReward = Double.NEGATIVE_INFINITY
+        var bestDestIdx = -1
+
+        var iterations = 0
+        while (open.isNotEmpty() && iterations < maxIterations) {
+            iterations++
+            val curr = open.poll() ?: break
+
+            if (curr.edgeIdx in settled) continue
+            settled.add(curr.edgeIdx)
+
+            val currEdge = edges[curr.edgeIdx]
+
+            if (currEdge.toNode == toNode) {
+                if (curr.accReward > bestDestReward) {
+                    bestDestReward = curr.accReward
+                    bestDestIdx = curr.edgeIdx
+                }
+                continue
+            }
+
+            val succs = edgesByFromNode[currEdge.toNode] ?: continue
+            for (succIdx in succs) {
+                if (succIdx in settled) continue
+                val succ = edges[succIdx]
+                val newLen = curr.accLength + succ.lengthM
+                if (newLen > maxLength) continue
+                val newReward = curr.accReward + succ.reward
+                val best = gReward[succIdx]
+                if (best != null && newReward <= best) continue
+                gReward[succIdx] = newReward
+                cameFrom[succIdx] = curr.edgeIdx
+                open.add(Entry(succIdx, newLen, newReward))
+            }
+        }
+
+        if (bestDestIdx == -1) return null
+        val path = mutableListOf<Int>()
+        var idx = bestDestIdx
+        while (true) {
+            path.add(idx)
+            idx = cameFrom[idx] ?: break
+        }
+        path.reverse()
+        return path.map { edges[it].fromNode to edges[it].toNode }
     }
 
     internal fun computeSegmentBbox(

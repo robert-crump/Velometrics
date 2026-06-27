@@ -48,7 +48,7 @@ object RewardComposer {
 
         val exploreTerm = computeExploreTerm(
             novelty = if (edge.isTraversed) 0.0 else 1.0,
-            predictedFlowScore = edge.predictedFlowScore,
+            predictedFlowScore = (edge.predictedGravityFlowProbability ?: 0.0) + (edge.predictedPedalFlowProbability ?: 0.0),
             flowConfidence = edge.flowConfidence,
             confidenceFloor = context.confidenceFloor,
             balance = context.exploreExploitBalance,

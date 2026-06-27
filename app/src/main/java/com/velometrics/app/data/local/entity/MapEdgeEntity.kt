@@ -14,16 +14,20 @@ data class MapEdgeEntity(
     val highway: String?,
     val name: String?,
     val surface: String?,
-    @ColumnInfo(name = "is_traversed") val isTraversed: Boolean,
+    @ColumnInfo(name = "is_traversed", defaultValue = "0") val isTraversed: Boolean,
     @ColumnInfo(name = "geometry_encoded") val geometryEncoded: String?,
     val metadata: String?,
     @ColumnInfo(name = "slope_percent") val slopePercent: Double?,
     val curvature: Double?,
     @ColumnInfo(name = "stop_penalty") val stopPenalty: Double?,
     @ColumnInfo(name = "stop_penalty_source") val stopPenaltySource: String?,
-    @ColumnInfo(name = "predicted_flow_score") val predictedFlowScore: Double?,
     @ColumnInfo(name = "flow_confidence") val flowConfidence: Double?,
-    @ColumnInfo(name = "hazard_score") val hazardScore: Double?
+    @ColumnInfo(name = "hazard_score") val hazardScore: Double?,
+    @ColumnInfo(name = "braking_probability") val brakingProbability: Double?,
+    @ColumnInfo(name = "maxspeed_kmh") val maxspeedKmh: Double?,
+    @ColumnInfo(name = "median_ke_delta") val medianKeDelta: Double?,
+    @ColumnInfo(name = "predicted_gravity_flow_probability") val predictedGravityFlowProbability: Double?,
+    @ColumnInfo(name = "predicted_pedal_flow_probability") val predictedPedalFlowProbability: Double?,
 )
 
 private data class EdgeMetadataJson(
@@ -85,8 +89,12 @@ fun MapEdgeEntity.toDomain(): MapEdge {
         curvature = curvature,
         stopPenalty = stopPenalty,
         stopPenaltySource = stopPenaltySource,
-        predictedFlowScore = predictedFlowScore,
         flowConfidence = flowConfidence,
         hazardScore = hazardScore,
+        brakingProbability = brakingProbability,
+        maxspeedKmh = maxspeedKmh,
+        medianKeDelta = medianKeDelta,
+        predictedGravityFlowProbability = predictedGravityFlowProbability,
+        predictedPedalFlowProbability = predictedPedalFlowProbability,
     )
 }

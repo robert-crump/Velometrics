@@ -89,39 +89,51 @@ object RouteGenerator {
             val tierStart = System.currentTimeMillis()
             Log.d(TAG, "generate: tier=$currentTier starting")
 
-            val tierParams = DegradationPolicy.tierParams(
-                currentTier,
-                baseExploreExploitBalance = rewardContext.exploreExploitBalance,
-                baseReusePenaltyWeight = config.orienteerConfig.reusePenaltyWeight,
-                config = config.degradationConfig,
-            )
+            val tierParams = DegradationPolicy.tierParams(currentTier, config.degradationConfig)
 
-            val tierRewardContext = RewardContext(
-                exploreExploitBalance = tierParams.exploreExploitBalance,
-                confidenceFloor = rewardContext.confidenceFloor,
-            )
             val refinementCount = maxCandidates * REFINEMENT_CANDIDATE_MULTIPLIER
             val tierOrienteerConfig = config.orienteerConfig.copy(
-                reusePenaltyWeight = tierParams.reusePenaltyWeight,
                 candidateCount = refinementCount,
+                reachFraction = tierParams.reachFraction,
+                separationM = tierParams.separationM,
+                headingConeCosine = tierParams.headingConeCosine,
             )
 
             val coarseStart = System.currentTimeMillis()
             val coarseCandidates = CorridorOrienteer.search(
-                corridors, connectors, homeLat, homeLon,
+                corridors, homeLat, homeLon,
                 effectiveTargetM,
-                weights, tierRewardContext, tierOrienteerConfig, config.seed,
+                weights, tierOrienteerConfig,
                 config.direction,
                 startCorridorId = exitPlan?.exitCorridorId,
+                nodeResolver = { ids ->
+                    if (ids.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        repository.getNodesByIds(*ids.toLongArray())
+                            .associate { it.id to (it.lat to it.lon) }
+                    }
+                },
+                edgeResolver = { minLat, minLon, maxLat, maxLon ->
+                    repository.getEdgesNear(minLat, minLon, maxLat, maxLon)
+                },
             )
             Log.d(TAG, "generate: coarse search found ${coarseCandidates.size} candidates in ${System.currentTimeMillis() - coarseStart}ms")
 
             for ((idx, candidate) in coarseCandidates.withIndex()) {
                 if (allRefined.any { it.first.corridors == candidate.corridors }) continue
 
+                // Pseudo-corridors synthesized for empty quadrants are not in the repository-backed
+                // map, so merge them in before refining/stitching this candidate.
+                val effectiveCorridorMap = if (candidate.syntheticCorridors.isEmpty()) {
+                    corridorMap
+                } else {
+                    corridorMap + candidate.syntheticCorridors
+                }
+
                 val refineStart = System.currentTimeMillis()
                 val refined = RouteRefiner.refine(
-                    candidate, corridorMap, repository,
+                    candidate, effectiveCorridorMap, repository,
                     config.refinerConfig,
                     closeLoop = exitPlan == null,
                 )
@@ -132,7 +144,7 @@ object RouteGenerator {
 
                 val finalRoute = if (exitPlan != null) {
                     stitchRoute(
-                        exitPlan.exitLeg, refined, candidate, corridorMap,
+                        exitPlan.exitLeg, refined, candidate, effectiveCorridorMap,
                         homeLat, homeLon, repository, config.exitLegConfig,
                     )
                 } else {
@@ -156,7 +168,14 @@ object RouteGenerator {
 
             when (outcome) {
                 is DegradationPolicy.EvaluationOutcome.Sufficient -> {
+                    // Keep only routes whose actual refined distance lands in the accepted band for
+                    // the applied tier, then rank the survivors by reward. evaluate() judged the same
+                    // (post-trim) survivors against this band, so at least minDesired remain here.
+                    val band = tierParams.distanceBandFraction
+                    val lower = targetDistanceM * (1.0 - band)
+                    val upper = targetDistanceM * (1.0 + band)
                     val ranked = allRefined
+                        .filter { it.second.actualDistanceM in lower..upper }
                         .sortedByDescending { it.first.totalReward }
                         .take(maxCandidates)
                         .mapIndexed { index, (coarse, refined) ->

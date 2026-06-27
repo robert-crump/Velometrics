@@ -46,12 +46,12 @@ class RewardComposerTest {
     fun `untraversed edge with confident prediction outranks untraversed edge with no prediction`() {
         val predicted = edge(
             isTraversed = false,
-            predictedFlowScore = 5.0,
+            predictedPedalFlowProbability = 0.7,
             flowConfidence = 0.8,
         )
         val noPrediction = edge(
             isTraversed = false,
-            predictedFlowScore = null,
+            predictedPedalFlowProbability = null,
             flowConfidence = null,
         )
 
@@ -65,7 +65,7 @@ class RewardComposerTest {
     fun `prediction below confidence floor is excluded from explore term`() {
         val lowConfidence = edge(
             isTraversed = false,
-            predictedFlowScore = 10.0,
+            predictedPedalFlowProbability = 0.9,
             flowConfidence = 0.1,
         )
 
@@ -82,7 +82,7 @@ class RewardComposerTest {
         val traversed = edge(
             isTraversed = true,
             pedalFlowCount = 3,
-            predictedFlowScore = 10.0,
+            predictedPedalFlowProbability = 0.9,
             flowConfidence = 0.9,
         )
 
@@ -116,7 +116,7 @@ class RewardComposerTest {
             gravityFlowCount = 2,
             stopPenalty = 1.5,
             isTraversed = false,
-            predictedFlowScore = 3.0,
+            predictedPedalFlowProbability = 0.6,
             flowConfidence = 0.5,
         )
         val weights = RewardWeights(flow = 2.0, stop = 1.0, explore = 1.0)
@@ -158,7 +158,8 @@ class RewardComposerTest {
         gravityFlowCount: Int? = null,
         stopPenalty: Double? = null,
         isTraversed: Boolean = true,
-        predictedFlowScore: Double? = null,
+        predictedPedalFlowProbability: Double? = null,
+        predictedGravityFlowProbability: Double? = null,
         flowConfidence: Double? = null,
     ) = MapEdge(
         fromNode = 1L,
@@ -187,7 +188,8 @@ class RewardComposerTest {
         pedalFlowCount = pedalFlowCount,
         gravityFlowCount = gravityFlowCount,
         stopPenalty = stopPenalty,
-        predictedFlowScore = predictedFlowScore,
+        predictedPedalFlowProbability = predictedPedalFlowProbability,
+        predictedGravityFlowProbability = predictedGravityFlowProbability,
         flowConfidence = flowConfidence,
     )
 

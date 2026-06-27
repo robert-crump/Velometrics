@@ -1,3 +1,248 @@
+## Issue #117 — Candidate diversity via windings × alternate anchors
+Completed: 2026-06-27
+
+### What was done
+
+`CorridorOrienteer.search()` previously built a single skeleton by selecting the one best anchor
+per quadrant and returning one `CandidateLoop`. This adds two axes of diversity:
+
+1. **CW and CCW windings** — corridors are classified into quadrants twice: once with the real
+   lateral sign (clockwise oval) and once with the lateral sign negated (counter-clockwise oval),
+   so Q0/Q1/Q2/Q3 map to opposite sides of the road network in each winding.
+2. **Top-N anchor combos per quadrant** — `ANCHOR_COMBOS_PER_QUADRANT = 2` keeps the two
+   geometry-best anchors per quadrant. All valid Cartesian-product combos (respecting the
+   pairwise 2km separation rule) are enumerated via the new `enumerateAnchorCombos` recursive
+   helper. Each quadrant can also contribute `null` (no anchor); all-null combos are filtered.
+3. **Deduplication by corridor-set** — after each combo is anchored, empty-quadrant pseudo-
+   corridors are filled, the loop is filled toward `target × 0.9`, and the sorted corridor-id
+   set becomes the dedup key in `seenCorridorSets`; identical sets from the two windings are
+   collapsed to one.
+4. **Reward ranking** — `allResults` across both windings is sorted by `totalReward` descending
+   and the top `config.candidateCount` candidates are returned.
+
+**`domain/service/CorridorOrienteer.kt`**
+- `search()` body replaced with a `for (cw in listOf(true, false))` loop.
+- `arcTangentBearing(rideBearing, q, cw)` gains a `cw: Boolean = true` param; CCW negates the
+  offset, flipping which side of the route each quadrant represents. All existing call sites
+  (`fillEmptyQuadrantsFromEdges`, `anchorScore`) use the default, so they're unaffected.
+- `anchorScore(…, cw)` similarly gains `cw: Boolean = true` and passes it to `arcTangentBearing`
+  so the heading term is correct for whichever winding is being ranked.
+- `private const val ANCHOR_COMBOS_PER_QUADRANT = 2` caps the combo fan-out.
+- New `enumerateAnchorCombos(topPerQ, sep, nodeCoords)` — recursive Cartesian enumeration with
+  separation pruning; returns `List<Array<Corridor?>>`.
+
+**`domain/service/CorridorOrienteerTest.kt`**
+- Three new tests per acceptance criteria: `search returns up to candidateCount distinct
+  candidates`, `dedupe collapses identical corridor sets from both windings`, `candidates are
+  ranked by descending total reward`.
+- Updated two existing tests to remain stable under multi-combo ranking: the farthest anchor in
+  the fill test and the NE anchor in the separation test each received explicit high rewards so
+  their combos dominate the new diversity combos.
+
+---
+
+## Issue #118 — Empty-quadrant fallback via high-traversal edge pseudo-corridor
+Completed: 2026-06-27
+
+### What was done
+
+At the tighter `reach = target / 3` radius a quadrant can end up with no qualifying anchor
+corridor, leaving a gap in the oval. This adds an edge fallback: when a quadrant is empty, the
+highest-`traversalCount` traversed edge in that quadrant whose heading matches the arc tangent is
+turned into a pseudo-corridor and used as the quadrant anchor, so the rest of the pipeline stays
+corridor-based. Quadrants with no suitable edge are skipped cleanly.
+
+**`domain/service/CorridorOrienteer.kt`**
+- `search` gains an `edgeResolver` lambda (mirrors `nodeResolver`): given a bounding box it returns
+  candidate `MapEdge`s. Default no-op returns empty, so the common all-quadrants-populated path and
+  every existing test resolve nothing and behave exactly as before.
+- New `fillEmptyQuadrantsFromEdges` runs after anchor selection: it finds quadrants with a null
+  anchor, fetches traversed edges (`traversalCount > 0`) within the reach bbox, resolves their
+  endpoint coordinates once (folded into the shared `nodeCoords` map, which is now mutable), groups
+  them by the quadrant of their endpoint-midpoint centroid, and for each empty quadrant picks the
+  highest-traversal edge that (a) heads within the arc-tangent cone (`adequateBearing`) and (b) stays
+  separated from the already-chosen anchors. The pick becomes the quadrant anchor and is added to
+  `chosen` so later picks/fills honour separation against it.
+- `buildPseudoCorridor(edge, id, nodeCoords)`: entry=fromNode, exit=toNode, length from the edge,
+  centroid from the endpoint midpoint, `pedalReward`/`gravityReward` from the edge flow counts,
+  `popularity` from `traversalCount`, `edgeList = [fromNode->toNode]` (so the separation rule and
+  RouteRefiner's waypoint walk both work). Synthetic id is negative (`-(q+1)`) so it never collides
+  with a positive DB corridor id. Centroid/heading derive from resolved node coords rather than
+  decoding the polyline geometry — keeps the domain service free of MapLibre deps and unit-testable.
+- `CandidateLoop` gains `syntheticCorridors: Map<Long, Corridor> = emptyMap()` carrying the
+  synthesized pseudo-corridors; their edge-derived reward is folded into the candidate's reward.
+
+**`domain/service/RouteGenerator.kt`**
+- Wires `edgeResolver` to `repository.getEdgesNear`.
+- Merges `candidate.syntheticCorridors` into the corridor map before `RouteRefiner.refine` and
+  `stitchRoute`, so a pseudo-corridor resolves and routes like a real one (RouteRefiner looks
+  corridors up by id in that map).
+
+### Tests
+`CorridorOrienteerTest`:
+- `search synthesizes a pseudo-corridor for an empty quadrant from a high-traversal edge`
+  (end-to-end: empty Q4 filled by an SE-heading edge; pseudo present in skeleton + `syntheticCorridors`).
+- `search skips an empty quadrant when no suitable edge exists` (empty edge resolver -> bare anchor set).
+- `search skips an empty quadrant when the only edge heads against the arc` (bearing gate rejects it).
+- `buildPseudoCorridor` field mapping + null on unresolved endpoint; `adequateBearing` accept/reject
+  and reject-on-unresolved. Added an `edge(...)` MapEdge helper.
+- Note: tests that supply `nodeResolver` coords activate the real separation rule, so quadrant
+  fixtures are spread to ±0.02deg to keep all four anchors > the 1500m adaptive separation apart.
+
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.
+
+## Issue #119 — Re-target DegradationPolicy tiers to skeleton levers
+Completed: 2026-06-26
+
+### What was done
+
+The relaxation loop was dead: tiers tweaked `exploreExploitBalance`/`reusePenaltyWeight` — GRASP
+knobs the deterministic quadrant skeleton ignores — and `evaluate()` accepted on candidate *count*,
+never on actual distance, so a loop at 0.5x or 1.5x target was returned as "success". This retargets
+the tiers to the skeleton's real levers and judges acceptance on the actual refined distance.
+
+**`DegradationPolicy.kt`**
+- `RelaxationTier` renamed to the skeleton's levers, tightest-first and cumulative:
+  `NONE -> WIDEN_CONE -> EXTEND_REACH -> SHRINK_SEPARATION -> WIDEN_BAND`. Each tier turns one more
+  lever on and keeps the earlier ones on.
+- `TierParams` now carries `headingConeCosine`, `reachFraction`, `separationM`, `distanceBandFraction`
+  (was `exploreExploitBalance`/`reusePenaltyWeight`). `tierParams()` drops the GRASP base args and
+  derives each lever from the tier ordinal.
+- `DegradationConfig` replaces the eased-GRASP fields with base+relaxed lever values:
+  cone `0.0 -> -0.5` (90deg -> 120deg), reach `1/3 -> 1/2` of target, separation `2000m -> 1000m`,
+  band `0.15 -> 0.30`.
+- `evaluate()` now filters candidates to those whose **actual refined distance** lands within
+  `[1-band, 1+band] x target` for the current tier. Too few in-band -> request the next tier; at the
+  loosest tier any in-band candidate is accepted, zero is a `HardFailure` with the existing reason.
+
+**`CorridorOrienteer.kt`**
+- `OrienteerConfig` drops the vestigial `reusePenaltyWeight` and gains the three relaxation levers
+  `reachFraction`, `separationM`, `headingConeCosine` (defaults preserve prior behaviour: reach =
+  target/3, sep cap = 2km, 90deg cone).
+- `search()` reads `reach` from `config.reachFraction`, caps separation via
+  `separationDistance(reach, config.separationM)`, and threads `config.headingConeCosine` through
+  `fillToTarget -> isValidFill -> headingConsistent` (the hard heading gate on fills). The cone
+  cutoff and separation cap are no longer hardcoded.
+
+**`RouteGenerator.kt`**
+- Builds the per-tier `OrienteerConfig` from the new `TierParams` (reach/separation/cone) instead of
+  the dead reuse-penalty copy, and on `Sufficient` filters the refined routes to the applied tier's
+  acceptance band before ranking by reward.
+
+### Tests
+- Rewrote `DegradationPolicyTest`: new tier order, per-tier lever params + cumulative monotonicity,
+  custom config, and acceptance-on-actual-distance — in-band accepted, out-of-band excluded,
+  no-in-band relaxes, a route that fails tier 0 is accepted once the band widens at the loosest tier,
+  partial set accepted at loosest tier, and the zero-in-band hard-failure path.
+- `CorridorOrienteerTest`: heading cone widens when the cosine threshold is lowered;
+  `separationDistance` honours a lowered cap.
+- `RouteGeneratorTest`: realistic 3000m targets for the ~2600m ring fixture (the old 3700m target
+  relied on count-only acceptance); new tests assert an in-band route is accepted at NONE within
+  +/-15% and that an unreachable 6km request now fails instead of returning a wildly short loop. The
+  exit-leg stitching test widens its own band (the soft cap forces a large target the tiny fixture
+  cannot fill) since it verifies stitching, not distance fit.
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
+## Issue #114 — 2km any-node separation rule for skeleton corridors
+Completed: 2026-06-26
+
+### What was done
+
+**`CorridorOrienteer.kt` — adaptive any-node separation during anchor selection**
+- New constants: `SEPARATION_M = 2000.0` (full air-distance minimum between any node of two
+  chosen corridors) and `SEPARATION_REACH_FRACTION = 0.5`. `separationDistance(reach) =
+  min(SEPARATION_M, reach * SEPARATION_REACH_FRACTION)` keeps short-target routes fillable
+  (sep reaches the full 2km only at reach >= 4km, i.e. target >= 12km).
+- `search()` gains a `nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double,Double>>`
+  parameter (defaults to an empty resolver so the pure scoring tests need no coordinates).
+  After classifying reachable corridors into quadrants, it batch-resolves node coordinates
+  **once** for every quadrant candidate (`corridorNodeIds` = entry + exit + both ends of each
+  `edgeList` edge).
+- Anchor selection is now **sequential and separation-aware**: each quadrant's candidates are
+  ranked by the existing geometry-first `anchorScore`, and the highest-scoring candidate that
+  stays separated from all previously-chosen anchors is picked. The home/start origin is the
+  fixed loop endpoint and is intentionally **not** part of the spread set — anchors are kept
+  apart from one another only (seeding the set with the origin would force every anchor >=2km
+  from home, which is impossible for short loops and pointless since the loop returns home).
+- New `corridorsSeparated(a, b, sep, nodeCoords)`: cheap centroid + half-length prefilter
+  (`centroidDist > sep + lenA/2 + lenB/2` => definitely separated, no node lookup) short-circuits
+  far pairs; only survivors compare resolved node lat/lon pairwise. When coordinates are
+  unavailable for a near pair, the pair is treated as separated (overlap cannot be proven).
+
+**`RouteGenerator.kt`**
+- Wires `nodeResolver` to `repository.getNodesByIds(...)`, mapping each `MapNode` to its
+  `(lat, lon)`. Empty id sets short-circuit to an empty map (no DB call).
+
+### Tests
+- `CorridorOrienteerTest`: cross-quadrant rejection end-to-end (a top-reward Q2 candidate whose
+  node hugs the Q1 anchor is rejected in favour of a well-separated candidate), `corridorsSeparated`
+  rejects overlapping parallels / accepts well-separated, prefilter short-circuits far pairs with
+  no coords, unresolvable near pairs treated as separated, `separationDistance` adaptive on short
+  reach, `corridorNodeIds` collects entry/exit/edge nodes.
+- All existing `CorridorOrienteerTest` and `RouteGeneratorTest` cases unchanged and passing
+  (fixtures carry empty `edgeList`, so separation falls back to entry/exit nodes and the tiny
+  graphs still form loops).
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
+## Issue #113 — Quadrant skeleton replaces GRASP corridor ordering (tracer bullet)
+Completed: 2026-06-26
+
+### What was done
+
+**`CorridorOrienteer.kt` — outright replacement of the GRASP engine**
+- Removed the entire GRASP construction + local-search path: `graspConstruct`,
+  `localSearch`, `tryTwoOpt`, `tryOrOpt`, `evaluateRouteScore`, `evaluateRouteArray`,
+  `precomputeConnectionDistances`, `precomputeHomeDistances`, `pairKey`,
+  `buildAdjacency`, `dijkstraFromHome`, `selectDiverse`, `corridorOverlap`,
+  `reuseModulation`, `outboundFactor`, `phaseBearing`, `geometricFactor`,
+  `filterByDirection`, and the `AdjEntry`/`ScoredCandidate` helpers. No config flag —
+  the quadrant skeleton is the only path.
+- New deterministic `search()` (signature dropped `connectors`, `rewardContext`, `seed`):
+  1. `reach = target * FAR_POINT_BUDGET_FRACTION` (= target/3) drives the radius filter,
+     replacing the old `target/2`. The previously-dead `FAR_POINT_BUDGET_FRACTION` constant
+     is now wired up.
+  2. Builds a ride-aligned frame: `rideBearing` = `direction.bearingCenter`, or — when no
+     direction is given — the bearing to the farthest reachable corridor. `u = unit(rideBearing)`,
+     `v = perp(u)` (right of travel).
+  3. Classifies each reachable corridor by `along = (c-home)·u` / `lateral = (c-home)·v` into
+     four quadrants (Q1 front-right, Q2 front-left, Q3 back-left, Q4 back-right).
+  4. Picks one geometry-first anchor per quadrant by
+     `anchorScore = farWeight*(along/reach) + headingWeight*headingAlignment(corridorBearing,
+     arcTangent) + rewardWeight*rewardNorm` (reward is tiebreak only). `arcTangent` is the
+     quadrant bisector bearing in the aligned frame.
+  5. Emits an ordered corridor-ID skeleton: home corridor (or the exit-plan start corridor as
+     Q1) followed by the natural Q1->Q2->Q3->Q4 anchors (deduped). Returns a single
+     `CandidateLoop` with summed reward/flow/discovery sub-scores and an informational coarse
+     distance estimate. Returns empty when fewer than two distinct corridors are reachable.
+- New internal helpers (unit-tested): `toLocalMeters`, `alongLateral`, `quadrantOf`,
+  `anchorScore`, `arcTangentBearing`, `cosineSimilarity` (kept). `filterByRadius` and
+  `findNearestCorridor` retained.
+- `OrienteerConfig` trimmed to `candidateCount`, `reusePenaltyWeight` (retained only as the
+  base for `DegradationPolicy`'s relaxation tiers), and the new `farWeight`/`headingWeight`/
+  `rewardWeight`. All GRASP-only fields removed.
+
+**`RouteGenerator.kt`**
+- `search()` call updated to the new signature (no connectors/rewardContext/seed). Removed the
+  now-unused `tierRewardContext`. The exit-plan start corridor is still passed via
+  `startCorridorId`; closed-loop vs stitched-route paths unchanged.
+
+### Tests
+- Rewrote `CorridorOrienteerTest`: quadrant classification end-to-end (home + one corridor per
+  compass quadrant -> ordered `[1,2,3,4,5]` skeleton), best-anchor selection within a crowded
+  quadrant, start corridor honored as Q1, reach (target/3) exclusion, determinism, empty/single
+  inputs, and unit tests for `toLocalMeters`, `alongLateral`, `quadrantOf`, `arcTangentBearing`,
+  `cosineSimilarity`, `anchorScore` (far-bias + reward tiebreak), `filterByRadius`,
+  `findNearestCorridor`.
+- `RouteGeneratorTest`: dropped the removed `graspRestarts` config arg; existing end-to-end,
+  exit-leg-stitch, fallback, and degradation tests still pass against the skeleton.
+- `compileDebugKotlin` and `testDebugUnitTest` both pass.
+
+---
+
 ## Route generation bug fixes: budget overshoot, out-and-back, refiner performance
 Completed: 2026-06-25
 
@@ -1347,3 +1592,95 @@ Completed: 2026-06-14 | Closed: pending
 No new tests added (UI/Compose layer, consistent with existing test
 coverage for `InfoScreen`/other screen composables — none exist).
 `compileDebugKotlin` and `testDebugUnitTest` pass.
+
+## Issue #116 — Fill corridors to reach target length
+Completed: 2026-06-26 | Closed: pending
+
+### What was done
+
+The quadrant skeleton emits at most one anchor per quadrant, landing routes at
+only ~0.7-0.9x target. Added a fill stage in `CorridorOrienteer` that raises the
+skeleton toward target while harvesting reward.
+
+**`domain/service/CorridorOrienteer.kt`**
+- New `FILL_TARGET_FRACTION = 0.9` constant — fill stops once the estimated
+  perimeter reaches `target * 0.9`.
+- Reworked the emit section to build an ordered `loop: MutableList<Corridor>`
+  (origin/start corridor first, then quadrant anchors Q1->Q4) and run
+  `fillToTarget(...)` over it before deriving the corridor-ID list.
+- `fillToTarget(...)`: each iteration finds the largest connector gap and inserts
+  the highest-reward valid candidate between that gap's two neighbours. Inserted
+  fills join `chosen` so later picks honour the separation rule against them;
+  each candidate leaves the fill pool once used, so the loop is finite. Stops at
+  est. perimeter >= `target * 0.9` or when no valid fill remains.
+- `connectorEstimate(a, b)` = `haversine(exit(a), entry(b)) * ROAD_DISTANCE_FACTOR`
+  (1.3), falling back to corridor centroids when a node coordinate is unresolved.
+  The CorridorConnector table is deliberately not consulted during construction.
+- `estimatedPerimeter(loop)` = corridor lengths + cyclic connector estimates.
+- `indexOfLargestGap(loop)` selects the gap to fill (first on ties -> deterministic).
+- Fill validity (`isValidFill`): `isBetween` (centroid projects onto the
+  neighbour segment at t in [0,1]) + separation (`corridorsSeparated` vs every
+  chosen corridor) + `headingConsistent` (entry->exit bearing within 90 deg of
+  travel; accepted when node coords are unresolved — direction-aware twin
+  selection is #115).
+
+### Tests
+`CorridorOrienteerTest`:
+- Updated `search picks the best-scoring anchor within a crowded quadrant`: the
+  nearer corridor now appears as fill (positioned before the anchor it reaches
+  toward), confirming it lost the anchor but is harvested as fill.
+- New: fill raises length into the 0.9x band; fill picks the higher-reward
+  candidate and separation blocks its near twin; fill terminates when no valid
+  candidate remains; `connectorEstimate` (node-based and centroid fallback);
+  `isBetween`; `headingConsistent` (rejects against-travel traversal).
+
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and `testDebugUnitTest` all
+pass (33 tests in `CorridorOrienteerTest`, full suite green).
+
+## Issue #115 — group_id twin orientation in anchor selection
+Completed: 2026-06-26 | Closed: pending
+
+### What was done
+
+Corridors are directed (entry->exit). A `group_id` twin pair is the same physical
+road in opposite directions, sharing `group_id == min(id)`. Until now anchor
+selection picked between twins arbitrarily: twins share a centroid, so they tie on
+`anchorScore`, and the deterministic sort fell back to input order — a route could
+traverse a road against its quadrant's arc tangent.
+
+**`domain/service/CorridorOrienteer.kt`**
+- New `headingAlignedTwin(corridor, referenceBearing, pool, nodeCoords)`: when the
+  corridor has a same-`group_id` partner in `pool`, returns the twin whose
+  entry->exit heading better matches `referenceBearing`; otherwise returns the
+  corridor unchanged. Solo detection is by *absence of a partner*, not `groupId ==
+  id` — the lower-id member of a pair also satisfies `groupId == id`, so id alone
+  can't distinguish a solo. Unresolved entry/exit coords -> returned unchanged.
+- Private `headingAlignment(c, referenceBearing, nodeCoords)`: cosine similarity of
+  `c`'s entry->exit bearing vs the reference, or null when an endpoint is unresolved.
+- Anchor selection now swaps each `pick` to `headingAlignedTwin(pick,
+  arcTangentBearing(rideBearing, q), quadrants[q], nodeCoords)` before recording it.
+  The twin shares geometry with the pick, so it satisfies the same separation check;
+  `quadrants[q]` is a safe twin pool because twins share a centroid and land in the
+  same quadrant.
+
+Scope is orientation only — the `group_id` anti-reuse guard remains #111. Fills are
+deliberately untouched: a fill candidate is already rejected by `headingConsistent`
+unless traversed in the travel direction, so the surviving fill is correctly
+oriented. (And a twin of a chosen anchor can never become a fill — it shares
+geometry with the anchor, so the separation rule excludes it.) RouteRefiner's
+`buildWaypoints` emits each corridor's entry then exit node, so picking the
+correctly-oriented twin id is exactly what feeds nodes to A* in travel direction.
+
+### Tests
+`CorridorOrienteerTest`:
+- `headingAlignedTwin selects the twin aligned with the reference bearing` (both
+  pass-in orders + opposite reference).
+- `headingAlignedTwin leaves a solo corridor unchanged`.
+- `headingAlignedTwin returns the original when node coords are unresolved`.
+- `search picks the heading-aligned twin for the quadrant arc` (end-to-end: NE-arc
+  twin chosen, SW twin excluded).
+- `search keeps a solo anchor when no twin is present`.
+- Extended the `corridor(...)` test helper with `groupId`/`entryNode`/`exitNode`
+  params (defaults preserve every existing call).
+
+`testDebugUnitTest` passes (full suite green).

@@ -10,58 +10,74 @@ class DegradationPolicyTest {
     // --- Tier ordering ---
 
     @Test
-    fun `tier progression follows widen-band then ease-discovery then ease-penalties`() {
-        assertEquals(RelaxationTier.WIDEN_BAND, DegradationPolicy.nextTier(RelaxationTier.NONE))
-        assertEquals(RelaxationTier.EASE_DISCOVERY, DegradationPolicy.nextTier(RelaxationTier.WIDEN_BAND))
-        assertEquals(RelaxationTier.EASE_PENALTIES, DegradationPolicy.nextTier(RelaxationTier.EASE_DISCOVERY))
-        assertNull(DegradationPolicy.nextTier(RelaxationTier.EASE_PENALTIES))
+    fun `tier progression follows cone then reach then separation then band`() {
+        assertEquals(RelaxationTier.WIDEN_CONE, DegradationPolicy.nextTier(RelaxationTier.NONE))
+        assertEquals(RelaxationTier.EXTEND_REACH, DegradationPolicy.nextTier(RelaxationTier.WIDEN_CONE))
+        assertEquals(RelaxationTier.SHRINK_SEPARATION, DegradationPolicy.nextTier(RelaxationTier.EXTEND_REACH))
+        assertEquals(RelaxationTier.WIDEN_BAND, DegradationPolicy.nextTier(RelaxationTier.SHRINK_SEPARATION))
+        assertNull(DegradationPolicy.nextTier(RelaxationTier.WIDEN_BAND))
     }
 
-    // --- Tier params ---
+    // --- Tier params: each tier turns one more skeleton lever on ---
 
     @Test
-    fun `NONE tier uses base parameters`() {
+    fun `NONE tier uses base skeleton constraints`() {
         val params = DegradationPolicy.tierParams(RelaxationTier.NONE)
 
+        assertEquals(0.0, params.headingConeCosine, 1e-9)
+        assertEquals(1.0 / 3.0, params.reachFraction, 1e-9)
+        assertEquals(2000.0, params.separationM, 1e-9)
         assertEquals(0.15, params.distanceBandFraction, 1e-9)
-        assertEquals(0.3, params.exploreExploitBalance, 1e-9)
-        assertEquals(2.0, params.reusePenaltyWeight, 1e-9)
     }
 
     @Test
-    fun `WIDEN_BAND tier only widens distance band`() {
+    fun `WIDEN_CONE tier only widens the heading cone`() {
+        val params = DegradationPolicy.tierParams(RelaxationTier.WIDEN_CONE)
+
+        assertEquals(-0.5, params.headingConeCosine, 1e-9)
+        assertEquals(1.0 / 3.0, params.reachFraction, 1e-9)
+        assertEquals(2000.0, params.separationM, 1e-9)
+        assertEquals(0.15, params.distanceBandFraction, 1e-9)
+    }
+
+    @Test
+    fun `EXTEND_REACH tier widens cone and extends reach`() {
+        val params = DegradationPolicy.tierParams(RelaxationTier.EXTEND_REACH)
+
+        assertEquals(-0.5, params.headingConeCosine, 1e-9)
+        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(2000.0, params.separationM, 1e-9)
+        assertEquals(0.15, params.distanceBandFraction, 1e-9)
+    }
+
+    @Test
+    fun `SHRINK_SEPARATION tier widens cone, extends reach, and shrinks separation`() {
+        val params = DegradationPolicy.tierParams(RelaxationTier.SHRINK_SEPARATION)
+
+        assertEquals(-0.5, params.headingConeCosine, 1e-9)
+        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(1000.0, params.separationM, 1e-9)
+        assertEquals(0.15, params.distanceBandFraction, 1e-9)
+    }
+
+    @Test
+    fun `WIDEN_BAND tier widens every lever including the distance band`() {
         val params = DegradationPolicy.tierParams(RelaxationTier.WIDEN_BAND)
 
+        assertEquals(-0.5, params.headingConeCosine, 1e-9)
+        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(1000.0, params.separationM, 1e-9)
         assertEquals(0.30, params.distanceBandFraction, 1e-9)
-        assertEquals(0.3, params.exploreExploitBalance, 1e-9)
-        assertEquals(2.0, params.reusePenaltyWeight, 1e-9)
-    }
-
-    @Test
-    fun `EASE_DISCOVERY tier widens band and eases explore balance`() {
-        val params = DegradationPolicy.tierParams(RelaxationTier.EASE_DISCOVERY)
-
-        assertEquals(0.30, params.distanceBandFraction, 1e-9)
-        assertEquals(0.6, params.exploreExploitBalance, 1e-9)
-        assertEquals(2.0, params.reusePenaltyWeight, 1e-9)
-    }
-
-    @Test
-    fun `EASE_PENALTIES tier widens band, eases explore, and reduces reuse penalty`() {
-        val params = DegradationPolicy.tierParams(RelaxationTier.EASE_PENALTIES)
-
-        assertEquals(0.30, params.distanceBandFraction, 1e-9)
-        assertEquals(0.6, params.exploreExploitBalance, 1e-9)
-        assertEquals(0.5, params.reusePenaltyWeight, 1e-9)
     }
 
     @Test
     fun `each tier is cumulatively more relaxed than the previous`() {
         val tiers = listOf(
             RelaxationTier.NONE,
+            RelaxationTier.WIDEN_CONE,
+            RelaxationTier.EXTEND_REACH,
+            RelaxationTier.SHRINK_SEPARATION,
             RelaxationTier.WIDEN_BAND,
-            RelaxationTier.EASE_DISCOVERY,
-            RelaxationTier.EASE_PENALTIES,
         )
         val params = tiers.map { DegradationPolicy.tierParams(it) }
 
@@ -69,44 +85,38 @@ class DegradationPolicyTest {
             val prev = params[i - 1]
             val curr = params[i]
             assertTrue(
+                "Tier ${tiers[i]} cone should be <= ${tiers[i - 1]} (wider cone = lower cosine)",
+                curr.headingConeCosine <= prev.headingConeCosine,
+            )
+            assertTrue(
+                "Tier ${tiers[i]} reach should be >= ${tiers[i - 1]}",
+                curr.reachFraction >= prev.reachFraction,
+            )
+            assertTrue(
+                "Tier ${tiers[i]} separation should be <= ${tiers[i - 1]}",
+                curr.separationM <= prev.separationM,
+            )
+            assertTrue(
                 "Tier ${tiers[i]} band should be >= ${tiers[i - 1]}",
                 curr.distanceBandFraction >= prev.distanceBandFraction,
-            )
-            assertTrue(
-                "Tier ${tiers[i]} explore should be >= ${tiers[i - 1]}",
-                curr.exploreExploitBalance >= prev.exploreExploitBalance,
-            )
-            assertTrue(
-                "Tier ${tiers[i]} reuse penalty should be <= ${tiers[i - 1]}",
-                curr.reusePenaltyWeight <= prev.reusePenaltyWeight,
             )
         }
     }
 
     @Test
-    fun `tierParams respects custom base values`() {
-        val params = DegradationPolicy.tierParams(
-            tier = RelaxationTier.NONE,
-            baseExploreExploitBalance = 0.5,
-            baseReusePenaltyWeight = 3.0,
-        )
-
-        assertEquals(0.5, params.exploreExploitBalance, 1e-9)
-        assertEquals(3.0, params.reusePenaltyWeight, 1e-9)
-    }
-
-    @Test
     fun `tierParams respects custom config`() {
         val config = DegradationConfig(
+            widenedHeadingConeCosine = -0.8,
+            extendedReachFraction = 0.6,
+            shrunkSeparationM = 500.0,
             widenedDistanceBandFraction = 0.40,
-            easedExploreExploitBalance = 0.8,
-            easedReusePenaltyWeight = 0.2,
         )
-        val params = DegradationPolicy.tierParams(RelaxationTier.EASE_PENALTIES, config = config)
+        val params = DegradationPolicy.tierParams(RelaxationTier.WIDEN_BAND, config = config)
 
+        assertEquals(-0.8, params.headingConeCosine, 1e-9)
+        assertEquals(0.6, params.reachFraction, 1e-9)
+        assertEquals(500.0, params.separationM, 1e-9)
         assertEquals(0.40, params.distanceBandFraction, 1e-9)
-        assertEquals(0.8, params.exploreExploitBalance, 1e-9)
-        assertEquals(0.2, params.reusePenaltyWeight, 1e-9)
     }
 
     // --- Actual-vs-requested reporting ---
@@ -163,10 +173,11 @@ class DegradationPolicyTest {
         assertEquals(0.0, reports[0].distanceDeviationPercent, 1e-9)
     }
 
-    // --- Evaluate ---
+    // --- Evaluate: acceptance judged on actual refined distance ---
 
     @Test
-    fun `3 candidates at NONE tier is Sufficient`() {
+    fun `candidate inside the base band at NONE is Sufficient`() {
+        // 50000 +/- 15% = [42500, 57500]; all three land inside.
         val outcome = DegradationPolicy.evaluate(
             listOf(48000.0, 50000.0, 52000.0),
             requestedDistanceM = 50000.0,
@@ -180,18 +191,52 @@ class DegradationPolicyTest {
     }
 
     @Test
-    fun `more than minDesired candidates is Sufficient`() {
+    fun `out-of-band candidates are excluded from the accepted set`() {
+        // Only 50000 is within [42500, 57500]; 40000 and 60000 are outside.
         val outcome = DegradationPolicy.evaluate(
-            listOf(48000.0, 49000.0, 50000.0, 51000.0),
+            listOf(40000.0, 50000.0, 60000.0),
             requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.WIDEN_BAND,
+            currentTier = RelaxationTier.NONE,
         )
 
-        assertTrue(outcome is EvaluationOutcome.Sufficient)
+        val sufficient = outcome as EvaluationOutcome.Sufficient
+        assertEquals(1, sufficient.candidates.size)
+        assertEquals(50000.0, sufficient.candidates[0].actualDistanceM, 1e-9)
     }
 
     @Test
-    fun `2 candidates at NONE tier triggers NeedsRelaxation to WIDEN_BAND`() {
+    fun `no in-band candidate at NONE triggers NeedsRelaxation to WIDEN_CONE`() {
+        // 60000 is outside the base band [42500, 57500] but inside the widened band.
+        val outcome = DegradationPolicy.evaluate(
+            listOf(60000.0),
+            requestedDistanceM = 50000.0,
+            currentTier = RelaxationTier.NONE,
+        )
+
+        assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)
+        val relaxation = outcome as EvaluationOutcome.NeedsRelaxation
+        assertTrue("Out-of-band candidate is not accepted", relaxation.candidates.isEmpty())
+        assertEquals(RelaxationTier.WIDEN_CONE, relaxation.nextTier)
+    }
+
+    @Test
+    fun `a route that fails tier 0 is accepted once the band is widened at the loosest tier`() {
+        val distances = listOf(62000.0) // outside base [42500,57500], inside widened [35000,65000]
+        val requested = 50000.0
+
+        val tier0 = DegradationPolicy.evaluate(distances, requested, RelaxationTier.NONE)
+        assertTrue("Should not accept at the tightest tier", tier0 is EvaluationOutcome.NeedsRelaxation)
+
+        val loosest = DegradationPolicy.evaluate(distances, requested, RelaxationTier.WIDEN_BAND)
+        assertTrue("Widened band should accept the same route", loosest is EvaluationOutcome.Sufficient)
+        val sufficient = loosest as EvaluationOutcome.Sufficient
+        assertEquals(1, sufficient.candidates.size)
+        assertEquals(RelaxationTier.WIDEN_BAND, sufficient.appliedTier)
+    }
+
+    @Test
+    fun `insufficient in-band candidates relaxes through the tier chain`() {
+        // Two in-band routes but three desired -> relax one step from NONE.
         val outcome = DegradationPolicy.evaluate(
             listOf(48000.0, 52000.0),
             requestedDistanceM = 50000.0,
@@ -202,57 +247,16 @@ class DegradationPolicyTest {
         assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)
         val relaxation = outcome as EvaluationOutcome.NeedsRelaxation
         assertEquals(2, relaxation.candidates.size)
-        assertEquals(RelaxationTier.WIDEN_BAND, relaxation.nextTier)
+        assertEquals(RelaxationTier.WIDEN_CONE, relaxation.nextTier)
     }
 
     @Test
-    fun `0 candidates at NONE tier triggers NeedsRelaxation`() {
-        val outcome = DegradationPolicy.evaluate(
-            emptyList(),
-            requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.NONE,
-        )
-
-        assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)
-        assertEquals(RelaxationTier.WIDEN_BAND, (outcome as EvaluationOutcome.NeedsRelaxation).nextTier)
-    }
-
-    @Test
-    fun `1 candidate at WIDEN_BAND triggers NeedsRelaxation to EASE_DISCOVERY`() {
-        val outcome = DegradationPolicy.evaluate(
-            listOf(50000.0),
-            requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.WIDEN_BAND,
-            config = DegradationConfig(minDesiredCandidates = 3),
-        )
-
-        assertTrue(outcome is EvaluationOutcome.NeedsRelaxation)
-        assertEquals(
-            RelaxationTier.EASE_DISCOVERY,
-            (outcome as EvaluationOutcome.NeedsRelaxation).nextTier,
-        )
-    }
-
-    @Test
-    fun `2 candidates at EASE_PENALTIES is Sufficient (accepts partial)`() {
-        val outcome = DegradationPolicy.evaluate(
-            listOf(48000.0, 52000.0),
-            requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.EASE_PENALTIES,
-        )
-
-        assertTrue(outcome is EvaluationOutcome.Sufficient)
-        val sufficient = outcome as EvaluationOutcome.Sufficient
-        assertEquals(2, sufficient.candidates.size)
-        assertEquals(RelaxationTier.EASE_PENALTIES, sufficient.appliedTier)
-    }
-
-    @Test
-    fun `1 candidate at loosest tier is Sufficient rather than padded to 3`() {
+    fun `partial in-band set at the loosest tier is accepted rather than padded`() {
         val outcome = DegradationPolicy.evaluate(
             listOf(51000.0),
             requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.EASE_PENALTIES,
+            currentTier = RelaxationTier.WIDEN_BAND,
+            config = DegradationConfig(minDesiredCandidates = 3),
         )
 
         assertTrue(outcome is EvaluationOutcome.Sufficient)
@@ -260,18 +264,30 @@ class DegradationPolicyTest {
     }
 
     @Test
-    fun `0 candidates at loosest tier is HardFailure`() {
+    fun `zero in-band candidates at the loosest tier is a HardFailure`() {
+        // 70000 is outside even the widened band [35000, 65000].
         val outcome = DegradationPolicy.evaluate(
-            emptyList(),
+            listOf(70000.0),
             requestedDistanceM = 50000.0,
-            currentTier = RelaxationTier.EASE_PENALTIES,
+            currentTier = RelaxationTier.WIDEN_BAND,
         )
 
         assertTrue(outcome is EvaluationOutcome.HardFailure)
     }
 
     @Test
-    fun `Sufficient outcome carries actual-vs-requested per candidate`() {
+    fun `empty candidate list at the loosest tier is a HardFailure`() {
+        val outcome = DegradationPolicy.evaluate(
+            emptyList(),
+            requestedDistanceM = 50000.0,
+            currentTier = RelaxationTier.WIDEN_BAND,
+        )
+
+        assertTrue(outcome is EvaluationOutcome.HardFailure)
+    }
+
+    @Test
+    fun `Sufficient outcome carries actual-vs-requested per accepted candidate`() {
         val outcome = DegradationPolicy.evaluate(
             listOf(47500.0, 50000.0, 53000.0),
             requestedDistanceM = 50000.0,
@@ -338,7 +354,7 @@ class DegradationPolicyTest {
         val outcome = DegradationPolicy.evaluate(
             emptyList(),
             requestedDistanceM = 200_000.0,
-            currentTier = RelaxationTier.EASE_PENALTIES,
+            currentTier = RelaxationTier.WIDEN_BAND,
             maxReachableDistanceM = 80_000.0,
         )
 

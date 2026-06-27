@@ -18,6 +18,7 @@ data class OrienteerConfig(
     val reachFraction: Double = CorridorOrienteer.FAR_POINT_BUDGET_FRACTION,
     val separationM: Double = CorridorOrienteer.SEPARATION_M,
     val headingConeCosine: Double = 0.0,
+    val avoidOppositeDirectionReuse: Boolean = true,
 )
 
 data class CandidateLoop(
@@ -205,7 +206,7 @@ object CorridorOrienteer {
                 // Fill toward target length.
                 val usedIds = loop.mapTo(mutableSetOf()) { it.id }
                 val fillPool = allCandidateCorridors.filter { it.id !in usedIds }.toMutableList()
-                fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals, config.headingConeCosine)
+                fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals, config.headingConeCosine, config.avoidOppositeDirectionReuse)
 
                 val ordered = loop.map { it.id }
                 val distinct = ordered.distinct()
@@ -300,6 +301,7 @@ object CorridorOrienteer {
         nodeCoords: Map<Long, Pair<Double, Double>>,
         rewardTotals: Map<Long, Double>,
         headingConeCosine: Double,
+        avoidOppositeDirectionReuse: Boolean,
     ) {
         if (loop.size < 2) return
         val ceiling = targetDistanceM * FILL_TARGET_FRACTION
@@ -308,7 +310,7 @@ object CorridorOrienteer {
             val before = loop[gapIndex]
             val after = loop[(gapIndex + 1) % loop.size]
             val best = fillPool
-                .filter { isValidFill(it, before, after, chosen, sep, nodeCoords, headingConeCosine) }
+                .filter { isValidFill(it, before, after, chosen, sep, nodeCoords, headingConeCosine, avoidOppositeDirectionReuse) }
                 .maxByOrNull { rewardTotals[it.id] ?: 0.0 }
                 ?: break
             loop.add(gapIndex + 1, best)
@@ -371,8 +373,10 @@ object CorridorOrienteer {
         sep: Double,
         nodeCoords: Map<Long, Pair<Double, Double>>,
         headingConeCosine: Double = 0.0,
+        avoidOppositeDirectionReuse: Boolean = true,
     ): Boolean {
         if (!isBetween(c, before, after)) return false
+        if (avoidOppositeDirectionReuse && chosen.any { it.groupId == c.groupId && it.id != c.id }) return false
         if (chosen.any { !corridorsSeparated(c, it, sep, nodeCoords) }) return false
         return headingConsistent(c, before, after, nodeCoords, headingConeCosine)
     }

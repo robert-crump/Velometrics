@@ -584,6 +584,71 @@ class CorridorOrienteerTest {
         assertFalse(CorridorOrienteer.adequateBearing(e, arcTangent = 135.0, coneCosine = 0.0, nodeCoords = emptyMap()))
     }
 
+    // --- group_id anti-reuse guard (#111) ---
+
+    @Test
+    fun `isValidFill blocks a fill whose group_id partner is already chosen`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 3, lat = 50.04, lon = 6.0)
+        val anchor = corridor(id = 2, lat = 50.02, lon = 6.0, groupId = 10)
+        val twin = corridor(id = 5, lat = 50.02, lon = 6.0, groupId = 10)   // same group as anchor
+        assertFalse(
+            "Twin of already-chosen anchor must be rejected",
+            CorridorOrienteer.isValidFill(twin, before, after, listOf(anchor), sep = 5000.0, nodeCoords = emptyMap()),
+        )
+    }
+
+    @Test
+    fun `isValidFill allows a fill whose group_id partner is already chosen when guard is off`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 3, lat = 50.04, lon = 6.0)
+        val anchor = corridor(id = 2, lat = 50.02, lon = 6.0, groupId = 10)
+        val twin = corridor(id = 5, lat = 50.02, lon = 6.0, groupId = 10)
+        assertTrue(
+            "Guard off: twin of chosen anchor is not filtered",
+            CorridorOrienteer.isValidFill(
+                twin, before, after, listOf(anchor), sep = 5000.0, nodeCoords = emptyMap(),
+                avoidOppositeDirectionReuse = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `isValidFill does not block a solo corridor`() {
+        val before = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val after = corridor(id = 3, lat = 50.04, lon = 6.0)
+        val chosen = corridor(id = 2, lat = 50.02, lon = 6.0, groupId = 2)   // solo: groupId == id
+        val solo = corridor(id = 4, lat = 50.02, lon = 6.001, groupId = 4)   // also solo, different group
+        assertTrue(
+            "Solo corridor must not be blocked by the anti-reuse guard",
+            CorridorOrienteer.isValidFill(solo, before, after, listOf(chosen), sep = 5000.0, nodeCoords = emptyMap()),
+        )
+    }
+
+    @Test
+    fun `search prevents the opposite-direction twin from appearing as a fill`() = runTest {
+        // Anchor: id=2 (NE, group_id=2) chosen for Q1. id=3 shares the same group (opposite direction).
+        // With a large target the fill loop runs; the guard must block id=3 from entering the route.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val anchor = corridor(id = 2, lat = 50.05, lon = 6.0, groupId = 2)
+        val twin = corridor(id = 3, lat = 50.025, lon = 6.0, groupId = 2)   // opposite-direction twin
+        val coords = mapOf(
+            20L to (50.045 to 6.0), 21L to (50.055 to 6.0),
+            30L to (50.030 to 6.0), 31L to (50.020 to 6.0),  // id=3 heads south (opposed)
+        )
+
+        val skeleton = CorridorOrienteer.search(
+            listOf(home, anchor, twin),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 30000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+        ).single().corridors
+
+        assertTrue("Anchor present", skeleton.contains(2L))
+        assertFalse("Opposite-direction twin must not appear in the route", skeleton.contains(3L))
+    }
+
     // --- Ride-aligned frame helpers ---
 
     @Test

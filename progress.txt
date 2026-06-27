@@ -1,3 +1,46 @@
+## Issue #117 — Candidate diversity via windings × alternate anchors
+Completed: 2026-06-27
+
+### What was done
+
+`CorridorOrienteer.search()` previously built a single skeleton by selecting the one best anchor
+per quadrant and returning one `CandidateLoop`. This adds two axes of diversity:
+
+1. **CW and CCW windings** — corridors are classified into quadrants twice: once with the real
+   lateral sign (clockwise oval) and once with the lateral sign negated (counter-clockwise oval),
+   so Q0/Q1/Q2/Q3 map to opposite sides of the road network in each winding.
+2. **Top-N anchor combos per quadrant** — `ANCHOR_COMBOS_PER_QUADRANT = 2` keeps the two
+   geometry-best anchors per quadrant. All valid Cartesian-product combos (respecting the
+   pairwise 2km separation rule) are enumerated via the new `enumerateAnchorCombos` recursive
+   helper. Each quadrant can also contribute `null` (no anchor); all-null combos are filtered.
+3. **Deduplication by corridor-set** — after each combo is anchored, empty-quadrant pseudo-
+   corridors are filled, the loop is filled toward `target × 0.9`, and the sorted corridor-id
+   set becomes the dedup key in `seenCorridorSets`; identical sets from the two windings are
+   collapsed to one.
+4. **Reward ranking** — `allResults` across both windings is sorted by `totalReward` descending
+   and the top `config.candidateCount` candidates are returned.
+
+**`domain/service/CorridorOrienteer.kt`**
+- `search()` body replaced with a `for (cw in listOf(true, false))` loop.
+- `arcTangentBearing(rideBearing, q, cw)` gains a `cw: Boolean = true` param; CCW negates the
+  offset, flipping which side of the route each quadrant represents. All existing call sites
+  (`fillEmptyQuadrantsFromEdges`, `anchorScore`) use the default, so they're unaffected.
+- `anchorScore(…, cw)` similarly gains `cw: Boolean = true` and passes it to `arcTangentBearing`
+  so the heading term is correct for whichever winding is being ranked.
+- `private const val ANCHOR_COMBOS_PER_QUADRANT = 2` caps the combo fan-out.
+- New `enumerateAnchorCombos(topPerQ, sep, nodeCoords)` — recursive Cartesian enumeration with
+  separation pruning; returns `List<Array<Corridor?>>`.
+
+**`domain/service/CorridorOrienteerTest.kt`**
+- Three new tests per acceptance criteria: `search returns up to candidateCount distinct
+  candidates`, `dedupe collapses identical corridor sets from both windings`, `candidates are
+  ranked by descending total reward`.
+- Updated two existing tests to remain stable under multi-combo ranking: the farthest anchor in
+  the fill test and the NE anchor in the separation test each received explicit high rewards so
+  their combos dominate the new diversity combos.
+
+---
+
 ## Issue #118 — Empty-quadrant fallback via high-traversal edge pseudo-corridor
 Completed: 2026-06-27
 

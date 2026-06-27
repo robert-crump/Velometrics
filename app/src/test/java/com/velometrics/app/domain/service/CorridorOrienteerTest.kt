@@ -132,11 +132,11 @@ class CorridorOrienteerTest {
 
     @Test
     fun `fill raises the skeleton length into the target band`() = runTest {
-        // Home + a far Q1 anchor whose out-and-back falls short of the 0.9x band; a chain of Q1
-        // corridors between home and the anchor is available as fill.
+        // Home + a far Q1 anchor (high reward, wins over shorter anchor) whose out-and-back falls
+        // short of the 0.9x band; a chain of Q1 corridors between home and the anchor fills it.
         val corridors = listOf(
             corridor(id = 1, lat = 50.0, lon = 6.0),
-            corridor(id = 2, lat = 50.06, lon = 6.0),   // farthest north -> Q1 anchor
+            corridor(id = 2, lat = 50.06, lon = 6.0, pedalReward = 40.0, gravityReward = 40.0),  // farthest north -> Q1 anchor
             corridor(id = 3, lat = 50.01, lon = 6.0),
             corridor(id = 4, lat = 50.02, lon = 6.0),
             corridor(id = 5, lat = 50.03, lon = 6.0),
@@ -266,7 +266,10 @@ class CorridorOrienteerTest {
         // node ~70m from the Q1 anchor, so the separation rule must reject it in favour of the
         // well-separated id=4. id=3 is a long corridor, so the centroid prefilter cannot clear it.
         val home = corridor(id = 1, lat = 50.0, lon = 6.0)
-        val q1 = corridor(id = 2, lat = 50.05, lon = 6.05)                       // NE -> Q1
+        val q1 = corridor(                                                         // NE -> Q1
+            id = 2, lat = 50.05, lon = 6.05,
+            pedalReward = 30.0, gravityReward = 30.0,                            // outranks {null, q2Overlap} alone
+        )
         val q2Overlap = corridor(
             id = 3, lat = 50.05, lon = 5.95,                                     // NW -> Q2
             pedalReward = 20.0, gravityReward = 20.0, lengthM = 12000.0,         // top reward, long
@@ -688,6 +691,73 @@ class CorridorOrienteerTest {
     @Test
     fun `findNearestCorridor returns null for empty list`() {
         assertNull(CorridorOrienteer.findNearestCorridor(emptyList(), 50.0, 6.0))
+    }
+
+    // --- Candidate diversity (issue #117) ---
+
+    @Test
+    fun `search returns up to candidateCount distinct candidates`() = runTest {
+        // Two NE corridors within the 3000m reach (9km target/3): neA at ~1566m and neB at
+        // ~2647m. Both land in Q0 so each becomes its own single-anchor combo, producing two
+        // distinct corridor-sets.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val neA = corridor(id = 2, lat = 50.01, lon = 6.01, pedalReward = 20.0, gravityReward = 10.0)
+        val neB = corridor(id = 3, lat = 50.02, lon = 6.02)  // farther → higher anchor score
+
+        val results = CorridorOrienteer.search(
+            listOf(home, neA, neB),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            config = OrienteerConfig(candidateCount = 2),
+        )
+
+        assertEquals("Two distinct single-anchor combos returned", 2, results.size)
+        val sets = results.map { it.corridors.toSet() }
+        assertEquals("All corridor-sets are distinct", 2, sets.distinct().size)
+    }
+
+    @Test
+    fun `dedupe collapses identical corridor sets from both windings`() = runTest {
+        // A single NE corridor (CW Q0, CCW Q1) produces the same corridor-set {home, neA} in
+        // both windings. Dedupe keeps only one candidate.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val neA = corridor(id = 2, lat = 50.01, lon = 6.01)
+
+        val results = CorridorOrienteer.search(
+            listOf(home, neA),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            config = OrienteerConfig(candidateCount = 5),
+        )
+
+        assertEquals("Duplicate corridor-sets from CW and CCW collapsed to one", 1, results.size)
+    }
+
+    @Test
+    fun `candidates are ranked by descending total reward`() = runTest {
+        // neA is closer (lower anchorScore) but carries a high reward; neB is farther (higher
+        // anchorScore) but low reward. With candidateCount=2, both combos are returned and the
+        // high-reward skeleton ranks first.
+        val home = corridor(id = 1, lat = 50.0, lon = 6.0)
+        val highReward = corridor(id = 2, lat = 50.01, lon = 6.01, pedalReward = 30.0, gravityReward = 20.0)
+        val lowReward = corridor(id = 3, lat = 50.02, lon = 6.02)  // farther → better anchor score
+
+        val results = CorridorOrienteer.search(
+            listOf(home, highReward, lowReward),
+            homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            config = OrienteerConfig(candidateCount = 2),
+        )
+
+        assertEquals(2, results.size)
+        assertTrue(
+            "Candidates ordered by descending totalReward",
+            results[0].totalReward >= results[1].totalReward,
+        )
+        assertTrue("High-reward skeleton is first", results[0].corridors.contains(2L))
     }
 
     // --- Helpers ---

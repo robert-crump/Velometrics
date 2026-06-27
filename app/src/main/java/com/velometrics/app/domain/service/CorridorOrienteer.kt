@@ -62,6 +62,9 @@ object CorridorOrienteer {
 
     private const val QUADRANT_COUNT = 4
 
+    /** Top-N anchor candidates taken per quadrant per winding before combination enumeration. */
+    private const val ANCHOR_COMBOS_PER_QUADRANT = 2
+
     /** Full minimum air separation between any node of two chosen corridors. */
     internal const val SEPARATION_M = 2000.0
 
@@ -116,118 +119,112 @@ object CorridorOrienteer {
         val minReward = rewardTotals.values.minOrNull() ?: 0.0
         val maxReward = rewardTotals.values.maxOrNull() ?: 0.0
 
-        // The exit-plan start corridor (when present) is the loop origin; otherwise the home
-        // corridor is. Anchors are kept clear of the origin and of each other by the separation
-        // rule below.
         val startCorridor = startCorridorId?.let { id -> corridors.firstOrNull { it.id == id } }
         val origin = startCorridor ?: homeCorridor
 
-        // --- Classify reachable corridors into the four ride-aligned quadrants ---
-        val quadrants = Array(QUADRANT_COUNT) { mutableListOf<Corridor>() }
-        for (c in reachable) {
-            if (c.id == homeCorridor.id || c.id == origin.id) continue
-            val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
-            val (along, lateral) = alongLateral(east, north, rideBearing)
-            quadrants[quadrantOf(along, lateral)].add(c)
-        }
-
-        // Batch-resolve node coordinates once for the candidate corridors (every reachable
-        // quadrant candidate). The cheap centroid+half-length prefilter in [corridorsSeparated]
-        // short-circuits far pairs without consulting this map.
-        val candidateCorridors = quadrants.flatMap { it }
-        val neededNodeIds = buildSet { candidateCorridors.forEach { addAll(corridorNodeIds(it)) } }
-        // Mutable so the empty-quadrant fallback below can fold in resolved edge-node coordinates
-        // for the pseudo-corridors it synthesizes (used by separation and the fill step).
+        // Batch-resolve node coordinates once for all reachable corridors (shared across windings).
+        val allCandidateCorridors = reachable.filter { it.id != homeCorridor.id && it.id != origin.id }
+        val neededNodeIds = buildSet { allCandidateCorridors.forEach { addAll(corridorNodeIds(it)) } }
         val nodeCoords = nodeResolver(neededNodeIds).toMutableMap()
         val sep = separationDistance(reach, config.separationM)
 
-        // --- One geometry-first anchor per quadrant, respecting the separation rule ---
-        // Selection is sequential so each pick is checked against the anchors chosen for earlier
-        // quadrants. Within a quadrant, the highest geometry-first score that stays separated
-        // wins. The home/start origin is the fixed loop endpoint and is not part of the spread
-        // set — anchors are only kept apart from one another.
-        val anchors = arrayOfNulls<Corridor>(QUADRANT_COUNT)
-        val chosen = mutableListOf<Corridor>()
-        for (q in 0 until QUADRANT_COUNT) {
-            val ranked = quadrants[q].sortedByDescending { c ->
+        val allResults = mutableListOf<CandidateLoop>()
+        // Sorted IDs uniquely identify a corridor-set regardless of loop order or winding.
+        val seenCorridorSets = mutableSetOf<List<Long>>()
+
+        // --- Enumerate both CW and CCW windings ---
+        // CW: lateral > 0 is right of travel (Q1 = front-right).
+        // CCW: lateral sign flipped → Q1 = front-left, mirroring the oval left-right.
+        for (cw in listOf(true, false)) {
+
+            // Classify reachable corridors into quadrants for this winding.
+            val quadrants = Array(QUADRANT_COUNT) { mutableListOf<Corridor>() }
+            for (c in allCandidateCorridors) {
                 val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
-                val (along, _) = alongLateral(east, north, rideBearing)
-                val corridorBearing = GeoUtils.computeBearing(
-                    homeLat, homeLon, c.centroidLat, c.centroidLon,
+                val (along, rawLateral) = alongLateral(east, north, rideBearing)
+                val lateral = if (cw) rawLateral else -rawLateral
+                quadrants[quadrantOf(along, lateral)].add(c)
+            }
+
+            // Top-N candidates per quadrant sorted by geometry-first anchor score.
+            val topPerQ: Array<List<Corridor>> = Array(QUADRANT_COUNT) { q ->
+                quadrants[q].sortedByDescending { c ->
+                    val (east, north) = toLocalMeters(homeLat, homeLon, c.centroidLat, c.centroidLon)
+                    val (along, _) = alongLateral(east, north, rideBearing)
+                    val corridorBearing = GeoUtils.computeBearing(homeLat, homeLon, c.centroidLat, c.centroidLon)
+                    val rewardNorm = normalizeReward(rewardTotals[c.id] ?: 0.0, minReward, maxReward)
+                    anchorScore(along, reach, corridorBearing, rideBearing, q, rewardNorm, config, cw)
+                }.take(ANCHOR_COMBOS_PER_QUADRANT)
+            }
+
+            // Enumerate anchor combinations: Cartesian product of topPerQ, each combo validated
+            // for mutual pairwise separation. With N=2 and 4 quadrants this is at most 2^4 = 16
+            // combos per winding.
+            for (combo in enumerateAnchorCombos(topPerQ, sep, nodeCoords)) {
+                // Orient each anchor to its quadrant's arc tangent (twin-orientation).
+                val anchors = arrayOfNulls<Corridor>(QUADRANT_COUNT)
+                val chosen = mutableListOf<Corridor>()
+                for (q in 0 until QUADRANT_COUNT) {
+                    val pick = combo[q] ?: continue
+                    val arcTangent = arcTangentBearing(rideBearing, q, cw)
+                    val anchor = headingAlignedTwin(pick, arcTangent, quadrants[q], nodeCoords)
+                    anchors[q] = anchor
+                    chosen.add(anchor)
+                }
+
+                // Empty-quadrant edge fallback.
+                val pseudoCorridors = fillEmptyQuadrantsFromEdges(
+                    anchors, chosen, homeLat, homeLon, reach, rideBearing, sep, config,
+                    nodeCoords, nodeResolver, edgeResolver,
                 )
-                val rewardNorm = normalizeReward(rewardTotals[c.id] ?: 0.0, minReward, maxReward)
-                anchorScore(along, reach, corridorBearing, rideBearing, q, rewardNorm, config)
-            }
-            val pick = ranked.firstOrNull { cand ->
-                chosen.all { corridorsSeparated(cand, it, sep, nodeCoords) }
-            }
-            if (pick != null) {
-                // Twin orientation: among a group_id pair (same physical road, opposite directions)
-                // this swaps to the twin whose entry->exit heading matches the quadrant's arc
-                // tangent, so RouteRefiner traverses the road in the geometrically-correct
-                // direction. Solo corridors are returned unchanged; the twin shares geometry with
-                // the pick, so it satisfies the same separation check.
-                val anchor = headingAlignedTwin(pick, arcTangentBearing(rideBearing, q), quadrants[q], nodeCoords)
-                anchors[q] = anchor
-                chosen.add(anchor)
+
+                // Build ordered loop: origin first, then quadrant anchors in Q1->Q4 order.
+                val loop = mutableListOf<Corridor>()
+                loop.add(startCorridor ?: homeCorridor)
+                for (q in 0 until QUADRANT_COUNT) {
+                    val anchor = anchors[q] ?: continue
+                    if (anchor.id == startCorridor?.id || anchor.id == homeCorridor.id) continue
+                    if (loop.lastOrNull()?.id != anchor.id) loop.add(anchor)
+                }
+
+                // Fill toward target length.
+                val usedIds = loop.mapTo(mutableSetOf()) { it.id }
+                val fillPool = allCandidateCorridors.filter { it.id !in usedIds }.toMutableList()
+                fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals, config.headingConeCosine)
+
+                val ordered = loop.map { it.id }
+                val distinct = ordered.distinct()
+                if (distinct.size < 2) continue
+
+                // Dedupe: skip if another winding/combo already produced this corridor-set.
+                val key = distinct.sorted()
+                if (!seenCorridorSets.add(key)) continue
+
+                val corridorById = HashMap<Long, Corridor>()
+                reachable.forEach { corridorById[it.id] = it }
+                corridorById[homeCorridor.id] = homeCorridor
+                startCorridor?.let { corridorById[it.id] = it }
+                loop.forEach { corridorById[it.id] = it }
+                pseudoCorridors.forEach { (id, c) -> corridorById[id] = c }
+
+                val augmentedRewardCache = if (pseudoCorridors.isEmpty()) rewardCache
+                else rewardCache + pseudoCorridors.mapValues { RewardComposer.composeCorridorReward(it.value, weights) }
+
+                val candidate = buildCandidate(ordered, corridorById, augmentedRewardCache)
+                    .copy(syntheticCorridors = pseudoCorridors)
+                allResults.add(candidate)
             }
         }
 
-        // --- Empty-quadrant fallback: synthesize a pseudo-corridor from a high-traversal edge ---
-        // A quadrant with no qualifying corridor would leave a gap in the oval. When edges are
-        // available, fill it with a pseudo-corridor built from the highest-traversalCount edge in
-        // that quadrant whose heading matches the arc tangent and that stays separated from the
-        // anchors already chosen. Quadrants with no suitable edge are left empty (skipped cleanly).
-        val pseudoCorridors = fillEmptyQuadrantsFromEdges(
-            anchors, chosen, homeLat, homeLon, reach, rideBearing, sep, config,
-            nodeCoords, nodeResolver, edgeResolver,
-        )
-
-        // --- Build the ordered loop: origin first, then quadrant anchors Q1->Q4 ---
-        // The exit-plan start corridor is honored as the Q1 anchor (emitted first); the exit leg
-        // already reaches it, so the home corridor is not prepended. Otherwise the home corridor
-        // opens and closes the loop. Natural quadrant anchors follow in order Q1->Q2->Q3->Q4.
-        val loop = mutableListOf<Corridor>()
-        loop.add(startCorridor ?: homeCorridor)
-        for (q in 0 until QUADRANT_COUNT) {
-            val anchor = anchors[q] ?: continue
-            if (anchor.id == startCorridor?.id || anchor.id == homeCorridor.id) continue
-            if (loop.lastOrNull()?.id != anchor.id) loop.add(anchor)
-        }
-
-        // --- Fill toward target length ---
-        // Anchors usually reach only ~0.7-0.9x target. Iteratively insert the highest-reward valid
-        // candidate into the largest connector gap until the estimated perimeter reaches
-        // target * FILL_TARGET_FRACTION or no valid fill remains. Each corridor is used once.
-        val usedIds = loop.mapTo(mutableSetOf()) { it.id }
-        val fillPool = candidateCorridors.filter { it.id !in usedIds }.toMutableList()
-        fillToTarget(loop, fillPool, chosen, targetDistanceM, sep, nodeCoords, rewardTotals, config.headingConeCosine)
-
-        // --- Emit the ordered corridor-ID skeleton ---
-        val ordered = loop.map { it.id }
-        val corridorById = HashMap<Long, Corridor>()
-        reachable.forEach { corridorById[it.id] = it }
-        corridorById[homeCorridor.id] = homeCorridor
-        startCorridor?.let { corridorById[it.id] = it }
-        loop.forEach { corridorById[it.id] = it }
-
-        val distinct = ordered.distinct()
-        if (distinct.size < 2) {
-            Log.d(TAG, "search: skeleton has ${distinct.size} distinct corridors, no loop possible")
+        if (allResults.isEmpty()) {
+            Log.d(TAG, "search: no valid skeletons from either winding")
             return emptyList()
         }
-        Log.d(TAG, "search: skeleton corridors=$ordered (${fillPool.size} fill candidates unused)")
 
-        // Pseudo-corridors are not in `rewardCache` (built from real reachable corridors), so add
-        // their edge-derived reward before scoring the candidate.
-        val augmentedRewardCache = if (pseudoCorridors.isEmpty()) {
-            rewardCache
-        } else {
-            rewardCache + pseudoCorridors.mapValues { RewardComposer.composeCorridorReward(it.value, weights) }
-        }
-        val candidate = buildCandidate(ordered, corridorById, augmentedRewardCache)
-            .copy(syntheticCorridors = pseudoCorridors)
-        return listOf(candidate)
+        // Rank by reward, cap at candidateCount.
+        val ranked = allResults.sortedByDescending { it.totalReward }.take(config.candidateCount)
+        Log.d(TAG, "search: ${allResults.size} raw candidates -> ${ranked.size} returned (candidateCount=${config.candidateCount})")
+        return ranked
     }
 
     private fun buildCandidate(
@@ -636,23 +633,64 @@ object CorridorOrienteer {
         quadrant: Int,
         rewardNorm: Double,
         config: OrienteerConfig,
+        cw: Boolean = true,
     ): Double {
         val farTerm = config.farWeight * (along / reach)
-        val arcTangent = arcTangentBearing(rideBearingDeg, quadrant)
+        val arcTangent = arcTangentBearing(rideBearingDeg, quadrant, cw)
         val headTerm = config.headingWeight * cosineSimilarity(corridorBearing, arcTangent)
         val rewardTerm = config.rewardWeight * rewardNorm
         return farTerm + headTerm + rewardTerm
     }
 
-    /** Bisector bearing of a quadrant in the ride-aligned frame (right of travel = +90). */
-    internal fun arcTangentBearing(rideBearingDeg: Double, quadrant: Int): Double {
-        val offset = when (quadrant) {
+    /**
+     * Bisector bearing of a quadrant in the ride-aligned frame.
+     * CW (right of travel = +90): Q0 +45, Q1 -45, Q2 -135, Q3 +135.
+     * CCW (left of travel = +90): lateral sign is flipped, so offsets mirror.
+     */
+    internal fun arcTangentBearing(rideBearingDeg: Double, quadrant: Int, cw: Boolean = true): Double {
+        val cwOffset = when (quadrant) {
             0 -> 45.0
             1 -> -45.0
             2 -> -135.0
             else -> 135.0
         }
+        val offset = if (cw) cwOffset else -cwOffset
         return (rideBearingDeg + offset + 360.0) % 360.0
+    }
+
+    /**
+     * Enumerates valid anchor combinations from [topPerQ] (top-N candidates per quadrant).
+     * Each combination picks at most one corridor per quadrant; a null pick means the quadrant
+     * has no qualifying candidate. All non-null anchors in a combo must be mutually separated by
+     * [sep]. With N=2 and 4 quadrants this generates at most 2^4 = 16 combos before filtering.
+     */
+    private fun enumerateAnchorCombos(
+        topPerQ: Array<List<Corridor>>,
+        sep: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): List<Array<Corridor?>> {
+        // Augment each quadrant's option list with a null (no-anchor) slot so the Cartesian
+        // product covers the case where no candidate in a quadrant survives separation.
+        val options: Array<List<Corridor?>> = Array(QUADRANT_COUNT) { q ->
+            (topPerQ[q] as List<Corridor?>) + listOf(null)
+        }
+        val results = mutableListOf<Array<Corridor?>>()
+        fun recurse(q: Int, chosen: MutableList<Corridor>, combo: Array<Corridor?>) {
+            if (q == QUADRANT_COUNT) {
+                results.add(combo.copyOf())
+                return
+            }
+            for (cand in options[q]) {
+                if (cand != null && chosen.any { !corridorsSeparated(cand, it, sep, nodeCoords) }) continue
+                combo[q] = cand
+                if (cand != null) chosen.add(cand)
+                recurse(q + 1, chosen, combo)
+                if (cand != null) chosen.removeAt(chosen.lastIndex)
+            }
+        }
+        recurse(0, mutableListOf(), arrayOfNulls(QUADRANT_COUNT))
+        // Skip fully-null combos (no anchors at all).
+        return results.filter { combo -> combo.any { it != null } }
     }
 
     internal fun cosineSimilarity(bearing1: Double, bearing2: Double): Double =

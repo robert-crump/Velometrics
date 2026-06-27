@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,6 +70,15 @@ fun PlanARideCard(
                     Text(
                         text = FormatUtils.formatDistance(distanceKm) + deviationText,
                         style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val discoveryPercent = remember(candidate) {
+                        val unriddenM = candidate.refinedRoute.edges.filter { !it.isTraversed }.sumOf { it.lengthM }
+                        (unriddenM / candidate.refinedRoute.actualDistanceM * 100).roundToInt()
+                    }
+                    Text(
+                        text = "$discoveryPercent% new roads",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(

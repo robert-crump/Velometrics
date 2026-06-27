@@ -189,6 +189,7 @@ object CyclingConstants {
         "#9C27B0", // Purple — third
     )
     const val PLAN_A_RIDE_CORRIDOR_COLOR = "#FFB300" // Amber — flow corridor highlight
+    const val PLAN_A_RIDE_DISCOVERY_COLOR = "#9C27B0" // Purple — un-ridden discovery edges
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

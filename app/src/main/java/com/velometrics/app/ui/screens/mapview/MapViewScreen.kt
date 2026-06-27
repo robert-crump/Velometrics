@@ -71,6 +71,7 @@ import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_CORRIDOR_COLOR
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DISCOVERY_COLOR
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
@@ -423,6 +424,16 @@ fun MapViewScreen(
             val corridorId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}corridors"
             MapTrackRenderer.addMultiLineTrack(ms.second, corridorId, corridorSegments, PLAN_A_RIDE_CORRIDOR_COLOR, PLAN_A_RIDE_TRACK_WIDTH)
             newIds.add(corridorId)
+        }
+
+        // Un-ridden discovery edges overlaid in purple (on top of route and corridor layers)
+        val discoverySegments = candidate.refinedRoute.edges
+            .filter { !it.isTraversed }
+            .map { PolylineDecoder.decode(it.geometryEncoded) }
+        if (discoverySegments.any { it.size >= 2 }) {
+            val discoveryId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}discovery"
+            MapTrackRenderer.addMultiLineTrack(ms.second, discoveryId, discoverySegments, PLAN_A_RIDE_DISCOVERY_COLOR, PLAN_A_RIDE_TRACK_WIDTH)
+            newIds.add(discoveryId)
         }
 
         planARideRenderedIds = newIds

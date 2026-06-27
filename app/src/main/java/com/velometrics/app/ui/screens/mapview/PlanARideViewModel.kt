@@ -94,7 +94,7 @@ class PlanARideViewModel @Inject constructor(
                 val date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"))
                 val routeName = "${distanceKm}k_Velometrics_$date"
 
-                val file = File(context.cacheDir, "plan_a_ride.gpx")
+                val file = File(context.cacheDir, "$routeName.gpx")
                 file.outputStream().use { gpxExporter.export(candidate.refinedRoute.edges, routeName, it) }
 
                 val uri = FileProvider.getUriForFile(

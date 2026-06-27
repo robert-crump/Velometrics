@@ -128,6 +128,21 @@ object CorridorOrienteer {
         val nodeCoords = nodeResolver(neededNodeIds).toMutableMap()
         val sep = separationDistance(reach, config.separationM)
 
+        // Pre-fetch traversed edges within the reach bbox once for the entire search.
+        // fillEmptyQuadrantsFromEdges is called per-combo so fetching inside it would repeat
+        // the same DB query hundreds of times. Pre-resolving node coords here as well means
+        // the function finds them cached and never issues a second nodeResolver call.
+        val latDelta = GeoUtils.metersToLat(reach)
+        val lonDelta = GeoUtils.metersToLon(reach, homeLat)
+        val reachEdges = edgeResolver(
+            homeLat - latDelta, homeLon - lonDelta, homeLat + latDelta, homeLon + lonDelta,
+        ).filter { (it.traversalCount ?: 0) > 0 }
+        if (reachEdges.isNotEmpty()) {
+            val edgeNodeIds = buildSet { reachEdges.forEach { add(it.fromNode); add(it.toNode) } }
+            val unresolved = edgeNodeIds.filterTo(mutableSetOf()) { it !in nodeCoords }
+            if (unresolved.isNotEmpty()) nodeCoords.putAll(nodeResolver(unresolved))
+        }
+
         val allResults = mutableListOf<CandidateLoop>()
         // Sorted IDs uniquely identify a corridor-set regardless of loop order or winding.
         val seenCorridorSets = mutableSetOf<List<Long>>()
@@ -172,10 +187,10 @@ object CorridorOrienteer {
                     chosen.add(anchor)
                 }
 
-                // Empty-quadrant edge fallback.
+                // Empty-quadrant edge fallback (uses pre-fetched edge list, not edgeResolver).
                 val pseudoCorridors = fillEmptyQuadrantsFromEdges(
                     anchors, chosen, homeLat, homeLon, reach, rideBearing, sep, config,
-                    nodeCoords, nodeResolver, edgeResolver,
+                    nodeCoords, reachEdges,
                 )
 
                 // Build ordered loop: origin first, then quadrant anchors in Q1->Q4 order.
@@ -460,7 +475,8 @@ object CorridorOrienteer {
      * No edges (the default no-op resolver, or none in reach) means no work — the common path where
      * every quadrant already has an anchor returns immediately without resolving anything.
      */
-    private suspend fun fillEmptyQuadrantsFromEdges(
+    // Not suspend: no DB calls remain — edges and node coords are pre-fetched by search().
+    private fun fillEmptyQuadrantsFromEdges(
         anchors: Array<Corridor?>,
         chosen: MutableList<Corridor>,
         homeLat: Double,
@@ -470,27 +486,15 @@ object CorridorOrienteer {
         sep: Double,
         config: OrienteerConfig,
         nodeCoords: MutableMap<Long, Pair<Double, Double>>,
-        nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double, Double>>,
-        edgeResolver: suspend (Double, Double, Double, Double) -> List<MapEdge>,
+        reachEdges: List<MapEdge>,
     ): Map<Long, Corridor> {
         val emptyQuadrants = (0 until QUADRANT_COUNT).filter { anchors[it] == null }
         if (emptyQuadrants.isEmpty()) return emptyMap()
-
-        val latDelta = GeoUtils.metersToLat(reach)
-        val lonDelta = GeoUtils.metersToLon(reach, homeLat)
-        val edges = edgeResolver(
-            homeLat - latDelta, homeLon - lonDelta, homeLat + latDelta, homeLon + lonDelta,
-        ).filter { (it.traversalCount ?: 0) > 0 }
-        if (edges.isEmpty()) return emptyMap()
-
-        // Resolve every candidate edge's endpoint coordinates once, into the shared coord map.
-        val edgeNodeIds = buildSet { edges.forEach { add(it.fromNode); add(it.toNode) } }
-        val unresolved = edgeNodeIds.filterTo(mutableSetOf()) { it !in nodeCoords }
-        if (unresolved.isNotEmpty()) nodeCoords.putAll(nodeResolver(unresolved))
+        if (reachEdges.isEmpty()) return emptyMap()
 
         // Group reachable, resolvable edges by the quadrant of their endpoint-midpoint centroid.
         val byQuadrant = Array(QUADRANT_COUNT) { mutableListOf<MapEdge>() }
-        for (edge in edges) {
+        for (edge in reachEdges) {
             val (centroidLat, centroidLon) = edgeCentroid(edge, nodeCoords) ?: continue
             if (GeoUtils.haversineDistance(homeLat, homeLon, centroidLat, centroidLon) > reach) continue
             val (east, north) = toLocalMeters(homeLat, homeLon, centroidLat, centroidLon)

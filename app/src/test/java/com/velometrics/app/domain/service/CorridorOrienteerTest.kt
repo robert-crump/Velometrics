@@ -441,6 +441,146 @@ class CorridorOrienteerTest {
         assertEquals(listOf(1L, 2L), skeleton)
     }
 
+    // --- Empty-quadrant edge fallback ---
+
+    @Test
+    fun `search synthesizes a pseudo-corridor for an empty quadrant from a high-traversal edge`() = runTest {
+        // Q1/Q2/Q3 carry real anchors; Q4 (SE under direction NORTH) is empty. A traversed edge in
+        // the SE quadrant, heading SE (aligned with the Q4 arc tangent 135deg), becomes the anchor.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),     // home
+            corridor(id = 2, lat = 50.02, lon = 6.02),   // NE -> Q1
+            corridor(id = 3, lat = 50.02, lon = 5.98),   // NW -> Q2
+            corridor(id = 4, lat = 49.98, lon = 5.98),   // SW -> Q3
+        )
+        val seEdge = edge(fromNode = 90, toNode = 91, lengthM = 300.0, traversalCount = 50)
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.001 to 6.0),
+            20L to (50.02 to 6.02), 21L to (50.021 to 6.021),
+            30L to (50.02 to 5.98), 31L to (50.021 to 5.981),
+            40L to (49.98 to 5.98), 41L to (49.979 to 5.979),
+            90L to (49.99 to 6.02), 91L to (49.985 to 6.025),  // SE centroid, heads SE
+        )
+
+        val result = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            edgeResolver = { _, _, _, _ -> listOf(seEdge) },
+        ).single()
+
+        val pseudoId = -4L // empty quadrant index 3 -> -(3+1)
+        assertTrue("Pseudo-corridor present in skeleton", result.corridors.contains(pseudoId))
+        assertTrue("Pseudo-corridor exposed for refinement", result.syntheticCorridors.containsKey(pseudoId))
+        val pseudo = result.syntheticCorridors.getValue(pseudoId)
+        assertEquals("Pseudo entry is the edge fromNode", 90L, pseudo.entryNode)
+        assertEquals("Pseudo exit is the edge toNode", 91L, pseudo.exitNode)
+        assertEquals("Pseudo carries the single source edge", listOf(90L to 91L), pseudo.edgeList)
+        assertEquals("Popularity carries the traversal count", 50, pseudo.popularity)
+    }
+
+    @Test
+    fun `search skips an empty quadrant when no suitable edge exists`() = runTest {
+        // Same layout, Q4 empty, but the edge resolver yields nothing: the quadrant is skipped
+        // cleanly and no pseudo-corridor is synthesized.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),
+            corridor(id = 2, lat = 50.02, lon = 6.02),   // Q1
+            corridor(id = 3, lat = 50.02, lon = 5.98),   // Q2
+            corridor(id = 4, lat = 49.98, lon = 5.98),   // Q3
+        )
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.001 to 6.0),
+            20L to (50.02 to 6.02), 21L to (50.021 to 6.021),
+            30L to (50.02 to 5.98), 31L to (50.021 to 5.981),
+            40L to (49.98 to 5.98), 41L to (49.979 to 5.979),
+        )
+
+        val result = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            edgeResolver = { _, _, _, _ -> emptyList() },
+        ).single()
+
+        assertTrue("No pseudo-corridor when no edge is available", result.syntheticCorridors.isEmpty())
+        assertEquals("Skeleton is the bare four-corridor anchor set", listOf(1L, 2L, 3L, 4L), result.corridors)
+    }
+
+    @Test
+    fun `search skips an empty quadrant when the only edge heads against the arc`() = runTest {
+        // Q4 empty; the lone SE-quadrant edge heads NW (opposed to the Q4 arc tangent), so the
+        // bearing gate rejects it and the quadrant stays empty.
+        val corridors = listOf(
+            corridor(id = 1, lat = 50.0, lon = 6.0),
+            corridor(id = 2, lat = 50.02, lon = 6.02),   // Q1
+            corridor(id = 3, lat = 50.02, lon = 5.98),   // Q2
+            corridor(id = 4, lat = 49.98, lon = 5.98),   // Q3
+        )
+        val wrongWayEdge = edge(fromNode = 90, toNode = 91, lengthM = 300.0, traversalCount = 50)
+        val coords = mapOf(
+            10L to (50.0 to 6.0), 11L to (50.001 to 6.0),
+            20L to (50.02 to 6.02), 21L to (50.021 to 6.021),
+            30L to (50.02 to 5.98), 31L to (50.021 to 5.981),
+            40L to (49.98 to 5.98), 41L to (49.979 to 5.979),
+            90L to (49.985 to 6.025), 91L to (49.99 to 6.02),  // SE centroid, but heads NW
+        )
+
+        val result = CorridorOrienteer.search(
+            corridors, homeLat = 50.0, homeLon = 6.0,
+            targetDistanceM = 9000.0,
+            direction = RideDirection.NORTH,
+            nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            edgeResolver = { _, _, _, _ -> listOf(wrongWayEdge) },
+        ).single()
+
+        assertTrue("Against-arc edge is not adopted", result.syntheticCorridors.isEmpty())
+    }
+
+    @Test
+    fun `buildPseudoCorridor derives corridor fields from the edge`() {
+        val e = edge(
+            fromNode = 7, toNode = 8, lengthM = 250.0,
+            pedalFlowCount = 5, gravityFlowCount = 4, traversalCount = 12,
+        )
+        val coords = mapOf(7L to (50.0 to 6.0), 8L to (50.0 to 6.01))
+        val pseudo = CorridorOrienteer.buildPseudoCorridor(e, id = -2, nodeCoords = coords)!!
+        assertEquals(-2L, pseudo.id)
+        assertEquals(7L, pseudo.entryNode)
+        assertEquals(8L, pseudo.exitNode)
+        assertEquals(250.0, pseudo.lengthM, 1e-9)
+        assertEquals("pedal reward from edge flow count", 5.0, pseudo.pedalReward, 1e-9)
+        assertEquals("gravity reward from edge flow count", 4.0, pseudo.gravityReward, 1e-9)
+        assertEquals(12, pseudo.popularity)
+        assertEquals(listOf(7L to 8L), pseudo.edgeList)
+        assertEquals("centroid is the endpoint midpoint", 50.0, pseudo.centroidLat, 1e-9)
+        assertEquals("centroid is the endpoint midpoint", 6.005, pseudo.centroidLon, 1e-9)
+    }
+
+    @Test
+    fun `buildPseudoCorridor returns null when an endpoint is unresolved`() {
+        val e = edge(fromNode = 7, toNode = 8, lengthM = 250.0)
+        assertNull(CorridorOrienteer.buildPseudoCorridor(e, id = -2, nodeCoords = mapOf(7L to (50.0 to 6.0))))
+    }
+
+    @Test
+    fun `adequateBearing accepts an aligned edge and rejects an opposed one`() {
+        val arcTangent = 135.0 // SE
+        val aligned = edge(fromNode = 7, toNode = 8, lengthM = 100.0)
+        val seCoords = mapOf(7L to (50.0 to 6.0), 8L to (49.99 to 6.01)) // heads SE
+        val nwCoords = mapOf(7L to (50.0 to 6.0), 8L to (50.01 to 5.99)) // heads NW
+        assertTrue(CorridorOrienteer.adequateBearing(aligned, arcTangent, coneCosine = 0.0, nodeCoords = seCoords))
+        assertFalse(CorridorOrienteer.adequateBearing(aligned, arcTangent, coneCosine = 0.0, nodeCoords = nwCoords))
+    }
+
+    @Test
+    fun `adequateBearing rejects an edge with unresolved endpoints`() {
+        val e = edge(fromNode = 7, toNode = 8, lengthM = 100.0)
+        assertFalse(CorridorOrienteer.adequateBearing(e, arcTangent = 135.0, coneCosine = 0.0, nodeCoords = emptyMap()))
+    }
+
     // --- Ride-aligned frame helpers ---
 
     @Test
@@ -575,6 +715,31 @@ class CorridorOrienteerTest {
         edgeList = emptyList(),
         popularity = 0,
         groupId = groupId,
+    )
+
+    private fun edge(
+        fromNode: Long,
+        toNode: Long,
+        lengthM: Double,
+        pedalFlowCount: Int? = 2,
+        gravityFlowCount: Int? = 1,
+        traversalCount: Int? = 3,
+    ) = com.velometrics.app.domain.model.MapEdge(
+        fromNode = fromNode,
+        toNode = toNode,
+        lengthM = lengthM,
+        highway = "residential",
+        name = null,
+        isTraversed = true,
+        geometryEncoded = "",
+        speedMedian = null, speedMean = null, speedCount = null,
+        speedP25 = null, speedP75 = null, speedP90 = null,
+        powerMedian = null, powerMean = null, powerCount = null,
+        powerP25 = null, powerP75 = null, powerP90 = null,
+        slopePercent = null, traversalCount = traversalCount, lastTraversal = null,
+        timeOfDayDist = null,
+        pedalFlowCount = pedalFlowCount,
+        gravityFlowCount = gravityFlowCount,
     )
 
     /**

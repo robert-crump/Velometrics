@@ -114,15 +114,26 @@ object RouteGenerator {
                             .associate { it.id to (it.lat to it.lon) }
                     }
                 },
+                edgeResolver = { minLat, minLon, maxLat, maxLon ->
+                    repository.getEdgesNear(minLat, minLon, maxLat, maxLon)
+                },
             )
             Log.d(TAG, "generate: coarse search found ${coarseCandidates.size} candidates in ${System.currentTimeMillis() - coarseStart}ms")
 
             for ((idx, candidate) in coarseCandidates.withIndex()) {
                 if (allRefined.any { it.first.corridors == candidate.corridors }) continue
 
+                // Pseudo-corridors synthesized for empty quadrants are not in the repository-backed
+                // map, so merge them in before refining/stitching this candidate.
+                val effectiveCorridorMap = if (candidate.syntheticCorridors.isEmpty()) {
+                    corridorMap
+                } else {
+                    corridorMap + candidate.syntheticCorridors
+                }
+
                 val refineStart = System.currentTimeMillis()
                 val refined = RouteRefiner.refine(
-                    candidate, corridorMap, repository,
+                    candidate, effectiveCorridorMap, repository,
                     config.refinerConfig,
                     closeLoop = exitPlan == null,
                 )
@@ -133,7 +144,7 @@ object RouteGenerator {
 
                 val finalRoute = if (exitPlan != null) {
                     stitchRoute(
-                        exitPlan.exitLeg, refined, candidate, corridorMap,
+                        exitPlan.exitLeg, refined, candidate, effectiveCorridorMap,
                         homeLat, homeLon, repository, config.exitLegConfig,
                     )
                 } else {

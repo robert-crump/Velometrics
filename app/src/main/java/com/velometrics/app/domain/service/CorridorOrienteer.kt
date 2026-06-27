@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import android.util.Log
 import com.velometrics.app.domain.model.Corridor
+import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.util.GeoUtils
 import kotlin.math.cos
 import kotlin.math.sin
@@ -25,6 +26,12 @@ data class CandidateLoop(
     val totalReward: Double,
     val flowScore: Double,
     val discoveryScore: Double,
+    /**
+     * Pseudo-corridors synthesized for empty quadrants, keyed by their (negative) synthetic id.
+     * These are not in the repository, so [RouteGenerator] merges them into the corridor map before
+     * handing the loop to [RouteRefiner], letting a pseudo-corridor route like a real one.
+     */
+    val syntheticCorridors: Map<Long, Corridor> = emptyMap(),
 )
 
 /**
@@ -79,6 +86,9 @@ object CorridorOrienteer {
         direction: RideDirection? = null,
         startCorridorId: Long? = null,
         nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double, Double>> = { emptyMap() },
+        edgeResolver: suspend (
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) -> List<MapEdge> = { _, _, _, _ -> emptyList() },
     ): List<CandidateLoop> {
         if (corridors.isEmpty()) return emptyList()
 
@@ -126,7 +136,9 @@ object CorridorOrienteer {
         // short-circuits far pairs without consulting this map.
         val candidateCorridors = quadrants.flatMap { it }
         val neededNodeIds = buildSet { candidateCorridors.forEach { addAll(corridorNodeIds(it)) } }
-        val nodeCoords = nodeResolver(neededNodeIds)
+        // Mutable so the empty-quadrant fallback below can fold in resolved edge-node coordinates
+        // for the pseudo-corridors it synthesizes (used by separation and the fill step).
+        val nodeCoords = nodeResolver(neededNodeIds).toMutableMap()
         val sep = separationDistance(reach, config.separationM)
 
         // --- One geometry-first anchor per quadrant, respecting the separation rule ---
@@ -160,6 +172,16 @@ object CorridorOrienteer {
                 chosen.add(anchor)
             }
         }
+
+        // --- Empty-quadrant fallback: synthesize a pseudo-corridor from a high-traversal edge ---
+        // A quadrant with no qualifying corridor would leave a gap in the oval. When edges are
+        // available, fill it with a pseudo-corridor built from the highest-traversalCount edge in
+        // that quadrant whose heading matches the arc tangent and that stays separated from the
+        // anchors already chosen. Quadrants with no suitable edge are left empty (skipped cleanly).
+        val pseudoCorridors = fillEmptyQuadrantsFromEdges(
+            anchors, chosen, homeLat, homeLon, reach, rideBearing, sep, config,
+            nodeCoords, nodeResolver, edgeResolver,
+        )
 
         // --- Build the ordered loop: origin first, then quadrant anchors Q1->Q4 ---
         // The exit-plan start corridor is honored as the Q1 anchor (emitted first); the exit leg
@@ -196,7 +218,15 @@ object CorridorOrienteer {
         }
         Log.d(TAG, "search: skeleton corridors=$ordered (${fillPool.size} fill candidates unused)")
 
-        val candidate = buildCandidate(ordered, corridorById, rewardCache)
+        // Pseudo-corridors are not in `rewardCache` (built from real reachable corridors), so add
+        // their edge-derived reward before scoring the candidate.
+        val augmentedRewardCache = if (pseudoCorridors.isEmpty()) {
+            rewardCache
+        } else {
+            rewardCache + pseudoCorridors.mapValues { RewardComposer.composeCorridorReward(it.value, weights) }
+        }
+        val candidate = buildCandidate(ordered, corridorById, augmentedRewardCache)
+            .copy(syntheticCorridors = pseudoCorridors)
         return listOf(candidate)
     }
 
@@ -414,6 +444,140 @@ object CorridorOrienteer {
         val exit = nodeCoords[c.exitNode] ?: return null
         val heading = GeoUtils.computeBearing(entry.first, entry.second, exit.first, exit.second)
         return cosineSimilarity(heading, referenceBearing)
+    }
+
+    // --- Empty-quadrant edge fallback ---
+
+    /** Synthetic id for the pseudo-corridor of quadrant [q] — negative so it never collides with a
+     *  real (positive) DB corridor id. */
+    private fun pseudoIdFor(q: Int): Long = -(q.toLong() + 1)
+
+    /**
+     * For each quadrant left without an anchor, synthesize a pseudo-corridor from the
+     * highest-`traversalCount` edge in that quadrant whose heading matches the arc tangent and that
+     * stays separated from every already-chosen corridor. Writes the pick into [anchors] and
+     * [chosen], folds the edge's endpoint coordinates into [nodeCoords] (so separation and fill can
+     * see them), and returns the synthesized corridors keyed by their synthetic id. A quadrant with
+     * no suitable edge is left empty.
+     *
+     * No edges (the default no-op resolver, or none in reach) means no work — the common path where
+     * every quadrant already has an anchor returns immediately without resolving anything.
+     */
+    private suspend fun fillEmptyQuadrantsFromEdges(
+        anchors: Array<Corridor?>,
+        chosen: MutableList<Corridor>,
+        homeLat: Double,
+        homeLon: Double,
+        reach: Double,
+        rideBearing: Double,
+        sep: Double,
+        config: OrienteerConfig,
+        nodeCoords: MutableMap<Long, Pair<Double, Double>>,
+        nodeResolver: suspend (Set<Long>) -> Map<Long, Pair<Double, Double>>,
+        edgeResolver: suspend (Double, Double, Double, Double) -> List<MapEdge>,
+    ): Map<Long, Corridor> {
+        val emptyQuadrants = (0 until QUADRANT_COUNT).filter { anchors[it] == null }
+        if (emptyQuadrants.isEmpty()) return emptyMap()
+
+        val latDelta = GeoUtils.metersToLat(reach)
+        val lonDelta = GeoUtils.metersToLon(reach, homeLat)
+        val edges = edgeResolver(
+            homeLat - latDelta, homeLon - lonDelta, homeLat + latDelta, homeLon + lonDelta,
+        ).filter { (it.traversalCount ?: 0) > 0 }
+        if (edges.isEmpty()) return emptyMap()
+
+        // Resolve every candidate edge's endpoint coordinates once, into the shared coord map.
+        val edgeNodeIds = buildSet { edges.forEach { add(it.fromNode); add(it.toNode) } }
+        val unresolved = edgeNodeIds.filterTo(mutableSetOf()) { it !in nodeCoords }
+        if (unresolved.isNotEmpty()) nodeCoords.putAll(nodeResolver(unresolved))
+
+        // Group reachable, resolvable edges by the quadrant of their endpoint-midpoint centroid.
+        val byQuadrant = Array(QUADRANT_COUNT) { mutableListOf<MapEdge>() }
+        for (edge in edges) {
+            val (centroidLat, centroidLon) = edgeCentroid(edge, nodeCoords) ?: continue
+            if (GeoUtils.haversineDistance(homeLat, homeLon, centroidLat, centroidLon) > reach) continue
+            val (east, north) = toLocalMeters(homeLat, homeLon, centroidLat, centroidLon)
+            val (along, lateral) = alongLateral(east, north, rideBearing)
+            byQuadrant[quadrantOf(along, lateral)].add(edge)
+        }
+
+        val synthesized = LinkedHashMap<Long, Corridor>()
+        for (q in emptyQuadrants) {
+            val arcTangent = arcTangentBearing(rideBearing, q)
+            val ranked = byQuadrant[q]
+                .filter { adequateBearing(it, arcTangent, config.headingConeCosine, nodeCoords) }
+                .sortedByDescending { it.traversalCount ?: 0 }
+            var pick: Corridor? = null
+            for (edge in ranked) {
+                val pseudo = buildPseudoCorridor(edge, pseudoIdFor(q), nodeCoords) ?: continue
+                if (chosen.all { corridorsSeparated(pseudo, it, sep, nodeCoords) }) {
+                    pick = pseudo
+                    break
+                }
+            }
+            if (pick != null) {
+                anchors[q] = pick
+                chosen.add(pick)
+                synthesized[pick.id] = pick
+                Log.d(TAG, "fillEmptyQuadrantsFromEdges: Q$q pseudo-corridor ${pick.id} from edge ${pick.entryNode}->${pick.exitNode} popularity=${pick.popularity}")
+            }
+        }
+        return synthesized
+    }
+
+    /** Endpoint-midpoint centroid of [edge], or null when an endpoint coordinate is unresolved. */
+    private fun edgeCentroid(
+        edge: MapEdge,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Pair<Double, Double>? {
+        val from = nodeCoords[edge.fromNode] ?: return null
+        val to = nodeCoords[edge.toNode] ?: return null
+        return ((from.first + to.first) / 2.0) to ((from.second + to.second) / 2.0)
+    }
+
+    /**
+     * True when [edge]'s fromNode->toNode heading aligns with [arcTangent] within the cone set by
+     * [coneCosine] (same cone the fill step uses). Unresolved endpoints yield false: a heading that
+     * cannot be confirmed adequate is not accepted.
+     */
+    internal fun adequateBearing(
+        edge: MapEdge,
+        arcTangent: Double,
+        coneCosine: Double,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Boolean {
+        val from = nodeCoords[edge.fromNode] ?: return false
+        val to = nodeCoords[edge.toNode] ?: return false
+        val heading = GeoUtils.computeBearing(from.first, from.second, to.first, to.second)
+        return cosineSimilarity(heading, arcTangent) >= coneCosine
+    }
+
+    /**
+     * Builds a pseudo-corridor from [edge]: entry=fromNode, exit=toNode, length from the edge,
+     * centroid from the endpoint midpoint, reward from the edge's flow counts, and popularity from
+     * its traversal count. Carries the single edge as its `edgeList` so the separation rule and
+     * RouteRefiner's waypoint walk both work on it. Returns null when an endpoint is unresolved.
+     */
+    internal fun buildPseudoCorridor(
+        edge: MapEdge,
+        id: Long,
+        nodeCoords: Map<Long, Pair<Double, Double>>,
+    ): Corridor? {
+        val (centroidLat, centroidLon) = edgeCentroid(edge, nodeCoords) ?: return null
+        return Corridor(
+            id = id,
+            entryNode = edge.fromNode,
+            exitNode = edge.toNode,
+            lengthM = edge.lengthM,
+            pedalReward = (edge.pedalFlowCount ?: 0).toDouble(),
+            gravityReward = (edge.gravityFlowCount ?: 0).toDouble(),
+            exitHazardScore = edge.hazardScore ?: 0.0,
+            centroidLat = centroidLat,
+            centroidLon = centroidLon,
+            edgeList = listOf(edge.fromNode to edge.toNode),
+            popularity = edge.traversalCount ?: 0,
+            groupId = id,
+        )
     }
 
     // --- Ride-aligned frame helpers ---

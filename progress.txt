@@ -1,3 +1,53 @@
+## Issue #118 — Empty-quadrant fallback via high-traversal edge pseudo-corridor
+Completed: 2026-06-27
+
+### What was done
+
+At the tighter `reach = target / 3` radius a quadrant can end up with no qualifying anchor
+corridor, leaving a gap in the oval. This adds an edge fallback: when a quadrant is empty, the
+highest-`traversalCount` traversed edge in that quadrant whose heading matches the arc tangent is
+turned into a pseudo-corridor and used as the quadrant anchor, so the rest of the pipeline stays
+corridor-based. Quadrants with no suitable edge are skipped cleanly.
+
+**`domain/service/CorridorOrienteer.kt`**
+- `search` gains an `edgeResolver` lambda (mirrors `nodeResolver`): given a bounding box it returns
+  candidate `MapEdge`s. Default no-op returns empty, so the common all-quadrants-populated path and
+  every existing test resolve nothing and behave exactly as before.
+- New `fillEmptyQuadrantsFromEdges` runs after anchor selection: it finds quadrants with a null
+  anchor, fetches traversed edges (`traversalCount > 0`) within the reach bbox, resolves their
+  endpoint coordinates once (folded into the shared `nodeCoords` map, which is now mutable), groups
+  them by the quadrant of their endpoint-midpoint centroid, and for each empty quadrant picks the
+  highest-traversal edge that (a) heads within the arc-tangent cone (`adequateBearing`) and (b) stays
+  separated from the already-chosen anchors. The pick becomes the quadrant anchor and is added to
+  `chosen` so later picks/fills honour separation against it.
+- `buildPseudoCorridor(edge, id, nodeCoords)`: entry=fromNode, exit=toNode, length from the edge,
+  centroid from the endpoint midpoint, `pedalReward`/`gravityReward` from the edge flow counts,
+  `popularity` from `traversalCount`, `edgeList = [fromNode->toNode]` (so the separation rule and
+  RouteRefiner's waypoint walk both work). Synthetic id is negative (`-(q+1)`) so it never collides
+  with a positive DB corridor id. Centroid/heading derive from resolved node coords rather than
+  decoding the polyline geometry — keeps the domain service free of MapLibre deps and unit-testable.
+- `CandidateLoop` gains `syntheticCorridors: Map<Long, Corridor> = emptyMap()` carrying the
+  synthesized pseudo-corridors; their edge-derived reward is folded into the candidate's reward.
+
+**`domain/service/RouteGenerator.kt`**
+- Wires `edgeResolver` to `repository.getEdgesNear`.
+- Merges `candidate.syntheticCorridors` into the corridor map before `RouteRefiner.refine` and
+  `stitchRoute`, so a pseudo-corridor resolves and routes like a real one (RouteRefiner looks
+  corridors up by id in that map).
+
+### Tests
+`CorridorOrienteerTest`:
+- `search synthesizes a pseudo-corridor for an empty quadrant from a high-traversal edge`
+  (end-to-end: empty Q4 filled by an SE-heading edge; pseudo present in skeleton + `syntheticCorridors`).
+- `search skips an empty quadrant when no suitable edge exists` (empty edge resolver -> bare anchor set).
+- `search skips an empty quadrant when the only edge heads against the arc` (bearing gate rejects it).
+- `buildPseudoCorridor` field mapping + null on unresolved endpoint; `adequateBearing` accept/reject
+  and reject-on-unresolved. Added an `edge(...)` MapEdge helper.
+- Note: tests that supply `nodeResolver` coords activate the real separation rule, so quadrant
+  fixtures are spread to ±0.02deg to keep all four anchors > the 1500m adaptive separation apart.
+
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.
+
 ## Issue #119 — Re-target DegradationPolicy tiers to skeleton levers
 Completed: 2026-06-26
 

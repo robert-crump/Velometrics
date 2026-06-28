@@ -75,6 +75,8 @@ import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DISCOVERY_COLOR
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT
+import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_MAX_EXPLORE_WEIGHT
 import com.velometrics.app.domain.service.RankedCandidate
 import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
@@ -955,6 +957,7 @@ fun MapViewScreen(
     if (showPlanDistanceDialog) {
         var distanceText by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_DISTANCE_KM.toInt().toString()) }
         var selectedDirection by remember { mutableStateOf<RideDirection?>(null) }
+        var exploreWeight by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT.toFloat()) }
         AlertDialog(
             onDismissRequest = { showPlanDistanceDialog = false },
             title = { Text("Plan a ride") },
@@ -1002,13 +1005,26 @@ fun MapViewScreen(
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Familiar", style = MaterialTheme.typography.bodySmall)
+                        Text("Explore", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Slider(
+                        value = exploreWeight,
+                        onValueChange = { exploreWeight = it },
+                        valueRange = 0f..PLAN_A_RIDE_MAX_EXPLORE_WEIGHT.toFloat(),
+                    )
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     showPlanDistanceDialog = false
                     val km = distanceText.toDoubleOrNull() ?: PLAN_A_RIDE_DEFAULT_DISTANCE_KM
-                    planARideViewModel.planARide(km, selectedDirection)
+                    planARideViewModel.planARide(km, selectedDirection, exploreWeight.toDouble())
                 }) { Text("Generate") }
             },
             dismissButton = {

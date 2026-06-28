@@ -182,6 +182,9 @@ object CyclingConstants {
 
     // Plan-a-ride route generation
     const val PLAN_A_RIDE_DEFAULT_DISTANCE_KM = 50.0
+    const val PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT = 1.0
+    // Pending HITL calibration — ride the full-explore extreme and adjust until it feels adventurous-but-not-reckless.
+    const val PLAN_A_RIDE_MAX_EXPLORE_WEIGHT = 5.0
     const val PLAN_A_RIDE_TRACK_WIDTH = 5f
     val PLAN_A_RIDE_TRACK_COLORS = listOf(
         "#4CAF50", // Green — route

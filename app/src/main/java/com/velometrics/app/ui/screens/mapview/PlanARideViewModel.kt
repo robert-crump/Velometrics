@@ -10,6 +10,7 @@ import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.service.GeneratorConfig
 import com.velometrics.app.domain.service.GpxExporter
 import com.velometrics.app.domain.service.RankedCandidate
+import com.velometrics.app.domain.service.RewardWeights
 import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.domain.service.RouteGenerator
 import com.velometrics.app.domain.service.RoutePlanResult
@@ -53,7 +54,7 @@ class PlanARideViewModel @Inject constructor(
 
     private var generationJob: Job? = null
 
-    fun planARide(targetDistanceKm: Double, direction: RideDirection? = null) {
+    fun planARide(targetDistanceKm: Double, direction: RideDirection? = null, exploreWeight: Double = 1.0) {
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _isGenerating.value = true
@@ -67,6 +68,7 @@ class PlanARideViewModel @Inject constructor(
                 val result = withContext(Dispatchers.Default) {
                     RouteGenerator.generate(
                         homeLat, homeLon, targetDistanceM, repository,
+                        weights = RewardWeights(explore = exploreWeight),
                         config = GeneratorConfig(direction = direction),
                     )
                 }

@@ -5,7 +5,6 @@ import com.velometrics.app.domain.model.MapEdge
 
 data class RewardWeights(
     val flow: Double = 1.0,
-    val stop: Double = 1.0,
     val explore: Double = 1.0,
 )
 
@@ -16,7 +15,6 @@ data class RewardContext(
 
 data class ComposedReward(
     val flow: Double,
-    val stop: Double,
     val explore: Double,
     val total: Double,
 )
@@ -44,8 +42,6 @@ object RewardComposer {
     ): ComposedReward {
         val flowTerm = ((edge.pedalFlowCount ?: 0) + (edge.gravityFlowCount ?: 0)).toDouble()
 
-        val stopTerm = -(edge.stopPenalty ?: 0.0)
-
         val exploreTerm = computeExploreTerm(
             novelty = if (edge.isTraversed) 0.0 else 1.0,
             predictedFlowScore = (edge.predictedGravityFlowProbability ?: 0.0) + (edge.predictedPedalFlowProbability ?: 0.0),
@@ -55,12 +51,10 @@ object RewardComposer {
         )
 
         val total = weights.flow * flowTerm +
-            weights.stop * stopTerm +
             weights.explore * exploreTerm
 
         return ComposedReward(
             flow = weights.flow * flowTerm,
-            stop = weights.stop * stopTerm,
             explore = weights.explore * exploreTerm,
             total = total,
         )
@@ -75,7 +69,6 @@ object RewardComposer {
 
         return ComposedReward(
             flow = weights.flow * flowTerm,
-            stop = 0.0,
             explore = 0.0,
             total = total,
         )

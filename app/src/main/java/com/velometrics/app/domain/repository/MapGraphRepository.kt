@@ -6,6 +6,7 @@ import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
+import com.velometrics.app.domain.model.MapTurn
 import com.velometrics.app.domain.model.Poi
 import kotlinx.coroutines.flow.Flow
 
@@ -19,6 +20,7 @@ interface MapGraphRepository {
     suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapNode>
     suspend fun getNodesByIds(vararg ids: Long): List<MapNode>
     suspend fun getRoutingEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<RoutingEdge>
+    suspend fun getTurnsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapTurn>
     fun getTraversedEdges(): Flow<List<MapEdge>>
     fun getUntraversedEdges(): Flow<List<MapEdge>>
     fun getAllPois(): Flow<List<Poi>>

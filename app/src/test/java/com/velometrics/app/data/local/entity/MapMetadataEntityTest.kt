@@ -18,7 +18,8 @@ class MapMetadataEntityTest {
             edgeCount = 511597,
             traversedEdgeCount = 14637,
             trackCount = 0,
-            coverageGeojson = """{"type":"MultiPolygon","coordinates":[]}"""
+            coverageGeojson = """{"type":"MultiPolygon","coordinates":[]}""",
+            schemaVersion = 1
         )
 
         val metadata = entity.toDomain()
@@ -33,6 +34,7 @@ class MapMetadataEntityTest {
         assertEquals(14637, metadata.traversedEdgeCount)
         assertEquals(0, metadata.trackCount)
         assertEquals("""{"type":"MultiPolygon","coordinates":[]}""", metadata.coverageGeojson)
+        assertEquals(1, metadata.schemaVersion)
     }
 
     @Test
@@ -48,7 +50,8 @@ class MapMetadataEntityTest {
             edgeCount = 0,
             traversedEdgeCount = 0,
             trackCount = 0,
-            coverageGeojson = null
+            coverageGeojson = null,
+            schemaVersion = 1
         )
 
         assertNull(entity.toDomain().coverageGeojson)

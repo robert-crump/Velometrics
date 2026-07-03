@@ -10,5 +10,6 @@ data class GraphMetadata(
     val edgeCount: Int,
     val traversedEdgeCount: Int,
     val trackCount: Int,
-    val coverageGeojson: String?
+    val coverageGeojson: String?,
+    val schemaVersion: Int
 )

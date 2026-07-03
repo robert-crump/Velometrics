@@ -177,6 +177,9 @@ object DatabaseModule {
     fun provideMapEdgeDao(db: CyclingAssetDatabase): MapEdgeDao = db.mapEdgeDao()
 
     @Provides
+    fun provideMapTurnDao(db: CyclingAssetDatabase): MapTurnDao = db.mapTurnDao()
+
+    @Provides
     fun providePoiDao(db: CyclingAssetDatabase): PoiDao = db.poiDao()
 
     @Provides

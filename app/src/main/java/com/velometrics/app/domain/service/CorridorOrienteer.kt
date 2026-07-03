@@ -576,7 +576,7 @@ object CorridorOrienteer {
             lengthM = edge.lengthM,
             pedalReward = (edge.pedalFlowCount ?: 0).toDouble(),
             gravityReward = (edge.gravityFlowCount ?: 0).toDouble(),
-            exitHazardScore = edge.hazardScore ?: 0.0,
+            exitHazardScore = 0.0,
             centroidLat = centroidLat,
             centroidLon = centroidLon,
             edgeList = listOf(edge.fromNode to edge.toNode),

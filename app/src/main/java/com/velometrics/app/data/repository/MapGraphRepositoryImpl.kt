@@ -4,6 +4,7 @@ import com.velometrics.app.data.local.dao.CorridorDao
 import com.velometrics.app.data.local.dao.MapEdgeDao
 import com.velometrics.app.data.local.dao.MapMetadataDao
 import com.velometrics.app.data.local.dao.MapNodeDao
+import com.velometrics.app.data.local.dao.MapTurnDao
 import com.velometrics.app.data.local.dao.PoiDao
 import com.velometrics.app.data.local.entity.*
 import com.velometrics.app.domain.model.Corridor
@@ -12,6 +13,7 @@ import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
+import com.velometrics.app.domain.model.MapTurn
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.util.CyclingConstants
@@ -25,6 +27,7 @@ import javax.inject.Singleton
 class MapGraphRepositoryImpl @Inject constructor(
     private val nodeDao: MapNodeDao,
     private val edgeDao: MapEdgeDao,
+    private val turnDao: MapTurnDao,
     private val poiDao: PoiDao,
     private val metadataDao: MapMetadataDao,
     private val corridorDao: CorridorDao
@@ -58,6 +61,9 @@ class MapGraphRepositoryImpl @Inject constructor(
         edgeDao.getRoutingEdgesNear(minLat, maxLat, minLon, maxLon).map {
             com.velometrics.app.domain.repository.RoutingEdge(it.fromNode, it.toNode, it.lengthM, it.reward)
         }
+
+    override suspend fun getTurnsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<MapTurn> =
+        turnDao.getNear(minLat, maxLat, minLon, maxLon).map { it.toDomain() }
 
     override fun getTraversedEdges(): Flow<List<MapEdge>> =
         edgeDao.getTraversed().map { it.map { e -> e.toDomain() } }

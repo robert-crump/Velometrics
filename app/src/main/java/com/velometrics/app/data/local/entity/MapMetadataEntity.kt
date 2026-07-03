@@ -17,7 +17,8 @@ data class MapMetadataEntity(
     @ColumnInfo(name = "edge_count") val edgeCount: Int,
     @ColumnInfo(name = "traversed_edge_count") val traversedEdgeCount: Int,
     @ColumnInfo(name = "track_count") val trackCount: Int,
-    @ColumnInfo(name = "coverage_geojson") val coverageGeojson: String?
+    @ColumnInfo(name = "coverage_geojson") val coverageGeojson: String?,
+    @ColumnInfo(name = "schema_version") val schemaVersion: Int
 )
 
 fun MapMetadataEntity.toDomain(): GraphMetadata = GraphMetadata(
@@ -30,5 +31,6 @@ fun MapMetadataEntity.toDomain(): GraphMetadata = GraphMetadata(
     edgeCount = edgeCount,
     traversedEdgeCount = traversedEdgeCount,
     trackCount = trackCount,
-    coverageGeojson = coverageGeojson
+    coverageGeojson = coverageGeojson,
+    schemaVersion = schemaVersion
 )

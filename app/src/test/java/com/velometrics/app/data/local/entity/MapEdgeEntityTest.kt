@@ -8,16 +8,14 @@ class MapEdgeEntityTest {
     private fun entity(
         metadata: String? = null,
         slopePercent: Double? = null,
-        curvature: Double? = null,
-        stopPenalty: Double? = null,
-        stopPenaltySource: String? = null,
         flowConfidence: Double? = null,
-        hazardScore: Double? = null,
-        brakingProbability: Double? = null,
-        maxspeedKmh: Double? = null,
-        medianKeDelta: Double? = null,
         predictedGravityFlowProbability: Double? = null,
         predictedPedalFlowProbability: Double? = null,
+        coolScore: Double? = null,
+        coolConfidence: Double? = null,
+        whPerM: Double? = null,
+        whPerMSource: String? = null,
+        whPerMConfidence: Double? = null,
     ) = MapEdgeEntity(
         fromNode = 1L,
         toNode = 2L,
@@ -29,16 +27,14 @@ class MapEdgeEntityTest {
         geometryEncoded = "",
         metadata = metadata,
         slopePercent = slopePercent,
-        curvature = curvature,
-        stopPenalty = stopPenalty,
-        stopPenaltySource = stopPenaltySource,
         flowConfidence = flowConfidence,
-        hazardScore = hazardScore,
-        brakingProbability = brakingProbability,
-        maxspeedKmh = maxspeedKmh,
-        medianKeDelta = medianKeDelta,
         predictedGravityFlowProbability = predictedGravityFlowProbability,
         predictedPedalFlowProbability = predictedPedalFlowProbability,
+        coolScore = coolScore,
+        coolConfidence = coolConfidence,
+        whPerM = whPerM,
+        whPerMSource = whPerMSource,
+        whPerMConfidence = whPerMConfidence,
     )
 
     @Test
@@ -96,43 +92,37 @@ class MapEdgeEntityTest {
     }
 
     @Test
-    fun `maps v5 columns to domain`() {
+    fun `maps v6 columns to domain`() {
         val edge = entity(
-            curvature = 12.5,
-            stopPenalty = 4.2,
-            stopPenaltySource = "measured",
             flowConfidence = 0.72,
-            hazardScore = 0.45,
-            brakingProbability = 0.3,
-            maxspeedKmh = 50.0,
-            medianKeDelta = 12.1,
             predictedGravityFlowProbability = 0.85,
             predictedPedalFlowProbability = 0.6,
+            coolScore = 0.4,
+            coolConfidence = 0.9,
+            whPerM = 8.5,
+            whPerMSource = "measured",
+            whPerMConfidence = 0.65,
         ).toDomain()
-        assertEquals(12.5, edge.curvature)
-        assertEquals(4.2, edge.stopPenalty)
-        assertEquals("measured", edge.stopPenaltySource)
         assertEquals(0.72, edge.flowConfidence)
-        assertEquals(0.45, edge.hazardScore)
-        assertEquals(0.3, edge.brakingProbability)
-        assertEquals(50.0, edge.maxspeedKmh)
-        assertEquals(12.1, edge.medianKeDelta)
         assertEquals(0.85, edge.predictedGravityFlowProbability)
         assertEquals(0.6, edge.predictedPedalFlowProbability)
+        assertEquals(0.4, edge.coolScore)
+        assertEquals(0.9, edge.coolConfidence)
+        assertEquals(8.5, edge.whPerM)
+        assertEquals("measured", edge.whPerMSource)
+        assertEquals(0.65, edge.whPerMConfidence)
     }
 
     @Test
-    fun `v5 columns are null when absent`() {
+    fun `v6 columns are null when absent`() {
         val edge = entity().toDomain()
-        assertNull(edge.curvature)
-        assertNull(edge.stopPenalty)
-        assertNull(edge.stopPenaltySource)
         assertNull(edge.flowConfidence)
-        assertNull(edge.hazardScore)
-        assertNull(edge.brakingProbability)
-        assertNull(edge.maxspeedKmh)
-        assertNull(edge.medianKeDelta)
         assertNull(edge.predictedGravityFlowProbability)
         assertNull(edge.predictedPedalFlowProbability)
+        assertNull(edge.coolScore)
+        assertNull(edge.coolConfidence)
+        assertNull(edge.whPerM)
+        assertNull(edge.whPerMSource)
+        assertNull(edge.whPerMConfidence)
     }
 }

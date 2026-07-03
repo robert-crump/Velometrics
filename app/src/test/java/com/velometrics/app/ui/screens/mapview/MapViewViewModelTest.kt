@@ -174,6 +174,8 @@ private class FakeMapGraphRepository : MapGraphRepository {
     override suspend fun getNodesByIds(vararg ids: Long) = emptyList<MapNode>()
     override suspend fun getRoutingEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
         emptyList<com.velometrics.app.domain.repository.RoutingEdge>()
+    override suspend fun getTurnsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
+        emptyList<com.velometrics.app.domain.model.MapTurn>()
     override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
     override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

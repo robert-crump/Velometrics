@@ -49,7 +49,6 @@ interface MapEdgeDao {
         SELECT DISTINCT e.from_node, e.to_node, e.length_m,
             (IFNULL(CAST(json_extract(e.metadata, '${'$'}.pedal_flow_count') AS INTEGER), 0)
              + IFNULL(CAST(json_extract(e.metadata, '${'$'}.gravity_flow_count') AS INTEGER), 0)
-             - IFNULL(e.stop_penalty, 0.0)
              + CASE WHEN e.is_traversed = 0
                  THEN 0.3 * (IFNULL(e.predicted_gravity_flow_probability, 0.0)
                            + IFNULL(e.predicted_pedal_flow_probability, 0.0))

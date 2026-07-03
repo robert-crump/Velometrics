@@ -32,17 +32,6 @@ class RewardComposerTest {
     }
 
     @Test
-    fun `stop penalty reduces reward`() {
-        val noStop = edge(pedalFlowCount = 5, stopPenalty = 0.0)
-        val heavyStop = edge(pedalFlowCount = 5, stopPenalty = 3.0)
-
-        val noStopReward = RewardComposer.composeEdgeReward(noStop)
-        val heavyStopReward = RewardComposer.composeEdgeReward(heavyStop)
-
-        assertTrue(noStopReward.total > heavyStopReward.total)
-    }
-
-    @Test
     fun `untraversed edge with confident prediction outranks untraversed edge with no prediction`() {
         val predicted = edge(
             isTraversed = false,
@@ -101,30 +90,20 @@ class RewardComposerTest {
     }
 
     @Test
-    fun `null stop penalty treated as zero`() {
-        val nullStop = edge(stopPenalty = null)
-
-        val reward = RewardComposer.composeEdgeReward(nullStop)
-
-        assertEquals(0.0, reward.stop, 1e-9)
-    }
-
-    @Test
     fun `total is additive sum of weighted components`() {
         val edge = edge(
             pedalFlowCount = 4,
             gravityFlowCount = 2,
-            stopPenalty = 1.5,
             isTraversed = false,
             predictedPedalFlowProbability = 0.6,
             flowConfidence = 0.5,
         )
-        val weights = RewardWeights(flow = 2.0, stop = 1.0, explore = 1.0)
+        val weights = RewardWeights(flow = 2.0, explore = 1.0)
         val context = RewardContext(exploreExploitBalance = 0.5, confidenceFloor = 0.1)
 
         val reward = RewardComposer.composeEdgeReward(edge, weights, context)
 
-        assertEquals(reward.flow + reward.stop + reward.explore, reward.total, 1e-9)
+        assertEquals(reward.flow + reward.explore, reward.total, 1e-9)
     }
 
     // --- Corridor reward ordering ---
@@ -156,7 +135,6 @@ class RewardComposerTest {
     private fun edge(
         pedalFlowCount: Int? = null,
         gravityFlowCount: Int? = null,
-        stopPenalty: Double? = null,
         isTraversed: Boolean = true,
         predictedPedalFlowProbability: Double? = null,
         predictedGravityFlowProbability: Double? = null,
@@ -187,7 +165,6 @@ class RewardComposerTest {
         timeOfDayDist = null,
         pedalFlowCount = pedalFlowCount,
         gravityFlowCount = gravityFlowCount,
-        stopPenalty = stopPenalty,
         predictedPedalFlowProbability = predictedPedalFlowProbability,
         predictedGravityFlowProbability = predictedGravityFlowProbability,
         flowConfidence = flowConfidence,

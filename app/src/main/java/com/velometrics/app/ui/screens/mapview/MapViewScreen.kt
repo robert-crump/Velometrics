@@ -118,6 +118,13 @@ import org.maplibre.geojson.Point
 private const val GPX_TRACK_LAYER_ID = "gpx-shared-track"
 private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 
+// Number of recent fixes kept for the accuracy-weighted moving average that smooths the
+// on-screen marker. Rendering only — POI-distance/Fast-Way-Home calculations use the
+// unsmoothed currentLocation from the ViewModel.
+private const val LOCATION_SMOOTHING_WINDOW_SIZE = 5
+
+private data class LocationSample(val lat: Double, val lon: Double, val accuracyM: Float)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapViewScreen(
@@ -259,7 +266,11 @@ fun MapViewScreen(
     var gpxSegmentRendered by remember { mutableStateOf(false) }
     var fastWayHomeRendered by remember { mutableStateOf(false) }
     var planARideRenderedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var fineLocationZoomedIn by remember { mutableStateOf(false) }
+
+    // Follow mode: camera recenters on every new fix while true. Disabled only by a
+    // user-initiated pan/zoom gesture (detected via camera-move-reason), not by the app's
+    // own programmatic camera animations. Re-enabled by tapping locate-me.
+    var followMode by remember { mutableStateOf(true) }
 
     // Device heading (compass direction the phone is facing), shown as an arrow on the
     // user location marker. Null if the rotation vector sensor is unavailable.
@@ -270,21 +281,49 @@ fun MapViewScreen(
         onDispose { headingSensor.stop() }
     }
 
-    // Render user location marker; re-center once a fine fix (accuracy ≤ 50 m) is obtained
-    LaunchedEffect(currentLocation, locationAccuracy, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
+    // Accuracy-weighted moving average of recent fixes, used only to smooth the rendered
+    // marker position — the canonical currentLocation stays unsmoothed for POI-distance and
+    // Fast-Way-Home calculations.
+    val locationSamples = remember { mutableStateListOf<LocationSample>() }
+    var smoothedLocation by remember { mutableStateOf<LatLng?>(null) }
+    LaunchedEffect(currentLocation, locationAccuracy) {
         val loc = currentLocation ?: return@LaunchedEffect
+        val accuracy = locationAccuracy ?: 1000f
+        locationSamples.add(LocationSample(loc.latitude, loc.longitude, accuracy))
+        while (locationSamples.size > LOCATION_SMOOTHING_WINDOW_SIZE) {
+            locationSamples.removeAt(0)
+        }
+        var weightSum = 0.0
+        var latSum = 0.0
+        var lonSum = 0.0
+        locationSamples.forEach { sample ->
+            val weight = 1.0 / sample.accuracyM.toDouble().coerceAtLeast(1.0).pow(2)
+            weightSum += weight
+            latSum += sample.lat * weight
+            lonSum += sample.lon * weight
+        }
+        smoothedLocation = LatLng(latSum / weightSum, lonSum / weightSum)
+    }
+
+    // Render user location marker at the smoothed position
+    LaunchedEffect(smoothedLocation, locationAccuracy, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val loc = smoothedLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
         try {
             renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
         } catch (_: IllegalStateException) {
             return@LaunchedEffect
         }
-        if (!fineLocationZoomedIn && accuracy <= 50f) {
-            fineLocationZoomedIn = true
-            ms.first.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(loc, DEFAULT_MAP_ZOOM + 2.0)
-            )
+    }
+
+    // Follow-mode camera: recenter (pan only, preserving zoom) on every new raw fix while
+    // follow mode is on. Uses the raw currentLocation, not the smoothed render-only position.
+    LaunchedEffect(currentLocation, followMode, mapAndStyle) {
+        val ms = mapAndStyle ?: return@LaunchedEffect
+        val loc = currentLocation ?: return@LaunchedEffect
+        if (followMode) {
+            ms.first.animateCamera(CameraUpdateFactory.newLatLng(loc))
         }
     }
 
@@ -586,6 +625,11 @@ fun MapViewScreen(
                     viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
                     scaleBarInfo = computeScaleBarInfo(map, density)
                 }
+                map.addOnCameraMoveStartedListener { reason ->
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                        followMode = false
+                    }
+                }
             }
         )
 
@@ -794,7 +838,7 @@ fun MapViewScreen(
             }
             FloatingActionButton(
                 onClick = {
-                    viewModel.startLocationUpdates()
+                    followMode = true
                     val loc = currentLocation
                     val ms = mapAndStyle
                     if (loc != null && ms != null) {
@@ -1712,14 +1756,10 @@ private fun renderUserMarker(
 
     style.addSource(source)
 
-    // Bin the GPS accuracy to reduce visual jitter
-    val binRadiusM = when {
-        accuracyM <= 10f  -> 10.0
-        accuracyM <= 20f  -> 20.0
-        accuracyM <= 50f  -> 50.0
-        accuracyM <= 100f -> 100.0
-        else              -> 200.0
-    }
+    // Location.getAccuracy() is a 68%-confidence radius by definition, so ~1-in-3 fixes
+    // legitimately land outside it with no bug. Doubling it approximates a ~95%-confidence
+    // radius so the dot reliably reads as "inside the circle".
+    val displayRadiusM = accuracyM.toDouble() * 2.0
 
     // Web Mercator tiles double in resolution with each zoom level, so the screen-pixel
     // radius for a constant ground radius is `radiusAtZoom0 * 2^zoom`. Express that as an
@@ -1727,7 +1767,7 @@ private fun renderUserMarker(
     // real-world accuracy radius — and visibly grows/shrinks — as the map is zoomed,
     // mirroring the Google Maps "my location" accuracy circle.
     val latRad = Math.toRadians(location.latitude)
-    val radiusAtZoom0 = (binRadiusM * 256.0 /
+    val radiusAtZoom0 = (displayRadiusM * 256.0 /
             (2 * Math.PI * com.velometrics.app.util.GeoUtils.EARTH_RADIUS_M * cos(latRad))).toFloat()
     val outerRadius = Expression.interpolate(
         Expression.exponential(2f),

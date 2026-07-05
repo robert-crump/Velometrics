@@ -99,6 +99,9 @@ dependencies {
     // MapLibre
     implementation(libs.maplibre.android.sdk)
 
+    // Play services (fused location)
+    implementation(libs.play.services.location)
+
     // Gson
     implementation(libs.gson)
 

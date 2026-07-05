@@ -1,3 +1,54 @@
+## Issue #126 — Fix stale cached location shown on app open
+Completed: 2026-07-05
+
+### What was done
+
+`AndroidLocationSource.lastKnownFix()` used raw `LocationManager.getLastKnownLocation()` and
+filtered only by accuracy, never by age — so a location cached by the OS hours earlier could be
+served as "current location" on app open. This replaces the raw `LocationManager` path with
+Google Play services' `FusedLocationProviderClient` and adds a 2-minute staleness filter.
+
+**`app/build.gradle.kts` / `gradle/libs.versions.toml`**
+- Added `play-services-location:21.3.0` dependency.
+
+**`util/Constants.kt`**
+- New `LOCATION_CACHE_MAX_AGE_MS = 120_000L` — cached fixes older than this are rejected.
+
+**`data/location/AndroidLocationSource.kt`**
+- Constructor now takes `FusedLocationProviderClient` (injected) alongside `Context` (still used
+  for the `LocationManager` provider-enabled check that backs `LocationException.NoProvider`).
+- `fixes()`: switched from per-provider `LocationManager.requestLocationUpdates` to
+  `fusedLocationClient.requestLocationUpdates` with a `LocationRequest`
+  (`Priority.PRIORITY_HIGH_ACCURACY`, min interval `LOCATION_UPDATE_MIN_TIME_MS`) and a
+  `LocationCallback`; `awaitClose` calls `removeLocationUpdates`. `LocationSource` interface
+  unchanged, so `MapViewViewModel` required no changes.
+- `lastKnownFix()`: awaits `fusedLocationClient.lastLocation` (via a small `Task<T>.await()`
+  suspend adapter using `suspendCancellableCoroutine` — no extra `kotlinx-coroutines-play-services`
+  dependency needed) and now rejects the result if `accuracy > maxAccuracyM` **or**
+  `now - location.time > LOCATION_CACHE_MAX_AGE_MS`.
+
+**`di/LocationModule.kt`**
+- Added a `@Provides` for `FusedLocationProviderClient` via
+  `LocationServices.getFusedLocationProviderClient(context)`.
+
+### Tests
+New `AndroidLocationSourceTest.kt` (mockk-mocked `FusedLocationProviderClient`/`Task`/`Location`,
+no Robolectric needed since every accessed method is stubbed): stale cached fix (age >
+2 min) returns null; fresh cached fix (age well under 2 min) is surfaced with correct lat/lon;
+a fresh-but-inaccurate fix is still rejected by the existing accuracy check; no cached location
+returns null.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin` pass. `testDebugUnitTest`: all location/
+map-view tests pass (392 tests total, 1 pre-existing unrelated failure in `RouteGeneratorTest`
+confirmed present on a clean HEAD checkout before this change, not caused by it).
+
+### Note
+Found `progress.txt` uncommitted in the working tree truncated to ~240 lines (missing all
+history from issue #114 onward, which is already merged in later commits). Restored it from
+`git checkout -- progress.txt` before appending this entry — looked like leftover damage from an
+earlier interrupted session, not real work.
+
+---
+
 ## Issue #117 — Candidate diversity via windings × alternate anchors
 Completed: 2026-06-27
 

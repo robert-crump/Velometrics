@@ -24,6 +24,7 @@ lifecycleViewmodelCompose = "2.8.7"
 datastore = "1.1.1"
 dropboxCoreSdk = "7.0.0"
 securityCrypto = "1.1.0"
+playServicesLocation = "21.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -89,6 +90,9 @@ dropbox-android-sdk = { group = "com.dropbox.core", name = "dropbox-android-sdk"
 
 # Security (encrypted storage)
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+# Play services (location)
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -24,6 +24,7 @@ object CyclingConstants {
     const val GPS_ROUGH_FIX_ACCURACY_M = 200f       // acceptable accuracy for a rough position
     const val LOCATION_UPDATE_MIN_TIME_MS = 1_000L  // min interval between location callbacks
     const val LOCATION_DISPLAY_THROTTLE_MS = 5_000L // blue-dot update throttle
+    const val LOCATION_CACHE_MAX_AGE_MS = 120_000L  // reject cached last-known fixes older than this
 
     // Physics / calculation
     const val MTS_PER_SEC_TO_KMH = 3.6             // m/s → km/h conversion factor

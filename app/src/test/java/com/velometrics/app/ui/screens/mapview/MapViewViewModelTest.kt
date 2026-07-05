@@ -141,6 +141,64 @@ class MapViewViewModelTest {
     }
 
     @Test
+    fun `showLocatingIndicator is false before subscription starts`() = runTest(testDispatcher) {
+        val vm = buildViewModel(FakeLocationSource())
+
+        assertEquals(false, vm.showLocatingIndicator.value)
+    }
+
+    @Test
+    fun `showLocatingIndicator is true while subscription is active and no fix has arrived`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        runCurrent()
+
+        assertEquals(true, vm.showLocatingIndicator.value)
+        assertNull(vm.currentLocation.value)
+    }
+
+    @Test
+    fun `showLocatingIndicator turns false as soon as a fix arrives`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        runCurrent()
+        assertEquals(true, vm.showLocatingIndicator.value)
+
+        fakeLocation.emitFix(coarseFix())
+        advanceUntilIdle()
+
+        assertEquals(false, vm.showLocatingIndicator.value)
+    }
+
+    @Test
+    fun `showLocatingIndicator stays false when permission is denied`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        fakeLocation.setSubscriptionException(LocationException.PermissionDenied)
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        advanceUntilIdle()
+
+        assertEquals(false, vm.showLocatingIndicator.value)
+    }
+
+    @Test
+    fun `showLocatingIndicator stays false when no provider is available`() = runTest(testDispatcher) {
+        val fakeLocation = FakeLocationSource()
+        fakeLocation.setSubscriptionException(LocationException.NoProvider)
+        val vm = buildViewModel(fakeLocation)
+
+        vm.startLocationUpdates()
+        advanceUntilIdle()
+
+        assertEquals(false, vm.showLocatingIndicator.value)
+    }
+
+    @Test
     fun `selectPoiChip activates, switches, and deactivates on re-tap`() = runTest(testDispatcher) {
         val vm = buildViewModel(FakeLocationSource())
 

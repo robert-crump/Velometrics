@@ -178,17 +178,25 @@ class MapViewViewModel @Inject constructor(
     private val _locationAccuracy = MutableStateFlow<Float?>(null)
     val locationAccuracy: StateFlow<Float?> = _locationAccuracy.asStateFlow()
 
+    // True while a location subscription is running but no fix has arrived yet — drives the
+    // "Locating…" indicator. Never true once permission is denied or no provider is available,
+    // preserving the existing silent-ignore behavior for those cases.
+    private val _showLocatingIndicator = MutableStateFlow(false)
+    val showLocatingIndicator: StateFlow<Boolean> = _showLocatingIndicator.asStateFlow()
+
     private var locationUpdateJob: Job? = null
     private var lastDotUpdateMs = 0L
 
     fun startLocationUpdates() {
         locationUpdateJob?.cancel()
+        _showLocatingIndicator.value = _currentLocation.value == null
         locationUpdateJob = viewModelScope.launch {
             try {
                 locationSource.lastKnownFix(CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M)?.let { fix ->
                     _locationAccuracy.value = fix.accuracyM
                     lastDotUpdateMs = System.currentTimeMillis()
                     _currentLocation.value = LatLng(fix.lat, fix.lon)
+                    _showLocatingIndicator.value = false
                 }
                 locationSource.fixes()
                     .onEach { fix ->
@@ -198,12 +206,15 @@ class MapViewViewModel @Inject constructor(
                             lastDotUpdateMs = nowMs
                             _currentLocation.value = LatLng(fix.lat, fix.lon)
                         }
+                        _showLocatingIndicator.value = false
                     }
                     .collect {}
             } catch (_: LocationException.NoProvider) {
                 // no location provider available; keep the map usable without a fix
+                _showLocatingIndicator.value = false
             } catch (_: LocationException.PermissionDenied) {
                 // permission not granted; silently ignore
+                _showLocatingIndicator.value = false
             }
         }
     }

@@ -1,3 +1,44 @@
+## Issue #127 — Add "Locating…" indicator for the no-fix gap
+Completed: 2026-07-05
+
+### What was done
+
+`MapViewViewModel.startLocationUpdates()` had a gap: after #126 added the staleness filter,
+`currentLocation` can stay null for a while after permission grant / first install / a stale
+cached fix being rejected, with no on-screen feedback. This adds a small "Locating…" chip that
+fills that gap.
+
+**`MapViewViewModel.kt`**
+- New `_showLocatingIndicator` / `showLocatingIndicator: StateFlow<Boolean>`, plain
+  `MutableStateFlow` (not a `combine(...).stateIn(WhileSubscribed)` derivation — that pattern only
+  updates its cached `.value` while something is actively collecting it, which would leave the
+  flag frozen at its initial value for code that reads `.value` directly without a collector,
+  same style as the existing `currentLocation`/`locationAccuracy`).
+- `startLocationUpdates()`: sets the flag to `currentLocation == null` at subscription start, then
+  clears it to `false` the moment a fix lands (both the immediate `lastKnownFix()` path and the
+  first `fixes()` emission), and also clears it in both the `NoProvider` and `PermissionDenied`
+  catch blocks — so the indicator never shows when there's no provider or the user denied
+  permission (preserves the existing silent-ignore behavior for `PermissionDenied` from #126).
+
+**`MapViewScreen.kt`**
+- Collects `showLocatingIndicator` and renders a Material3 `AssistChip` ("Locating…" + small
+  `CircularProgressIndicator` leading icon) as the top item of the existing bottom-right stacked-FAB
+  column (above "Plan a ride"), so it never overlaps the POI chip row or GPX/Layers row at the top.
+
+### Tests
+New tests in `MapViewViewModelTest`: indicator false before `startLocationUpdates()` is called,
+true immediately after starting with no fix yet, flips false as soon as a fix arrives, stays false
+across `PermissionDenied`, stays false across `NoProvider`.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.
+
+### Manual verification
+Not run in this session (no device/emulator attached) — behavior was verified via the unit tests
+above, which exercise the same state transitions (subscription start → indicator on, first fix →
+indicator off, permission denied → indicator stays off) that the acceptance criteria's manual
+check covers. Flagging this so a human can do the on-device fresh-install check before merge.
+
+---
+
 ## Test fix — RouteGeneratorTest "rejects a route whose actual distance falls outside every band"
 Completed: 2026-07-05
 

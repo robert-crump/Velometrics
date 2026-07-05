@@ -152,6 +152,7 @@ fun MapViewScreen(
 
     val currentLocation by viewModel.currentLocation.collectAsState()
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
+    val showLocatingIndicator by viewModel.showLocatingIndicator.collectAsState()
 
     // Fast Way Home state
     val fastWayHomeResult by fastWayHomeViewModel.fastWayHomeResult.collectAsState()
@@ -767,6 +768,18 @@ fun MapViewScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (showLocatingIndicator) {
+                AssistChip(
+                    onClick = {},
+                    label = { Text("Locating…") },
+                    leadingIcon = {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                )
+            }
             SmallFloatingActionButton(
                 onClick = { showPlanDistanceDialog = true }
             ) {

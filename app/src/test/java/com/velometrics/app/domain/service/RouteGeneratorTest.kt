@@ -68,14 +68,18 @@ class RouteGeneratorTest {
 
     @Test
     fun `rejects a route whose actual distance falls outside every band`() = runTest {
-        // This fixture cannot form a loop longer than ~2.6 km; asking for 6 km leaves the only
-        // achievable loop far below even the widened band, so generation fails rather than
-        // returning a wildly short "match".
+        // The fixture's 4 corridors + connectors sum to well under 10 km of total edge length, so
+        // no combination of anchors/fills/windings can ever assemble a loop anywhere near 50 km —
+        // even the widened +/-30% band (35-65 km) is unreachable, so generation fails rather than
+        // returning a wildly short "match". (A 6 km ask used to be unreachable too, back when the
+        // skeleton built a single anchor combo per quadrant; issue #117's CW/CCW windings + top-N
+        // anchor combos made a ~4.6 km loop achievable here via the diagonal cross-connectors, which
+        // falls inside 6 km's widened band and made this test flaky against that target.)
         val repo = LoopFixtureRepository()
 
         val result = RouteGenerator.generate(
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 6000.0,
+            targetDistanceM = 50_000.0,
             repository = repo,
             config = GeneratorConfig(seed = 42L),
         )

@@ -1,3 +1,36 @@
+## Test fix — RouteGeneratorTest "rejects a route whose actual distance falls outside every band"
+Completed: 2026-07-05
+
+### What was done
+
+This test failed even on a clean checkout of `main` (confirmed via a throwaway worktree at
+`2493a4a`), unrelated to any feature work in flight. Root cause: the test's fixture-based
+assumption was stale, not a production bug.
+
+The test asked for a 6 km loop against the 4-corridor `LoopFixtureRepository` fixture, on the
+assumption (from an old comment) that the fixture "cannot form a loop longer than ~2.6 km." That
+was true under the original single-anchor-per-quadrant skeleton, but issue #117 (CW/CCW windings +
+top-N anchor combos) added the ability to build loops that use the fixture's diagonal
+cross-connector edges (700 m each), which a plain single-combo quadrilateral never touched. That
+lets `RouteGenerator.generate` legitimately assemble a real, connected ~4.6 km loop from this
+fixture — which lands inside the 6 km target's widened +/-30% acceptance band ([4200, 7800]) at the
+loosest degradation tier, so generation correctly returns `Success` instead of `Failure`. The test
+was asserting the old (now-incorrect) upper bound, not a real defect in
+`RouteGenerator`/`DegradationPolicy`/`CorridorOrienteer`.
+
+**`RouteGeneratorTest.kt`**
+- Raised the requested distance in this test from 6000.0 to 50_000.0 — the fixture's total edge
+  length (corridors + connectors) is nowhere near enough to ever reach 50 km regardless of anchor
+  combos, windings, or future skeleton tweaks, so the test is robust rather than coupled to the
+  exact reachable ceiling of a specific algorithm version.
+- Rewrote the comment to record both the current reasoning and why the old 6 km figure broke.
+
+### Tests
+`testDebugUnitTest`: full suite passes (no failures) after the fix, confirmed via targeted run of
+`RouteGeneratorTest` alone and the full suite.
+
+---
+
 ## Issue #126 — Fix stale cached location shown on app open
 Completed: 2026-07-05
 

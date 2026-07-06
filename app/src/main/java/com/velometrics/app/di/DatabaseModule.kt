@@ -167,6 +167,7 @@ object DatabaseModule {
     fun provideCyclingAssetDatabase(@ApplicationContext context: Context): CyclingAssetDatabase =
         Room.databaseBuilder(context, CyclingAssetDatabase::class.java, "cycling_graph.db")
             .createFromAsset("cycling_graph.db")
+            .addCallback(CyclingAssetDatabase.schemaVersionCallback())
             .fallbackToDestructiveMigration()
             .build()
 

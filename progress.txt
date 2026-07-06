@@ -1,3 +1,56 @@
+## Issue #124 — schema_version contract check + Robolectric fixture test
+Completed: 2026-07-06
+
+### What was done
+
+Parent #123 added `metadata.schema_version` but nothing ever read it — a mismatched exported asset
+(e.g. built for a newer app version) would silently fall through to
+`fallbackToDestructiveMigration()` and wipe the asset instead of failing loudly. This closes that
+gap and adds the JVM-runnable fixture regression test the issue asked for (the prior session's
+`CyclingAssetDatabaseFixtureTest` from #123 was instrumented/on-device only, not a Robolectric unit
+test, so it never ran under `testDebugUnitTest`).
+
+**`data/local/CyclingAssetDatabase.kt`**
+- New companion `EXPECTED_SCHEMA_VERSION = 1` and `schemaVersionCallback()`, a
+  `RoomDatabase.Callback` whose `onOpen` reads `metadata.schema_version` via a raw
+  `SupportSQLiteDatabase` query (no DAO needed — DAOs aren't ready yet inside `onOpen`) and `check()`s
+  it against the constant, throwing an `IllegalStateException` naming both versions on mismatch. A
+  data-level contract, distinct from Room's own `PRAGMA user_version` (the `@Database.version`).
+  No-ops (skips the check) when the metadata table is empty.
+
+**`di/DatabaseModule.kt`**
+- `provideCyclingAssetDatabase` now chains `.addCallback(CyclingAssetDatabase.schemaVersionCallback())`
+  ahead of `.fallbackToDestructiveMigration()`.
+
+**Robolectric test infrastructure (new for this project)**
+- `gradle/libs.versions.toml` / `app/build.gradle.kts`: added `org.robolectric:robolectric:4.14.1`,
+  `androidx.test:core:1.6.1`, `androidx.room:room-testing` as `testImplementation`s, and
+  `testOptions.unitTests.isIncludeAndroidResources = true` — without this, Robolectric's
+  `ShadowArscAssetManager` can't find `createFromAsset`'s asset file at all (`FileNotFoundException`).
+
+**`data/local/CyclingAssetDatabaseFixtureTest.kt` (new, `src/test`)**
+- `@RunWith(RobolectricTestRunner::class)`, `@Config(application = Application::class)` (swaps out
+  the real `@HiltAndroidApp` `VelometricsApplication` for a plain `Application` so the test can build
+  a bare `Room` database without pulling in the whole Hilt graph), `@SQLiteMode(SQLiteMode.Mode.NATIVE)`
+  — Robolectric's default legacy SQLite shadow (`sqlite4java`) doesn't implement the JSON1 extension,
+  and `MapEdgeDao.getRoutingEdgesNear` uses `json_extract`; native mode uses a real SQLite build and
+  fixes it. This matters for any future Robolectric test that touches `map_edges`.
+- `fixture asset opens through Room without a destructive-fallback wipe`: opens
+  `cycling_graph_fixture.db` via `createFromAsset` + the new callback, asserts metadata survives with
+  `schemaVersion == EXPECTED_SCHEMA_VERSION`, `mapTurnDao().getNear(...)` returns rows, and
+  `mapEdgeDao().getRoutingEdgesNear(...)` (the actual routing query used by route generation, not just
+  a generic `getNear`) returns rows.
+- `onOpen throws a clear error when schema_version does not match`: builds a plain (non-asset) copy of
+  the schema, raw-`execSQL`s a metadata row with `schema_version = 999`, closes it, then reopens the
+  same file with the callback attached and asserts the DAO call surfaces an `IllegalStateException`
+  naming both `999` and the expected version.
+
+### Tests
+`EXPECTED_SCHEMA_VERSION = 1` matched the checked-in fixture on the first run — no adjustment needed.
+`./gradlew :app:testDebugUnitTest` (targeted run + full suite): all green, no regressions.
+
+---
+
 ## Issue #128 — Follow-mode camera, locate-me fix, and accuracy circle improvements
 Completed: 2026-07-05
 
@@ -419,311 +472,3 @@ Completed: 2026-06-26
 - `compileDebugKotlin` and `testDebugUnitTest` both pass.
 
 ---
-
-## Route generation bug fixes: budget overshoot, out-and-back, refiner performance
-Completed: 2026-06-25
-
-### What was done
-
-**Bug 1: GRASP budget ceiling too high → 41km result for 30km target**
-- Added `distanceCeilingFraction: Double = 0.95` to `OrienteerConfig`
-- `graspConstruct` now uses `targetDistanceM * config.distanceCeilingFraction` instead of hardcoded `* 1.15`
-- `evaluateRouteScore`/`evaluateRouteArray` distance band uses the same fraction
-- Effect: coarse routes stay ≤95% of target (was 115%), leaving headroom for coarse-to-refined expansion
-
-**Bug 2: Out-and-back patterns from corridor revisits**
-- Added anti-out-and-back check in GRASP feasibility filter: `if (adj.corridorId == previous) return@filter false` prevents visiting the corridor the route just came from (A→B→A)
-- Reduced `maxRevisitsPerCorridor` default from 3 to 2
-
-**Bug 3: Refiner performance — 250ms × 45 segments = 11s per candidate**
-- `refine()` now preloads edges and nodes once for the entire candidate using `computeChainBbox` with 2× margin, then runs all A* segments against the preloaded data
-- Falls back to per-segment bbox loading only when the preloaded data misses a path
-- Effect: N DB queries → 1 DB query per candidate (+ rare per-segment fallback)
-
-**Test fixture fixes**
-- `LoopFixtureRepository` corridor lengths changed from 1000m to 300m (matching internal edge lengths) and connector distances from 800m to 500m (matching connector edge lengths) so coarse and refined distances are consistent
-- Test target distances adjusted to match the new fixture distances (3700m) and budget ceiling (0.95)
-
-### Tests
-Updated 6 existing `RouteGeneratorTest` targets. Updated 2 `CorridorOrienteerTest` targets and budget assertions.
-`compileDebugKotlin` and `testDebugUnitTest` both pass (379 tests, 0 failures).
-
----
-
-## Issue #108 — Wire ExitLegPlanner + geometric bias into RouteGenerator
-Completed: 2026-06-25
-
-### What was done
-
-**RouteGenerator pipeline integration (`RouteGenerator.kt`)**
-- `GeneratorConfig` gains `exitLegConfig: ExitLegConfig` (default config)
-- New `ExitLegPlan` data class: bundles `exitLeg`, `exitCorridorId`, `adjustedTargetM`, `estimatedReturnDistM`
-- New `planExitLeg()`: calls `ExitLegPlanner.computeExitLeg()`, finds exit corridor by matching `entryNode == exitLeg.targetNode`, estimates return distance (haversine × 1.3 road factor), computes adjusted budget (`target - exitDist - estimatedReturnDist`)
-  - Skips exit leg if exit corridor is the home corridor (no-op exit)
-  - Skips exit leg if adjusted budget < 30% of original target
-- `generate()` calls `planExitLeg()` before the degradation loop
-- When exit plan exists: passes `startCorridorId` to orienteer, adjusted target as effective budget, `closeLoop = false` to refiner
-- New `stitchRoute()`: computes return leg via `ExitLegPlanner.computeReturnLeg()` from last corridor's exit node, concatenates exit leg edges + corridor route edges + return leg edges into single `RefinedRoute`
-- Graceful fallback: when exit leg fails or is skipped, orienteer starts from home with normal closed-loop behavior (geometric bias still active from #107)
-- Constants: `ROAD_DISTANCE_FACTOR = 1.3`, `MIN_CORRIDOR_BUDGET_FRACTION = 0.3`
-
-**CorridorOrienteer (`CorridorOrienteer.kt`)**
-- `search()` gains `startCorridorId: Long? = null` parameter
-- When provided, uses that corridor as GRASP start point instead of nearest-to-home
-- Ensures start corridor is included in filtered corridor set even if filtered out by radius/direction
-
-**RouteRefiner (`RouteRefiner.kt`)**
-- `refine()` gains `closeLoop: Boolean = true` parameter
-- `buildWaypoints()` gains `closeLoop: Boolean = true`: when false, does not add closing waypoint back to first corridor's entry node, producing an open corridor path
-
-### Tests
-Added 4 new tests to `RouteGeneratorTest`:
-- `planExitLeg returns plan when exit corridor is different from home`: verifies exit leg computation, adjusted target, and exit corridor ≠ home corridor
-- `planExitLeg returns null when exit corridor is home corridor`: verifies skip logic for default config where edge fallback targets home
-- `exit leg stitches exit corridor route and return into single route`: full pipeline happy path with `ExitLegLoopFixtureRepository` (bidirectional edges, 300m corridors, 500m connectors)
-- `fallback to home start when exit leg fails`: pipeline produces closed-loop candidates when exit leg fails (minCorridorDistM = 50km)
-
-New `ExitLegLoopFixtureRepository` fixture: 4 corridors with bidirectional edges, matching corridor lengths (300m) and connector distances (500m) for consistent coarse-to-refined distance alignment.
-`compileDebugKotlin` and `testDebugUnitTest` both pass.
-
----
-
-## Issue #107 — Geometric bias: four-phase oval scoring in CorridorOrienteer
-Completed: 2026-06-25
-
-### What was done
-
-**Phase-based geometric bias in GRASP construction (`CorridorOrienteer.kt`)**
-- Added `geoWeight` parameter to `OrienteerConfig` (default 0.5)
-- Modified GRASP candidate scoring from pure reward to reward × geometric factor:
-  `geoFactor = 1.0 + geoWeight * cosineSimilarity(corridorBearing, phaseBearing)`
-  `effectiveReward = (baseReward / distance) * geoFactor - reusePenalty`
-- Four phases (each 25% of budget), target bearing rotates 90° per phase:
-  - CW example for WEST (270°): Phase 0 → 225° (SW), Phase 1 → 315° (NW),
-    Phase 2 → 45° (NE), Phase 3 → 135° (SE)
-  - CCW: mirror offsets (+45, -45, -135, -225)
-- CW/CCW split: even-numbered restarts use clockwise, odd use counter-clockwise
-- Null direction: when `direction = null`, assigns random direction (N/E/S/W)
-  per restart so routes are always oval-shaped
-- `corridorBearing` computed from current route position to candidate corridor centroid
-- `phaseBearing` determined from budget fraction (usedDistance / maxBudget)
-
-**New internal helpers**
-- `phaseBearing(directionBearing, clockwise, budgetFraction)`: four-phase bearing
-- `geometricFactor(corridorBearing, phaseBearing, geoWeight)`: multiplicative factor
-- `cosineSimilarity(bearing1, bearing2)`: cosine of angular difference
-
-**Constants**
-- `FAR_POINT_BUDGET_FRACTION = 1/3` (budget / 3 from home)
-- `DIRECTIONS` array for null-direction random assignment
-
-### Tests
-Added 14 new tests to `CorridorOrienteerTest`:
-- Phase bearing: CW phases 0-3 for WEST direction, CCW mirrors CW, wrap around 360
-- Geometric factor: identical bearings (1.5), opposite bearings (0.5), perpendicular (1.0), weight scaling
-- Cosine similarity: same (1.0), opposite (-1.0), perpendicular (0.0)
-- CW and CCW restarts produce candidates
-- Null direction assigns random directions and still produces oval-shaped routes
-- Null direction routes respect budget constraints
-`compileDebugKotlin` and `testDebugUnitTest` both pass.
-
----
-
-## Issue #106 — ExitLegPlanner: high-traversal exit and return legs
-Completed: 2026-06-25
-
-### What was done
-
-**New `ExitLegPlanner` service** (`domain/service/ExitLegPlanner.kt`)
-- `computeExitLeg()`: finds path from home to nearest corridor entry using familiar roads
-  - Builds 5km × 5km bbox from home, queries edges, finds local max traversalCount
-  - Adaptive threshold: 25% of local max traversalCount
-  - Progressive fallback: 25% → 10% → 5% → 0% (full graph)
-  - Tries up to 5 candidate corridor entry nodes (filtered by direction and 3–8km range)
-  - A* pathfinding on traversal-filtered subgraph (reuses RouteRefiner pattern)
-  - Picks best path by traversal-weighted score (traversal density per meter)
-  - Soft cap: skips exit leg if nearest corridor > 15% of remaining budget
-  - Edge-based fallback: greedy walk along highest-traversal edges when no corridors in range, hands off to nearest corridor
-
-- `computeReturnLeg()`: symmetric path from corridor exit node back to home
-  - Same adaptive threshold and progressive fallback logic
-  - Covering bbox from corridor exit to home with margin
-
-**New data classes**
-- `ExitLegConfig`: configures bbox size, thresholds, corridor range, soft cap, A* iterations
-- `ExitLeg`: result containing edges, distance, and target node
-
-**Unit tests** (`ExitLegPlannerTest.kt`) — 15 tests covering:
-- Happy path (exit leg from home to corridor)
-- Best corridor selection by traversal score
-- Threshold fallback (25% → 0%)
-- Edge-based fallback when no corridors in range
-- Null when no traversed edges exist
-- Soft cap skip when corridor too far for budget
-- Return leg from corridor to home
-- Return leg null when no path exists
-- Direction filtering of candidate corridors
-- Null-direction returns all candidates
-- Score calculation (traversal density)
-- Empty path scoring
-- Bbox construction (symmetric and covering)
-- Nearest node selection
-
----
-
-## Issue #104 — Remove dead overlay code (all-rides layer, speed overlay)
-Completed: 2026-06-24
-
-### What was done
-
-**MapViewViewModel.kt**
-- Removed `_showAllRidesLayer` / `showAllRidesLayer` state
-- Removed `_showSpeedOverlay` / `showSpeedOverlay` state
-- Removed `_selectedSpeedCategories` / `selectedSpeedCategories` state
-- Removed `toggleAllRidesLayer()`, `toggleSpeedOverlay()`, `toggleSpeedCategory()` methods
-
-**MapViewScreen.kt**
-- Removed 3 `collectAsState()` bindings for the dead state flows
-- Removed 2 dormant `LaunchedEffect` blocks (all-rides layer, speed overlay)
-- Removed `LegendCard` composable (unused since UI toggles removed in #78)
-- Removed `toGrayscaleColor` helper (only used by LegendCard)
-- Cleaned up unused imports: `SPEED_COLOR_MAP`, `INTERVAL_DURATION_COLOR_RAMP`, `CircleShape`
-
-**MapOverlayRenderer.kt**
-- Removed `renderEdges`, `removeEdges`, `renderSpeedOverlay`, `removeSpeedOverlay` methods
-- Removed `decodeEdgePoints` private helper (only used by dead methods)
-- Removed `EDGE_SOURCE`, `EDGE_LAYER`, `SPEED_SOURCE`, `SPEED_LAYER` constants
-- Cleaned up unused imports: `MapEdge`, `CyclingConstants`, `SPEED_OVERLAY_LINE_WIDTH`, `MapOverlayUtils`, `Layer`
-
-All existing unit tests pass. No production code references remain for any removed symbols.
-
----
-
-## Issue #103 — Replace eager 512K edge load with viewport-scoped flow segments query
-Completed: 2026-06-24 | Closed: pending
-
-### What was done
-
-**New `FlowSegment` domain model**
-- `domain/model/FlowSegment.kt`: lightweight data class with only `geometryEncoded`,
-  `pedalFlowCount`, `gravityFlowCount` — no metadata, no speed/power stats, no node IDs.
-
-**New DAO query (`MapEdgeDao.kt`)**
-- `FlowSegmentRow` data class for the Room projection.
-- `getFlowSegmentsNear(minLat, maxLat, minLon, maxLon, minFlowCount)`: spatial BETWEEN
-  query (same pattern as `getNear()`) with flow-qualifying filter in SQL via
-  `json_extract(e.metadata, '$.pedal_flow_count')` + `json_extract(e.metadata,
-  '$.gravity_flow_count')`. Non-flow edges never leave the DB.
-
-**Repository method (`MapGraphRepository`, `MapGraphRepositoryImpl`)**
-- `getFlowSegmentsNear(minLat, minLon, maxLat, maxLon)`: passes
-  `CyclingConstants.FLOW_SEGMENT_MIN_COUNT` as the threshold to the DAO query, maps
-  `FlowSegmentRow` → `FlowSegment`.
-
-**ViewModel (`MapViewViewModel.kt`)**
-- Removed `allEdges: StateFlow<List<MapEdge>>` (was `SharingStarted.Eagerly` loading
-  all 511,597 edges ~200-250 MB).
-- Moved `_viewportBounds` declaration earlier (shared by POI layer and flow segments).
-- New `flowSegments: StateFlow<List<FlowSegment>>` combining `_showFlowSegments` toggle
-  with `_viewportBounds.debounce(300)`. Only active when the toggle is ON; returns
-  `emptyList()` when OFF or viewport is null.
-
-**MapViewScreen (`MapViewScreen.kt`)**
-- Replaced `val edges by viewModel.allEdges.collectAsState()` with
-  `val flowSegments by viewModel.flowSegments.collectAsState()`.
-- Flow segments `LaunchedEffect` now keys on `flowSegments` (viewport-scoped, pre-filtered)
-  instead of all edges.
-- Dormant overlay `LaunchedEffect`s (All rides, Speed overlay — UI toggles removed in #78)
-  no longer observe `edges`, avoiding any eager load trigger.
-
-**MapOverlayRenderer (`MapOverlayRenderer.kt`)**
-- `renderFlowSegments` now accepts `List<FlowSegment>` instead of `List<MapEdge>`. Decodes
-  `geometryEncoded` directly — no `isFlowSegment` filter needed since SQL already filters.
-
-### Tests
-Updated 5 fake `MapGraphRepository` implementations (MapViewViewModelTest,
-MapMatcherTest, FastWayHomeServiceTest, RouteRefinerTest, RouteGeneratorTest)
-with the new `getFlowSegmentsNear` method stub.
-`compileDebugKotlin` and `testDebugUnitTest` both pass.
-
-## Issue #102 — Wire surrogate fallback into speed/power estimate and discovery score
-Completed: 2026-06-24 | Closed: pending
-
-### What was done
-
-**`GpxAnalysisUtils.discoveryScore()` — surrogate-aware**
-- Added `surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()` parameter.
-- Edges present in the surrogates map (keyed by fromNode to toNode) count as
-  traversed — they contribute 0% to the "untraversed" total.
-
-**`GpxAnalysisUtils.speedPowerEstimate()` — surrogate-aware**
-- Added `surrogates: Map<Pair<Long, Long>, MapEdge> = emptyMap()` parameter.
-- For uncovered edges that have a surrogate, borrows the surrogate's `speedMean`
-  and `powerMean` for the length-weighted average calculation.
-- Reports both direct-only coverage (`coveragePercent`) and direct + surrogate
-  coverage (`totalCoveragePercent`).
-
-**`SpeedPowerEstimate` — new `totalCoveragePercent` field**
-- Added `totalCoveragePercent: Int = coveragePercent` to represent combined
-  direct + surrogate coverage while keeping `coveragePercent` as direct-only.
-
-**`GpxSharedViewModel.fetchRouteAnalysis()` — orchestration**
-- After `matchTrackChunked`, calls new `findSurrogatesForMatchedEdges()` once.
-- `findSurrogatesForMatchedEdges` loads all edges/nodes in the track's bbox,
-  builds a fresh `RTreeSpatialIndex`, identifies uncovered matched edges by
-  (fromNode, toNode) lookup, calls `GpxAnalysisUtils.findSurrogates()`, and
-  converts the index-keyed result to a (fromNode, toNode)-keyed map.
-- Gracefully skips surrogate lookup if edge count exceeds 100K (safety cap).
-- Passes the resulting surrogate map to both `discoveryScore()` and
-  `speedPowerEstimate()`.
-
-**`SpeedPowerEstimateResult.Estimate` — new `totalCoveragePercent` field**
-- Added to carry the combined coverage through to the UI.
-
-**GPX analysis UI (`MapViewScreen.kt`)**
-- `SpeedPowerEstimateSection` now shows enhanced coverage when
-  `totalCoveragePercent > coveragePercent`: "X% data coverage (Y% direct, rest
-  from nearby parallel roads)".
-
-### Tests
-Added 6 new tests to `GpxAnalysisUtilsTest`: `speedPowerEstimate` with surrogates
-increases `totalCoveragePercent`, surrogates borrow surrogate metadata for weighted
-average, without surrogates `totalCoveragePercent` equals `coveragePercent`,
-`discoveryScore` with surrogates treats surrogate-covered edges as traversed,
-without surrogates unchanged, surrogates only affect untraversed edges.
-`compileDebugKotlin` and `testDebugUnitTest` both pass.
-
-## Issue #101 — Surrogate lookup: find nearest parallel edge with metadata
-Completed: 2026-06-24 | Closed: pending
-
-### What was done
-
-**New `findSurrogates()` in `GpxAnalysisUtils` (suspend, pure lookup)**
-- `util/GpxAnalysisUtils.kt`: new suspend function:
-  - `findSurrogates(uncoveredEdges, allEdges, spatialIndex)` — returns a
-    `Map<Long, MapEdge>` mapping each uncovered edge's index to its nearest
-    surrogate edge (a parallel traversed edge with speed/power metadata).
-- For each uncovered edge:
-  1. Decodes the edge's polyline geometry via `PolylineDecoder`.
-  2. Computes the midpoint from the decoded geometry.
-  3. Queries the `RTreeSpatialIndex` at the midpoint with a 20m radius.
-  4. Filters candidates: must be traversed, have non-null `speedMean` and
-     `powerMean`, and not be the uncovered edge itself.
-  5. Computes start-to-end bearing for both the uncovered edge and each
-     candidate. Keeps only candidates whose bearing difference is ≤ 45°
-     (same direction only — anti-parallel edges excluded).
-  6. Picks the nearest qualifying candidate by distance.
-
-**New constants in `CyclingConstants`**
-- `GPX_SURROGATE_MAX_DISTANCE_M = 20.0`
-- `GPX_SURROGATE_MAX_BEARING_DIFF_DEG = 45.0`
-
-### Tests
-New `FindSurrogatesTest` with 8 tests: empty uncovered edges → empty map,
-no candidates within 20m → empty map, bearing diff > 45° excluded
-(perpendicular candidate), anti-parallel edges (~180° diff) excluded,
-multiple qualifying candidates → nearest by distance selected, candidates
-without speedMean/powerMean excluded, candidates not traversed excluded,
-parallel traversed edge within range selected as surrogate (golden path).
-`compileDebugKotlin` and `testDebugUnitTest` both pass.
-

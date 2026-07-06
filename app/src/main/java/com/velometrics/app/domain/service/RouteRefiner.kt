@@ -4,6 +4,7 @@ import android.util.Log
 import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
+import com.velometrics.app.domain.model.MapTurn
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RoutingEdge
 import com.velometrics.app.util.GeoUtils
@@ -67,7 +68,14 @@ object RouteRefiner {
         preloadedEdges.forEachIndexed { idx, edge ->
             preloadedEdgeIndex.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
         }
-        Log.d(TAG, "refine: preloaded ${preloadedEdges.size} edges, ${preloadedNodes.size} nodes in ${System.currentTimeMillis() - loadStart}ms")
+        val preloadedTurns = repository.getTurnsNear(
+            chainBbox.minLat, chainBbox.minLon, chainBbox.maxLat, chainBbox.maxLon,
+        )
+        val turnLookup = HashMap<Triple<Long, Long, Long>, MapTurn>(preloadedTurns.size)
+        for (turn in preloadedTurns) {
+            turnLookup[Triple(turn.fromNode, turn.junctionNode, turn.toNode)] = turn
+        }
+        Log.d(TAG, "refine: preloaded ${preloadedEdges.size} edges, ${preloadedNodes.size} nodes, ${preloadedTurns.size} turns in ${System.currentTimeMillis() - loadStart}ms")
 
         val edgePairToLength = HashMap<Pair<Long, Long>, Double>(preloadedEdges.size)
         val edgePairToReward = HashMap<Pair<Long, Long>, Double>(preloadedEdges.size)
@@ -86,6 +94,12 @@ object RouteRefiner {
             val to = waypoints[i + 1]
             if (from == to) continue
 
+            // Waypoints alternate entry->exit (intra-corridor, reward already baked in) and
+            // exit_i->entry_(i+1) (connector, the only place turn cost applies): even indices
+            // are intra-corridor, odd indices are connectors.
+            val isConnectorSegment = i % 2 == 1
+            val segmentTurns = if (isConnectorSegment) turnLookup else null
+
             val targetNode = waypointNodes[to] ?: preloadedNodeMap[to]
             if (targetNode == null) {
                 Log.d(TAG, "refine: segment[$segmentCount] FAIL toNode=$to not found")
@@ -94,7 +108,7 @@ object RouteRefiner {
 
             val shortestPairsFromPreload = shortestPathAStar(
                 preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to, targetNode, config,
-                usedNodePairs,
+                usedNodePairs, segmentTurns,
             )
             var segmentPairs = shortestPairsFromPreload
 
@@ -119,7 +133,7 @@ object RouteRefiner {
                     edges.forEachIndexed { idx, edge ->
                         edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
                     }
-                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config, usedNodePairs)
+                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config, usedNodePairs, segmentTurns)
                     if (segmentPairs != null) {
                         Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges (fallback ${marginMultiplier}x)")
                         break
@@ -182,12 +196,32 @@ object RouteRefiner {
         targetNode: MapNode,
         config: RefinerConfig,
         usedNodePairs: Set<Pair<Long, Long>> = emptySet(),
+        turns: Map<Triple<Long, Long, Long>, MapTurn>? = null,
     ): List<Pair<Long, Long>>? {
         fun heuristic(edgeIdx: Int): Double {
             val endNode = nodeMap[edges[edgeIdx].toNode] ?: return 0.0
             return GeoUtils.haversineDistance(
                 endNode.lat, endNode.lon, targetNode.lat, targetNode.lon,
             )
+        }
+
+        fun edgeBearing(edgeIdx: Int): Double? {
+            val edge = edges[edgeIdx]
+            val from = nodeMap[edge.fromNode] ?: return null
+            val to = nodeMap[edge.toNode] ?: return null
+            return GeoUtils.computeBearing(from.lat, from.lon, to.lat, to.lon)
+        }
+
+        // Turn cost only applies on connector segments (turns != null here); intra-corridor
+        // segments pass null and this always returns 0.
+        fun turnCost(approachIdx: Int, exitIdx: Int): Double {
+            if (turns == null) return 0.0
+            val approachBearing = edgeBearing(approachIdx) ?: return 0.0
+            val exitBearing = edgeBearing(exitIdx) ?: return 0.0
+            val approachEdge = edges[approachIdx]
+            val exitEdge = edges[exitIdx]
+            val turn = turns[Triple(approachEdge.fromNode, approachEdge.toNode, exitEdge.toNode)]
+            return JunctionCost.computeTurnCost(approachBearing, exitBearing, turn)
         }
 
         class AStarEntry(val idx: Int, val fCost: Double)
@@ -236,7 +270,7 @@ object RouteRefiner {
                 if (succIdx == current.idx) continue
 
                 val reuse = if (usedNodePairs.contains(edges[succIdx].fromNode to edges[succIdx].toNode)) config.edgeReusePenalty else 1.0
-                val newG = currentG + edges[succIdx].lengthM * reuse
+                val newG = currentG + edges[succIdx].lengthM * reuse + turnCost(current.idx, succIdx)
 
                 val bestG = gCosts[succIdx]
                 if (bestG != null && newG >= bestG) continue

@@ -1,3 +1,64 @@
+## Issue #125 — Turn-aware junction costs from map_turns
+Completed: 2026-07-06
+
+### What was done
+
+`JunctionCost` was orphaned — never called anywhere except its own test — and modeled turn risk
+via a left-turn-vs-right-turn heuristic modulated by `MapEdge.avgStopCount`, an edge-level proxy
+noted in its own comment as a stand-in until real per-turn data shipped. #123 already landed that
+data (`map_turns`, `MapTurn`, `MapGraphRepository.getTurnsNear`) but nothing consumed it yet. This
+wires it into the A* relaxation loop that `RouteRefiner` already runs per connector segment.
+
+**`domain/service/JunctionCost.kt`**
+- Rewrote `computeTurnCost` to take a `MapTurn?` (looked up by the caller) instead of a `MapEdge`,
+  and to return a **meters-equivalent** penalty so it can be added straight onto A* g-cost
+  alongside edge lengths, rather than the old 0–1-ish normalized value.
+- Dropped the left-turn surcharge / `avgStopCount` waiver entirely — real per-turn hazard/stop/
+  braking/ke-delta data supersedes that geometric proxy.
+- New composition: when a `MapTurn` row exists, cost = angle term (unchanged bearing-difference
+  penalty) + `hazardScore * hazardWeightM` + `stopPenalty * stopWeightM` +
+  `(brakingProbability ?: 0.0) * brakingWeightM` + `(medianKeDelta ?: 0.0).coerceAtLeast(0.0) *
+  keDeltaWeightM`. When no row exists: if the bearing change is negligible (< `negligibleAngleDeg`,
+  default 5°) cost is 0 — most graph nodes are plain geometry pass-through points on a single road
+  and were never written to `map_turns`, so charging every one of them would penalize routes with
+  more nodes over equivalent-length routes with fewer. Only a real, unmeasured bearing change
+  incurs the angle term plus a flat `unmeasuredTurnPenaltyM` surcharge for the unknown risk.
+- A hazardous junction with *no* bearing change (e.g. crossing a busy road straight through) still
+  costs something, since the composed-cost branch doesn't gate on angle — only the no-data branch does.
+
+**`domain/service/RouteRefiner.kt`**
+- `refine()` now preloads `repository.getTurnsNear(...)` for the same chain bbox as the edges/nodes
+  preload, into a `Map<Triple<fromNode, junctionNode, toNode>, MapTurn>`.
+- Waypoints alternate intra-corridor (entry→exit, reward already baked in) and connector
+  (exit_i→entry_(i+1)) segments; since `buildWaypoints` always emits pairs in that order, segment
+  index parity tells them apart (odd `i` = connector) with no new bookkeeping needed.
+- `shortestPathAStar` gains a `turns` param (null for intra-corridor segments, the preloaded map for
+  connector segments). In the successor relaxation it computes approach/exit bearings from
+  `nodeMap` via the existing `GeoUtils.computeBearing`, looks up the turn keyed
+  `(current.fromNode, current.toNode, succ.toNode)`, and adds `JunctionCost.computeTurnCost(...)`
+  onto `newG` alongside the existing length + reuse-penalty terms.
+- Scope note: the very first edge choice at a connector segment's start node isn't charged a turn
+  cost (no "approach edge" carries over from the previous, independently-solved intra-corridor
+  segment) — only turns strictly inside a segment's own A* search are covered. Widening that would
+  require threading state across segment boundaries, which the issue didn't ask for.
+
+### Tests
+- Rewrote `JunctionCostTest.kt` for the new `MapTurn?`-based signature: angle-only monotonicity and
+  wrap-around (unmeasured), each of hazard/stop/braking/ke-delta increasing cost independently,
+  null braking/ke-delta treated as zero, negative ke-delta clamped to zero, a straight-through
+  junction still costing something when hazard data exists, and a full sum-of-terms check against
+  the default config's weights.
+- `RouteRefinerTest.kt`: extended `FakeRepository` with a `turns` param feeding `getTurnsNear`. Two
+  new tests on a shared fixture (direct 2→3→5 path with a hazardous turn record at the node-3
+  junction vs. a longer straight 2→4→5 detour with no turn data): the connector-segment test
+  asserts the detour is chosen once the hazardous turn's cost pushes the direct path above it; the
+  intra-corridor-segment test (single corridor, `closeLoop = false`) asserts the same hazardous
+  record is ignored and the shorter direct path wins, proving turn cost is scoped to connectors only.
+- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass
+  (403 tests, 0 failures).
+
+---
+
 ## Issue #124 — schema_version contract check + Robolectric fixture test
 Completed: 2026-07-06
 
@@ -415,60 +476,3 @@ Completed: 2026-06-26
   (fixtures carry empty `edgeList`, so separation falls back to entry/exit nodes and the tiny
   graphs still form loops).
 - `compileDebugKotlin` and `testDebugUnitTest` both pass.
-
----
-
-## Issue #113 — Quadrant skeleton replaces GRASP corridor ordering (tracer bullet)
-Completed: 2026-06-26
-
-### What was done
-
-**`CorridorOrienteer.kt` — outright replacement of the GRASP engine**
-- Removed the entire GRASP construction + local-search path: `graspConstruct`,
-  `localSearch`, `tryTwoOpt`, `tryOrOpt`, `evaluateRouteScore`, `evaluateRouteArray`,
-  `precomputeConnectionDistances`, `precomputeHomeDistances`, `pairKey`,
-  `buildAdjacency`, `dijkstraFromHome`, `selectDiverse`, `corridorOverlap`,
-  `reuseModulation`, `outboundFactor`, `phaseBearing`, `geometricFactor`,
-  `filterByDirection`, and the `AdjEntry`/`ScoredCandidate` helpers. No config flag —
-  the quadrant skeleton is the only path.
-- New deterministic `search()` (signature dropped `connectors`, `rewardContext`, `seed`):
-  1. `reach = target * FAR_POINT_BUDGET_FRACTION` (= target/3) drives the radius filter,
-     replacing the old `target/2`. The previously-dead `FAR_POINT_BUDGET_FRACTION` constant
-     is now wired up.
-  2. Builds a ride-aligned frame: `rideBearing` = `direction.bearingCenter`, or — when no
-     direction is given — the bearing to the farthest reachable corridor. `u = unit(rideBearing)`,
-     `v = perp(u)` (right of travel).
-  3. Classifies each reachable corridor by `along = (c-home)·u` / `lateral = (c-home)·v` into
-     four quadrants (Q1 front-right, Q2 front-left, Q3 back-left, Q4 back-right).
-  4. Picks one geometry-first anchor per quadrant by
-     `anchorScore = farWeight*(along/reach) + headingWeight*headingAlignment(corridorBearing,
-     arcTangent) + rewardWeight*rewardNorm` (reward is tiebreak only). `arcTangent` is the
-     quadrant bisector bearing in the aligned frame.
-  5. Emits an ordered corridor-ID skeleton: home corridor (or the exit-plan start corridor as
-     Q1) followed by the natural Q1->Q2->Q3->Q4 anchors (deduped). Returns a single
-     `CandidateLoop` with summed reward/flow/discovery sub-scores and an informational coarse
-     distance estimate. Returns empty when fewer than two distinct corridors are reachable.
-- New internal helpers (unit-tested): `toLocalMeters`, `alongLateral`, `quadrantOf`,
-  `anchorScore`, `arcTangentBearing`, `cosineSimilarity` (kept). `filterByRadius` and
-  `findNearestCorridor` retained.
-- `OrienteerConfig` trimmed to `candidateCount`, `reusePenaltyWeight` (retained only as the
-  base for `DegradationPolicy`'s relaxation tiers), and the new `farWeight`/`headingWeight`/
-  `rewardWeight`. All GRASP-only fields removed.
-
-**`RouteGenerator.kt`**
-- `search()` call updated to the new signature (no connectors/rewardContext/seed). Removed the
-  now-unused `tierRewardContext`. The exit-plan start corridor is still passed via
-  `startCorridorId`; closed-loop vs stitched-route paths unchanged.
-
-### Tests
-- Rewrote `CorridorOrienteerTest`: quadrant classification end-to-end (home + one corridor per
-  compass quadrant -> ordered `[1,2,3,4,5]` skeleton), best-anchor selection within a crowded
-  quadrant, start corridor honored as Q1, reach (target/3) exclusion, determinism, empty/single
-  inputs, and unit tests for `toLocalMeters`, `alongLateral`, `quadrantOf`, `arcTangentBearing`,
-  `cosineSimilarity`, `anchorScore` (far-bias + reward tiebreak), `filterByRadius`,
-  `findNearestCorridor`.
-- `RouteGeneratorTest`: dropped the removed `graspRestarts` config arg; existing end-to-end,
-  exit-leg-stitch, fallback, and degradation tests still pass against the skeleton.
-- `compileDebugKotlin` and `testDebugUnitTest` both pass.
-
----

@@ -6,6 +6,7 @@ import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.MapNode
+import com.velometrics.app.domain.model.MapTurn
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RoutingEdge
@@ -403,6 +404,63 @@ class RouteRefinerTest {
         )
     }
 
+    // --- Turn cost tests ---
+
+    @Test
+    fun `connector segment charges turn cost and prefers a longer detour over a hazardous turn`() = runTest {
+        val (edges, nodes) = turnForkGraph()
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 1, exitNode = 2, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 5, exitNode = 6, lat = 50.0, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes, turns = listOf(hazardousTurn())),
+        )
+
+        assertNotNull(result)
+        // Direct 2->3->5 (200m) is shorter than detour 2->4->5 (300m), but the hazardous turn
+        // charged at the connector segment (2,3,5) pushes it above the detour's total cost.
+        assertTrue(
+            "Should detour via node 4 to avoid the hazardous turn at node 3",
+            result!!.edges.any { it.fromNode == 2L && it.toNode == 4L },
+        )
+        assertFalse(
+            "Should not take the hazardous direct path through node 3",
+            result.edges.any { it.fromNode == 2L && it.toNode == 3L },
+        )
+    }
+
+    @Test
+    fun `intra-corridor segment ignores turn cost even with a hazardous turn record present`() = runTest {
+        val (edges, nodes) = turnForkGraph()
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 2, exitNode = 5, lat = 50.0, lon = 6.0),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes, turns = listOf(hazardousTurn())),
+            config = RefinerConfig(connectorRewardBudgetFraction = null),
+            closeLoop = false,
+        )
+
+        assertNotNull(result)
+        // The 2->5 leg here is intra-corridor (waypoints entry->exit), so the same hazardous
+        // turn at node 3 must NOT be charged; the shortest path via node 3 should still win.
+        assertTrue(
+            "Shortest path through node 3 should be used inside a corridor",
+            result!!.edges.any { it.fromNode == 2L && it.toNode == 3L },
+        )
+    }
+
     // --- Test fixtures ---
 
     private fun edge(
@@ -524,11 +582,55 @@ class RouteRefinerTest {
         return edges to nodes
     }
 
+    /**
+     * Graph with two paths from node 2 to node 5:
+     *   Direct: 2 → 3 → 5 (100 + 100 = 200m), with a sharp turn at node 3
+     *           (north then east-ish) matching `hazardousTurn()`'s (2, 3, 5) key.
+     *   Detour: 2 → 4 → 5 (150 + 150 = 300m), dead straight (no bearing change, no turn record).
+     * Plus corridor approach/return edges (1→2, 5→6, 6→1, 5→2) so the fork can be placed on
+     * either a connector or an intra-corridor segment depending on the corridor map used.
+     */
+    private fun turnForkGraph(): Pair<List<MapEdge>, List<MapNode>> {
+        val nodes = listOf(
+            node(1, 50.0, 5.999),
+            node(2, 50.0, 6.0),
+            node(3, 50.001, 6.0),
+            node(4, 50.0, 6.001),
+            node(5, 50.0, 6.002),
+            node(6, 50.0, 6.003),
+        )
+        val edges = listOf(
+            edge(1, 2, 100.0),
+            edge(2, 3, 100.0),
+            edge(3, 5, 100.0),
+            edge(2, 4, 150.0),
+            edge(4, 5, 150.0),
+            edge(5, 6, 100.0),
+            edge(6, 1, 100.0),
+            edge(5, 2, 50.0),
+        )
+        return edges to nodes
+    }
+
+    private fun hazardousTurn() = MapTurn(
+        fromNode = 2L,
+        junctionNode = 3L,
+        toNode = 5L,
+        hazardScore = 1.0,
+        hazardSource = "measured",
+        stopPenalty = 2.0,
+        stopPenaltySource = "measured",
+        brakingProbability = 1.0,
+        medianKeDelta = 20.0,
+        stopPenaltyConfidence = 1.0,
+    )
+
     // --- Fake repositories ---
 
     private open class FakeRepository(
         private val edges: List<MapEdge> = emptyList(),
         private val nodes: List<MapNode> = emptyList(),
+        private val turns: List<MapTurn> = emptyList(),
     ) : MapGraphRepository {
         override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getAllNodes(): Flow<List<MapNode>> = flowOf(emptyList())
@@ -548,7 +650,7 @@ class RouteRefinerTest {
         ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM, RewardComposer.composeEdgeReward(it).total) }
         override suspend fun getTurnsNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
-        ) = emptyList<com.velometrics.app.domain.model.MapTurn>()
+        ) = turns
         override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
         override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())

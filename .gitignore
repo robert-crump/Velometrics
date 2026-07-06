@@ -55,6 +55,3 @@ cleanup-report.md
 
 # Cycling graph DB (large binary asset, kept locally only)
 app/src/main/assets/cycling_graph.db
-
-# Fixture graph DB (binary test asset, provided locally / out-of-band, not checked in)
-app/src/main/assets/cycling_graph_fixture.db

@@ -1,3 +1,74 @@
+## Issue #132 — Adaptive coarse-distance calibration
+Completed: 2026-07-10
+
+### What was done
+
+Parent #129's diagnosis attributed the #131 tier-cascade regression (20km/50km routes overshooting
+their band, forced into looser relaxation tiers with worse candidate pools) to the coarse search
+budgeting connectors at `haversine * 1.3` while #131's hull-bias makes real connector paths longer
+than that assumes. This adds a one-shot recalibration: refine the first coarse candidate that
+resolves, compare its real `actualDistanceM` to its own coarse `totalDistanceM`, and if the ratio is
+outside +/-15%, redo the coarse search once with the target rescaled by the inverse ratio before
+refining the rest of the pool.
+
+**`domain/service/RouteGenerator.kt`**
+- `effectiveTargetM` is now a `var`; the coarse-search call is factored into a local
+  `runCoarseSearch(target, orienteerConfig)` closure so both the initial call and a possible
+  recalibration redo share the same wiring.
+- New `calibrateTarget(...)`: iterates coarse candidates until one refines successfully (matches
+  #134's "first viable candidate" framing), computes `ratio = actualDistanceM / candidate.totalDistanceM`,
+  and returns a rescaled target only when the ratio falls outside `CALIBRATION_TOLERANCE = 0.15`.
+  Returns `attempted = false` when nothing refines (e.g. an empty coarse pool at a tight tier), so
+  the generator keeps probing on the next relaxation tier instead of giving up on calibration.
+- `generate()`'s tier loop gates this behind a per-call `calibrationDone` boolean set the first time
+  `calibrateTarget` actually evaluates a candidate (win or lose) — guarantees at most one rescale
+  redo for the whole `generate()` call, regardless of how many tiers it relaxes through afterward.
+  When an exit leg exists, `effectiveTargetM` is already the corridor-loop-only budget (exit/return
+  legs excluded), so rescaling it only touches the corridor loop, per the issue's scope note.
+
+### Tests
+- `RouteGeneratorTest`: `adaptive calibration reaches tier NONE despite roads that systematically
+  exceed straight-line estimates` — `CorridorOrienteer` is mocked to a small deterministic stand-in
+  for real fill-to-target behavior (nearest-fill-first, stop at 0.9x target) so the test controls
+  candidate growth precisely without fighting the real quadrant/separation skeleton by hand;
+  `RouteRefiner` runs for real over a `MeshSpokeRepository` fixture whose every direct edge is
+  exactly 1.95x its geographic distance (a systemic ~1.5x inflation over the coarse `*1.3` estimate,
+  matching the #129 diagnosis's cited 1.4-1.7x range) — without calibration this overshoots the
+  target by ~40%, with it the recalibrated request lands ~6% under target, comfortably inside +/-15%.
+- `at most one recalibration pass occurs per generation` — mocks both `CorridorOrienteer.search` and
+  `RouteRefiner.refine` (`mockkObject`) so every tier's real distance stays fixed at 5x whatever
+  coarse plan is requested (never lands in any band, even the widest +/-30%, so all 5 tiers relax and
+  a buggy "recalibrate every tier" implementation would keep rescaling since the fixture's ratio is
+  uniform). Captures every target passed to `CorridorOrienteer.search` and asserts only 2 distinct
+  values appear across the whole run (the original target, and the one rescaled value) — would fail
+  under a missing/broken `calibrationDone` guard.
+- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, no
+  regressions.
+
+### Harness before/after (posted to #132)
+Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20/50/80km matrix against the production graph, before (stashed
+this change, clean post-#131 `main`) and after.
+
+**Result: no visible change** — both runs produced identical output (20km: 22.7km actual, +13.7%,
+`SHRINK_SEPARATION`, ~80s; 50km: 58.2km actual, +16.4%, `WIDEN_BAND`, ~280s; 80km: 88.0km, +10.0%,
+`NONE`, ~81s). A temporary diagnostic log of the measured ratio explains why: on this graph the
+first viable candidate's `actualDistanceM / totalDistanceM` ratio was **1.03 (20km), 1.02 (50km),
+1.05 (80km)** — comfortably inside the +/-15% tolerance, so `calibrateTarget` correctly declines to
+rescale every time. The connector-real-vs-coarse-estimate mismatch this issue targets isn't actually
+present (post-#131) on this graph/distance matrix.
+
+What *is* present: `CorridorOrienteer`'s own coarse `totalDistanceM` for the first 20km candidate was
+already ~40.9km (`42143m actual / 1.0316 ratio`) — i.e., the coarse plan itself overshoots the target
+by ~2x before any real-road refinement happens, most likely from `reach = target/3` placing quadrant
+anchors near the reach boundary, whose quadrilateral perimeter is geometrically much larger than
+`3 * reach`. That's a different bug from what #132 was scoped to fix (a reach/fill-ceiling sizing
+mismatch, not a connector-distance-estimation mismatch) — flagging for a follow-up issue rather than
+expanding #132's scope to cover it. The calibration mechanism itself is verified correct (unit tests
+above) and remains a real safety net for graphs/regions where the targeted mismatch does occur; it
+was simply not the dominant error source in this specific harness matrix.
+
+---
+
 ## Issue #131 — Constrain glue routing to the corridor hull (LoopHull + hull-band cost)
 Completed: 2026-07-10
 
@@ -457,56 +528,3 @@ corridor-based. Quadrants with no suitable edge are skipped cleanly.
   fixtures are spread to ±0.02deg to keep all four anchors > the 1500m adaptive separation apart.
 
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.
-
-## Issue #119 — Re-target DegradationPolicy tiers to skeleton levers
-Completed: 2026-06-26
-
-### What was done
-
-The relaxation loop was dead: tiers tweaked `exploreExploitBalance`/`reusePenaltyWeight` — GRASP
-knobs the deterministic quadrant skeleton ignores — and `evaluate()` accepted on candidate *count*,
-never on actual distance, so a loop at 0.5x or 1.5x target was returned as "success". This retargets
-the tiers to the skeleton's real levers and judges acceptance on the actual refined distance.
-
-**`DegradationPolicy.kt`**
-- `RelaxationTier` renamed to the skeleton's levers, tightest-first and cumulative:
-  `NONE -> WIDEN_CONE -> EXTEND_REACH -> SHRINK_SEPARATION -> WIDEN_BAND`. Each tier turns one more
-  lever on and keeps the earlier ones on.
-- `TierParams` now carries `headingConeCosine`, `reachFraction`, `separationM`, `distanceBandFraction`
-  (was `exploreExploitBalance`/`reusePenaltyWeight`). `tierParams()` drops the GRASP base args and
-  derives each lever from the tier ordinal.
-- `DegradationConfig` replaces the eased-GRASP fields with base+relaxed lever values:
-  cone `0.0 -> -0.5` (90deg -> 120deg), reach `1/3 -> 1/2` of target, separation `2000m -> 1000m`,
-  band `0.15 -> 0.30`.
-- `evaluate()` now filters candidates to those whose **actual refined distance** lands within
-  `[1-band, 1+band] x target` for the current tier. Too few in-band -> request the next tier; at the
-  loosest tier any in-band candidate is accepted, zero is a `HardFailure` with the existing reason.
-
-**`CorridorOrienteer.kt`**
-- `OrienteerConfig` drops the vestigial `reusePenaltyWeight` and gains the three relaxation levers
-  `reachFraction`, `separationM`, `headingConeCosine` (defaults preserve prior behaviour: reach =
-  target/3, sep cap = 2km, 90deg cone).
-- `search()` reads `reach` from `config.reachFraction`, caps separation via
-  `separationDistance(reach, config.separationM)`, and threads `config.headingConeCosine` through
-  `fillToTarget -> isValidFill -> headingConsistent` (the hard heading gate on fills). The cone
-  cutoff and separation cap are no longer hardcoded.
-
-**`RouteGenerator.kt`**
-- Builds the per-tier `OrienteerConfig` from the new `TierParams` (reach/separation/cone) instead of
-  the dead reuse-penalty copy, and on `Sufficient` filters the refined routes to the applied tier's
-  acceptance band before ranking by reward.
-
-### Tests
-- Rewrote `DegradationPolicyTest`: new tier order, per-tier lever params + cumulative monotonicity,
-  custom config, and acceptance-on-actual-distance — in-band accepted, out-of-band excluded,
-  no-in-band relaxes, a route that fails tier 0 is accepted once the band widens at the loosest tier,
-  partial set accepted at loosest tier, and the zero-in-band hard-failure path.
-- `CorridorOrienteerTest`: heading cone widens when the cosine threshold is lowered;
-  `separationDistance` honours a lowered cap.
-- `RouteGeneratorTest`: realistic 3000m targets for the ~2600m ring fixture (the old 3700m target
-  relied on count-only acceptance); new tests assert an in-band route is accepted at NONE within
-  +/-15% and that an unreachable 6km request now fails instead of returning a wildly short loop. The
-  exit-leg stitching test widens its own band (the soft cap forces a large target the tiny fixture
-  cannot fill) since it verifies stitching, not distance fit.
-- `compileDebugKotlin` and `testDebugUnitTest` both pass.
-

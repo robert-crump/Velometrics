@@ -9,6 +9,10 @@ import com.velometrics.app.domain.model.MapNode
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RoutingEdge
+import com.velometrics.app.util.GeoUtils
+import io.mockk.coEvery
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -206,6 +210,109 @@ class RouteGeneratorTest {
                 result.appliedTier != DegradationPolicy.RelaxationTier.NONE ||
                     result.candidate.refinedRoute.edges.isNotEmpty(),
             )
+        }
+    }
+
+    // --- Adaptive coarse-distance calibration (#132) ---
+
+    @Test
+    fun `adaptive calibration reaches tier NONE despite roads that systematically exceed straight-line estimates`() = runTest {
+        // MeshSpokeRepository's real roads are a direct point-to-point mesh, each edge exactly
+        // INFLATION_FACTOR times its geographic (haversine) length -- a systemic ~1.5x inflation
+        // over the coarse haversine*1.3 estimate, matching the #129 diagnosis's measured 1.4-1.7x
+        // range. CorridorOrienteer is mocked to a small deterministic stand-in for its real
+        // fill-to-target behaviour (nearest-first, stop once the coarse *estimate* reaches
+        // 0.9x its requested target) so the test controls candidate growth precisely; RouteRefiner
+        // runs for real and does the actual A* distance measurement over the inflated mesh. Without
+        // calibration the coarse search fills toward the full target and the refined route
+        // overshoots it by roughly the fixed 1.5x ratio; #132's rescale should bring it back
+        // in-band at the tightest tier.
+        val repo = MeshSpokeRepository()
+        val targetM = 20_000.0
+
+        mockkObject(CorridorOrienteer)
+        try {
+            coEvery {
+                CorridorOrienteer.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            } answers {
+                val target = arg<Double>(3)
+                listOf(repo.buildCandidateForTarget(target))
+            }
+
+            val calibratedResult = RouteGenerator.generate(
+                homeLat = 50.0, homeLon = 6.0,
+                targetDistanceM = targetM,
+                repository = repo,
+                config = GeneratorConfig(
+                    refinerConfig = RefinerConfig(connectorRewardBudgetFraction = null),
+                    seed = 42L,
+                ),
+            )
+
+            assertTrue("Expected Success, got $calibratedResult", calibratedResult is RoutePlanResult.Success)
+            val success = calibratedResult as RoutePlanResult.Success
+            assertEquals(
+                "Calibration should let this request converge at the tightest tier",
+                DegradationPolicy.RelaxationTier.NONE, success.appliedTier,
+            )
+            assertTrue(
+                "Accepted candidate deviation ${success.candidate.distanceDeviationPercent}% should be within +/-15%",
+                kotlin.math.abs(success.candidate.distanceDeviationPercent) <= 15.0,
+            )
+        } finally {
+            unmockkObject(CorridorOrienteer)
+        }
+    }
+
+    @Test
+    fun `at most one recalibration pass occurs per generation`() = runTest {
+        mockkObject(CorridorOrienteer)
+        mockkObject(RouteRefiner)
+        try {
+            val capturedTargets = mutableListOf<Double>()
+            val fakeCandidate = CandidateLoop(
+                corridors = listOf(1L),
+                totalDistanceM = 1000.0,
+                totalReward = 1.0,
+                flowScore = 0.0,
+                discoveryScore = 0.0,
+            )
+            coEvery {
+                CorridorOrienteer.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            } answers {
+                capturedTargets.add(arg(3))
+                listOf(fakeCandidate)
+            }
+            // Always refines to 5x the coarse plan, regardless of the candidate: never lands in
+            // any band (even the widest +/-30%), so every tier relaxes and, if the "at most once"
+            // guard were missing, each tier would recalibrate again using the same fixed ratio.
+            coEvery {
+                RouteRefiner.refine(any(), any(), any(), any(), any())
+            } returns RefinedRoute(edges = emptyList(), actualDistanceM = 5000.0)
+
+            val repo = SingleCorridorRepository()
+            val result = RouteGenerator.generate(
+                homeLat = 50.0, homeLon = 6.0,
+                targetDistanceM = 1000.0,
+                repository = repo,
+                config = GeneratorConfig(
+                    exitLegConfig = ExitLegConfig(minCorridorDistM = 50_000.0, maxCorridorDistM = 100_000.0),
+                    seed = 1L,
+                ),
+            )
+
+            assertTrue(
+                "Expected Failure since the mocked actual distance never lands in any band, got $result",
+                result is RoutePlanResult.Failure,
+            )
+            val distinctTargets = capturedTargets.distinct()
+            assertEquals(
+                "Expected exactly one recalibration (original target + one rescaled value), got $capturedTargets",
+                2, distinctTargets.size,
+            )
+        } finally {
+            unmockkObject(CorridorOrienteer)
+            unmockkObject(RouteRefiner)
         }
     }
 
@@ -571,6 +678,117 @@ class RouteGeneratorTest {
 
         override suspend fun getAllCorridors() = corridors
         override suspend fun getAllCorridorConnectors() = connectors
+        override suspend fun getEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges
+        override suspend fun getRoutingEdgesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = edges.map { RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
+        override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>): List<MapEdge> {
+            val pairSet = pairs.toSet()
+            return edges.filter { (it.fromNode to it.toNode) in pairSet }
+        }
+        override suspend fun getNodesNear(
+            minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+        ) = nodes
+        override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
+    }
+
+    private inner class SingleCorridorRepository : FakeRepository() {
+        override suspend fun getAllCorridors() = listOf(corridor(1))
+    }
+
+    /**
+     * A line of `spokeCount` corridors due east of home, `stepM` apart, fully mesh-connected: every
+     * pair of points has a direct real edge exactly `inflationFactor` times its geographic
+     * (haversine) distance -- so the real road network is a systematic, uniform multiple of
+     * straight-line distance, regardless of which points a route visits or in what order.
+     *
+     * [buildCandidateForTarget] mimics CorridorOrienteer's real fill-to-target behaviour (nearest
+     * fill first, stop once the coarse *estimate* -- straight-line * [RouteGenerator.ROAD_DISTANCE_FACTOR]
+     * -- reaches 0.9x the requested target) closely enough to drive #132's calibration loop, without
+     * depending on the real quadrant/separation skeleton (whose behaviour on a hand-built fixture is
+     * far harder to predict exactly). RouteRefiner is not mocked: it runs real A* over this mesh, so
+     * the *actual* distance in the test is a genuine measurement, not a stand-in.
+     */
+    private inner class MeshSpokeRepository(
+        private val spokeCount: Int = 40,
+        private val stepM: Double = 300.0,
+        private val inflationFactor: Double = 1.95,
+    ) : FakeRepository() {
+        private val corridors: List<Corridor> = buildList {
+            add(corridor(1, lat = 50.0, lon = 6.0, lengthM = 2.0))
+            for (i in 1..spokeCount) {
+                val lonOffset = GeoUtils.metersToLon(i * stepM, 50.0)
+                add(
+                    corridor(
+                        id = (i + 1).toLong(),
+                        lat = 50.0,
+                        lon = 6.0 + lonOffset,
+                        pedalReward = 3.0,
+                        gravityReward = 2.0,
+                        lengthM = 2.0,
+                    ),
+                )
+            }
+        }
+
+        private val nodes: List<MapNode> = buildList {
+            val tinyEastLon = GeoUtils.metersToLon(1.0, 50.0)
+            for (c in corridors) {
+                add(node(c.entryNode, c.centroidLat, c.centroidLon))
+                add(node(c.exitNode, c.centroidLat, c.centroidLon + tinyEastLon))
+            }
+        }
+
+        private val edges: List<MapEdge> = buildList {
+            for (c in corridors) {
+                add(edge(c.entryNode, c.exitNode, c.lengthM))
+            }
+            for (i in corridors.indices) {
+                for (j in corridors.indices) {
+                    if (i == j) continue
+                    val from = corridors[i]
+                    val to = corridors[j]
+                    val geoDist = GeoUtils.haversineDistance(
+                        from.centroidLat, from.centroidLon, to.centroidLat, to.centroidLon,
+                    )
+                    add(edge(from.exitNode, to.entryNode, geoDist * inflationFactor))
+                }
+            }
+        }
+
+        /** Cyclic sum of consecutive-centroid haversine distances * ROAD_DISTANCE_FACTOR, plus corridor lengths. */
+        private fun coarseEstimate(loop: List<Corridor>): Double {
+            var straightLine = 0.0
+            for (i in loop.indices) {
+                val a = loop[i]
+                val b = loop[(i + 1) % loop.size]
+                straightLine += GeoUtils.haversineDistance(a.centroidLat, a.centroidLon, b.centroidLat, b.centroidLon)
+            }
+            return straightLine * RouteGenerator.ROAD_DISTANCE_FACTOR + loop.sumOf { it.lengthM }
+        }
+
+        /** Nearest-spoke-first stand-in for CorridorOrienteer's real fill-to-target loop. */
+        fun buildCandidateForTarget(targetDistanceM: Double): CandidateLoop {
+            val home = corridors[0]
+            val loop = mutableListOf(home)
+            val ceiling = targetDistanceM * 0.9
+            for (i in 1 until corridors.size) {
+                if (coarseEstimate(loop) >= ceiling) break
+                loop.add(corridors[i])
+            }
+            return CandidateLoop(
+                corridors = loop.map { it.id },
+                totalDistanceM = coarseEstimate(loop),
+                totalReward = loop.sumOf { it.pedalReward + it.gravityReward },
+                flowScore = 0.0,
+                discoveryScore = 0.0,
+            )
+        }
+
+        override suspend fun getAllCorridors() = corridors
+        override suspend fun getAllCorridorConnectors() = emptyList<CorridorConnector>()
         override suspend fun getEdgesNear(
             minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
         ) = edges

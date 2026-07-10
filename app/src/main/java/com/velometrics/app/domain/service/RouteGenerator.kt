@@ -51,6 +51,13 @@ object RouteGenerator {
     internal const val ROAD_DISTANCE_FACTOR = 1.3
     internal const val MIN_CORRIDOR_BUDGET_FRACTION = 0.3
 
+    /**
+     * Coarse connector estimates (haversine x [ROAD_DISTANCE_FACTOR]) vs. real refined distance
+     * can diverge by 40-70% on winding road networks. Outside this tolerance, [calibrateTarget]
+     * rescales the coarse search's target once so the *real* distance lands near the request.
+     */
+    internal const val CALIBRATION_TOLERANCE = 0.15
+
     suspend fun generate(
         homeLat: Double,
         homeLon: Double,
@@ -79,12 +86,33 @@ object RouteGenerator {
             homeLat, homeLon, targetDistanceM, config.direction,
             corridors, repository, config.exitLegConfig,
         )
-        val effectiveTargetM = exitPlan?.adjustedTargetM ?: targetDistanceM
+        var effectiveTargetM = exitPlan?.adjustedTargetM ?: targetDistanceM
         Log.d(TAG, "generate: exitPlan=${if (exitPlan != null) "exitCorridor=${exitPlan.exitCorridorId} exitDist=${exitPlan.exitLeg.distanceM.toInt()}m estReturn=${exitPlan.estimatedReturnDistM.toInt()}m adjustedTarget=${exitPlan.adjustedTargetM.toInt()}m" else "null (fallback to home)"}")
 
         val maxCandidates = config.orienteerConfig.candidateCount
         var currentTier = DegradationPolicy.RelaxationTier.NONE
         val allRefined = mutableListOf<Pair<CandidateLoop, RefinedRoute>>()
+        var calibrationDone = false
+
+        suspend fun runCoarseSearch(target: Double, orienteerConfig: OrienteerConfig): List<CandidateLoop> =
+            CorridorOrienteer.search(
+                corridors, homeLat, homeLon,
+                target,
+                weights, orienteerConfig,
+                config.direction,
+                startCorridorId = exitPlan?.exitCorridorId,
+                nodeResolver = { ids ->
+                    if (ids.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        repository.getNodesByIds(*ids.toLongArray())
+                            .associate { it.id to (it.lat to it.lon) }
+                    }
+                },
+                edgeResolver = { minLat, minLon, maxLat, maxLon ->
+                    repository.getEdgesNear(minLat, minLon, maxLat, maxLon)
+                },
+            )
 
         while (true) {
             coroutineContext.ensureActive()
@@ -102,25 +130,29 @@ object RouteGenerator {
             )
 
             val coarseStart = System.currentTimeMillis()
-            val coarseCandidates = CorridorOrienteer.search(
-                corridors, homeLat, homeLon,
-                effectiveTargetM,
-                weights, tierOrienteerConfig,
-                config.direction,
-                startCorridorId = exitPlan?.exitCorridorId,
-                nodeResolver = { ids ->
-                    if (ids.isEmpty()) {
-                        emptyMap()
-                    } else {
-                        repository.getNodesByIds(*ids.toLongArray())
-                            .associate { it.id to (it.lat to it.lon) }
-                    }
-                },
-                edgeResolver = { minLat, minLon, maxLat, maxLon ->
-                    repository.getEdgesNear(minLat, minLon, maxLat, maxLon)
-                },
-            )
+            var coarseCandidates = runCoarseSearch(effectiveTargetM, tierOrienteerConfig)
             Log.d(TAG, "generate: coarse search found ${coarseCandidates.size} candidates in ${System.currentTimeMillis() - coarseStart}ms")
+
+            if (!calibrationDone) {
+                val calibration = calibrateTarget(
+                    coarseCandidates, corridorMap, repository, config.refinerConfig,
+                    closeLoop = exitPlan == null, currentTargetM = effectiveTargetM,
+                )
+                if (calibration.attempted) {
+                    calibrationDone = true
+                    Log.d(TAG, "generate: calibration ratio=${calibration.ratio} rescaled=${calibration.rescaledTargetM != null}")
+                    if (calibration.rescaledTargetM != null) {
+                        Log.d(
+                            TAG,
+                            "generate: calibration rescaling target " +
+                                "${effectiveTargetM.toInt()}m -> ${calibration.rescaledTargetM.toInt()}m",
+                        )
+                        effectiveTargetM = calibration.rescaledTargetM
+                        coarseCandidates = runCoarseSearch(effectiveTargetM, tierOrienteerConfig)
+                        Log.d(TAG, "generate: recalibrated coarse search found ${coarseCandidates.size} candidates")
+                    }
+                }
+            }
 
             for ((idx, candidate) in coarseCandidates.withIndex()) {
                 if (allRefined.any { it.first.corridors == candidate.corridors }) continue
@@ -215,6 +247,50 @@ object RouteGenerator {
                 }
             }
         }
+    }
+
+    internal data class CalibrationOutcome(
+        /** True once a candidate was actually refined and its ratio measured, win or lose. */
+        val attempted: Boolean,
+        val ratio: Double? = null,
+        val rescaledTargetM: Double? = null,
+    )
+
+    /**
+     * Refines the first coarse candidate that resolves and compares its actual (real-road)
+     * distance against the coarse plan's straight-line-derived estimate. Road networks that wind
+     * more than the coarse haversine*[ROAD_DISTANCE_FACTOR] estimate assumes push that ratio above
+     * [CALIBRATION_TOLERANCE]; rescaling the coarse target by the inverse ratio before refining the
+     * rest compensates, since the same road network inflates the rescaled search's plan by roughly
+     * the same ratio, landing the real distance back near the original request.
+     */
+    private suspend fun calibrateTarget(
+        coarseCandidates: List<CandidateLoop>,
+        corridorMap: Map<Long, Corridor>,
+        repository: MapGraphRepository,
+        refinerConfig: RefinerConfig,
+        closeLoop: Boolean,
+        currentTargetM: Double,
+    ): CalibrationOutcome {
+        for (candidate in coarseCandidates) {
+            if (candidate.totalDistanceM <= 0.0) continue
+            val effectiveCorridorMap = if (candidate.syntheticCorridors.isEmpty()) {
+                corridorMap
+            } else {
+                corridorMap + candidate.syntheticCorridors
+            }
+            val refined = RouteRefiner.refine(candidate, effectiveCorridorMap, repository, refinerConfig, closeLoop)
+                ?: continue
+
+            val ratio = refined.actualDistanceM / candidate.totalDistanceM
+            val outOfTolerance = ratio < 1.0 - CALIBRATION_TOLERANCE || ratio > 1.0 + CALIBRATION_TOLERANCE
+            return CalibrationOutcome(
+                attempted = true,
+                ratio = ratio,
+                rescaledTargetM = if (outOfTolerance) currentTargetM / ratio else null,
+            )
+        }
+        return CalibrationOutcome(attempted = false)
     }
 
     internal suspend fun planExitLeg(

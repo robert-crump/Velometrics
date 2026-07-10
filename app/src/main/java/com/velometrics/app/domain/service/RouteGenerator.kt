@@ -10,11 +10,17 @@ import kotlin.coroutines.coroutineContext
 
 /**
  * Shape gate thresholds (issue #133): a candidate whose refined route meets both is preferred
- * over any higher-reward candidate that doesn't. Provisional defaults per the issue; final values
- * are locked by a follow-up calibration slice.
+ * over any higher-reward candidate that doesn't. Calibrated per issue #135 against the production
+ * graph's 20/50/80km x {NONE,N,E,S,W} matrix, judged perceptually by the maintainer against the
+ * rendered routes: the 3 runs rated "reads as an oval" (d50km_east 0.29, d50km_south 0.28,
+ * d80km_west 0.30) and the runs rated "too many inner loops" (worst offender d80km_north at 0.24)
+ * split cleanly around compactness ~0.24-0.28, so 0.26 sits centered in that gap with symmetric
+ * margin. repeatFraction stayed uniformly low (0.00-0.04) across both good and bad shapes in that
+ * matrix — it wasn't a discriminator for the "inner loops" failure mode, so 0.15 (from #133) is
+ * left as-is; the compactness floor is doing the calibration work here.
  */
 data class RouteShapeGateConfig(
-    val minCompactness: Double = 0.30,
+    val minCompactness: Double = 0.26,
     val maxRepeatFraction: Double = 0.15,
 )
 

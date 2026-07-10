@@ -1,3 +1,71 @@
+## Issue #135 — Calibrate shape-gate thresholds and land the tier-2 real-graph shape-gate test
+Status: IN PROGRESS (not closed — see "Remaining" below)
+
+### What was done
+
+Parent #129's final acceptance is explicitly human-in-the-loop (issue tagged `ready-for-human`,
+worked collaboratively with the maintainer rather than autonomously). Ran the full harness matrix
+requested by the issue and used the maintainer's visual judgment on the renderings to calibrate the
+`RouteShapeGateConfig` thresholds #133 introduced as provisional.
+
+**Harness run**
+- `ROUTE_SHAPE_DIAGNOSIS=1` matrix: distances {20,50,80}km x directions {NONE,NORTH,EAST,SOUTH,WEST}
+  (15 runs) against the production `cycling_graph.db`, real home coordinates. First attempt was a
+  false pass — Gradle's `testDebugUnitTest` reported `UP-TO-DATE` and silently reused a stale prior
+  result because the task doesn't track `System.getenv()` reads as an input; re-ran with
+  `--rerun-tasks` to force real execution (41m19s wall).
+- 12/15 runs succeeded. All 3 failures were 20km + a direction constraint (NORTH/EAST/SOUTH) —
+  "Could not generate a loop from your home location", a hard failure. Folded this into existing
+  issue #138 (`reach = target/3` coarse-skeleton overshoot) as a comment rather than a new issue —
+  same root cause, just manifesting as total failure instead of a band miss at this distance.
+- Repeat fraction was uniformly low (0.00-0.04) across every run, good and bad shapes alike — the
+  original #129 retracing/backtracking symptom looks solved by #131-#134. Compactness (0.02-0.30
+  range) was the only metric that varied enough to be a useful gate.
+
+**Maintainer sign-off (rendered locally, not uploaded anywhere)**
+Built a local, offline, self-contained HTML/SVG renderer (`render_routes.py`, scratchpad-only,
+not committed) instead of pasting the harness's geojson into geojson.io — the geojson embeds the
+exact home address, which must not leave the machine. Maintainer reviewed all 12 successful runs
+and rated 3 as "reads as a rideable oval" (`d50km_east` 0.29, `d50km_south` 0.28, `d80km_west`
+0.30 compactness) and the rest as "too many inner loops" (worst of those: `d80km_north` at 0.24).
+That's a clean split in the 0.24-0.28 range.
+
+**`domain/service/RouteGenerator.kt`**
+- `RouteShapeGateConfig.minCompactness` calibrated from the provisional 0.30 to **0.26** — centered
+  in the maintainer-confirmed good/bad gap, with symmetric margin to both sides. `maxRepeatFraction`
+  left at #133's 0.15 (repeat fraction didn't discriminate good from bad in this matrix, so no data
+  to recalibrate it against).
+
+**`domain/service/RouteShapeGateRegressionTest.kt` (new, tier-2)**
+- Opt-in via `TIER2_SHAPE_GATE=1` (mirrors `ROUTE_SHAPE_DIAGNOSIS`'s pattern), opens the production
+  `cycling_graph.db` asset through Robolectric same as `RouteShapeDiagnosisHarness`, and asserts
+  `RouteGenerator.passesShapeGate` holds for exactly the 3 maintainer-confirmed-good (distance,
+  direction) combos above — deliberately not "every combo in the matrix", since `selectWinner`
+  treats the gate as a soft preference with a best-effort fallback (#133), not a guarantee, and
+  plenty of legitimate combos in this matrix don't clear it without that being a regression.
+  Pinning to confirmed-good combos makes this a real structural guard against a repeat of
+  #107/#111/#113-#119 ("fixed the mechanism, not the shape") rather than a flaky assertion.
+- Measured runtime for the 3 runs: ~5.7 min (221s + 47s + 75s) — over the issue's ~5 min per-PR
+  budget, so this is on-demand/nightly, not part of default `gradlew test`. No CI workflow exists
+  yet in this repo to wire a nightly trigger into, so for now the cadence decision is expressed as
+  the env-var opt-in; actual nightly wiring is deferred until CI exists.
+- First compile+run passed clean (`BUILD SUCCESSFUL` in 7m31s including Gradle daemon cold start).
+
+### Tests
+Full `testDebugUnitTest` suite: green, no regressions from the 0.30 -> 0.26 threshold change.
+
+### Remaining before this issue (and #129) can close
+20km never produced a maintainer-approved oval in this matrix (best compactness 0.02; the other
+three 20km+direction combos failed outright). #135's acceptance criteria require sign-off "at all
+three distances" — not met. Root cause is #138 (already open, now cross-referenced with this
+matrix's data). Discussed with the maintainer explicitly: keeping #135 open and #129 unclosed,
+blocked on #138, rather than force-closing against a partial 2-of-3-distance sign-off. Once #138
+lands, re-run the 20km leg of this matrix and get sign-off on at least one 20km combo.
+
+Posted in full to #135: https://github.com/robert-crump/Velometrics/issues/135#issuecomment-4938484211
+
+---
+
 ## Issue #134 — Return leg must diverge from the exit leg outside the 8km stem windows
 Completed: 2026-07-10
 
@@ -330,233 +398,3 @@ wires it into the A* relaxation loop that `RouteRefiner` already runs per connec
   record is ignored and the shorter direct path wins, proving turn cost is scoped to connectors only.
 - `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass
   (403 tests, 0 failures).
-
----
-
-## Issue #124 — schema_version contract check + Robolectric fixture test
-Completed: 2026-07-06
-
-### What was done
-
-Parent #123 added `metadata.schema_version` but nothing ever read it — a mismatched exported asset
-(e.g. built for a newer app version) would silently fall through to
-`fallbackToDestructiveMigration()` and wipe the asset instead of failing loudly. This closes that
-gap and adds the JVM-runnable fixture regression test the issue asked for (the prior session's
-`CyclingAssetDatabaseFixtureTest` from #123 was instrumented/on-device only, not a Robolectric unit
-test, so it never ran under `testDebugUnitTest`).
-
-**`data/local/CyclingAssetDatabase.kt`**
-- New companion `EXPECTED_SCHEMA_VERSION = 1` and `schemaVersionCallback()`, a
-  `RoomDatabase.Callback` whose `onOpen` reads `metadata.schema_version` via a raw
-  `SupportSQLiteDatabase` query (no DAO needed — DAOs aren't ready yet inside `onOpen`) and `check()`s
-  it against the constant, throwing an `IllegalStateException` naming both versions on mismatch. A
-  data-level contract, distinct from Room's own `PRAGMA user_version` (the `@Database.version`).
-  No-ops (skips the check) when the metadata table is empty.
-
-**`di/DatabaseModule.kt`**
-- `provideCyclingAssetDatabase` now chains `.addCallback(CyclingAssetDatabase.schemaVersionCallback())`
-  ahead of `.fallbackToDestructiveMigration()`.
-
-**Robolectric test infrastructure (new for this project)**
-- `gradle/libs.versions.toml` / `app/build.gradle.kts`: added `org.robolectric:robolectric:4.14.1`,
-  `androidx.test:core:1.6.1`, `androidx.room:room-testing` as `testImplementation`s, and
-  `testOptions.unitTests.isIncludeAndroidResources = true` — without this, Robolectric's
-  `ShadowArscAssetManager` can't find `createFromAsset`'s asset file at all (`FileNotFoundException`).
-
-**`data/local/CyclingAssetDatabaseFixtureTest.kt` (new, `src/test`)**
-- `@RunWith(RobolectricTestRunner::class)`, `@Config(application = Application::class)` (swaps out
-  the real `@HiltAndroidApp` `VelometricsApplication` for a plain `Application` so the test can build
-  a bare `Room` database without pulling in the whole Hilt graph), `@SQLiteMode(SQLiteMode.Mode.NATIVE)`
-  — Robolectric's default legacy SQLite shadow (`sqlite4java`) doesn't implement the JSON1 extension,
-  and `MapEdgeDao.getRoutingEdgesNear` uses `json_extract`; native mode uses a real SQLite build and
-  fixes it. This matters for any future Robolectric test that touches `map_edges`.
-- `fixture asset opens through Room without a destructive-fallback wipe`: opens
-  `cycling_graph_fixture.db` via `createFromAsset` + the new callback, asserts metadata survives with
-  `schemaVersion == EXPECTED_SCHEMA_VERSION`, `mapTurnDao().getNear(...)` returns rows, and
-  `mapEdgeDao().getRoutingEdgesNear(...)` (the actual routing query used by route generation, not just
-  a generic `getNear`) returns rows.
-- `onOpen throws a clear error when schema_version does not match`: builds a plain (non-asset) copy of
-  the schema, raw-`execSQL`s a metadata row with `schema_version = 999`, closes it, then reopens the
-  same file with the callback attached and asserts the DAO call surfaces an `IllegalStateException`
-  naming both `999` and the expected version.
-
-### Tests
-`EXPECTED_SCHEMA_VERSION = 1` matched the checked-in fixture on the first run — no adjustment needed.
-`./gradlew :app:testDebugUnitTest` (targeted run + full suite): all green, no regressions.
-
----
-
-## Issue #128 — Follow-mode camera, locate-me fix, and accuracy circle improvements
-Completed: 2026-07-05
-
-### What was done
-
-Two related map-marker UX fixes in `MapViewScreen.kt`, both bundled since they touch the same
-user-location rendering/camera logic.
-
-**Follow-mode camera / locate-me**
-- Replaced the one-shot `fineLocationZoomedIn` flag (zoomed in once on the first accuracy ≤ 50m
-  fix, then never recentered again) with a continuous `followMode` boolean. A new
-  `LaunchedEffect(currentLocation, followMode, mapAndStyle)` pans the camera
-  (`CameraUpdateFactory.newLatLng`, zoom preserved) to the raw `currentLocation` on every new fix
-  while `followMode` is true.
-- `followMode` is disabled only by a user-initiated gesture: `onMapReady` now also registers
-  `map.addOnCameraMoveStartedListener`, which sets `followMode = false` when the reason is
-  `MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE`. The app's own `animateCamera`
-  calls fire with a different reason, so they don't falsely disable follow mode.
-- Locate-me FAB `onClick` now sets `followMode = true` and snaps the camera to the current
-  position (`newLatLngZoom`), but no longer calls `viewModel.startLocationUpdates()` — restarting
-  that subscription re-triggered `lastKnownFix()`, which could momentarily overwrite the current
-  position with a stale cached one (root cause of "second tap jumps back to the old city").
-  `startLocationUpdates()` is still called exactly once, from the permission-grant callback.
-
-**Accuracy circle**
-- `renderUserMarker`'s radius calc dropped the old 5-step accuracy binning (`10/20/50/100/200m`,
-  a jitter-reduction hack) in favor of `displayRadiusM = accuracyM * 2.0` — `Location.getAccuracy()`
-  is a 68%-confidence radius by definition, so doubling it approximates ~95%-confidence, making the
-  dot reliably read as "inside the circle".
-- Added an accuracy-weighted moving average (`LocationSample`, `LOCATION_SMOOTHING_WINDOW_SIZE = 5`)
-  that smooths the *rendered* marker position only: each new `(currentLocation, locationAccuracy)`
-  pair is pushed into a rolling window, and the marker is drawn at the inverse-variance-weighted
-  centroid (`weight = 1 / accuracy²`) of the last 5 fixes. The canonical `currentLocation` StateFlow
-  from `MapViewViewModel` is untouched, so POI-distance calculations, Fast Way Home, and the
-  follow-mode camera effect above all continue to use the unsmoothed value — only
-  `renderUserMarker`'s input position is smoothed.
-
-### Tests
-No existing or new UI test harness for `MapViewScreen.kt` in this project (no Compose test rule
-anywhere in the codebase — consistent with prior map-view issues, e.g. #127). `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite (38 suites, 0 failures) all
-pass; these changes don't touch any code path covered by existing unit tests (they're isolated to
-Compose UI state/effects in `MapViewScreen.kt`).
-
-### Manual verification
-Not run in this session (no device/emulator attached). Flagging for a human to do the on-device
-checks from the acceptance criteria before merge: dot/circle stability while stationary, camera
-following real movement without manual locate-me taps, and a second locate-me tap no longer
-jumping to an old position.
-
----
-
-## Issue #127 — Add "Locating…" indicator for the no-fix gap
-Completed: 2026-07-05
-
-### What was done
-
-`MapViewViewModel.startLocationUpdates()` had a gap: after #126 added the staleness filter,
-`currentLocation` can stay null for a while after permission grant / first install / a stale
-cached fix being rejected, with no on-screen feedback. This adds a small "Locating…" chip that
-fills that gap.
-
-**`MapViewViewModel.kt`**
-- New `_showLocatingIndicator` / `showLocatingIndicator: StateFlow<Boolean>`, plain
-  `MutableStateFlow` (not a `combine(...).stateIn(WhileSubscribed)` derivation — that pattern only
-  updates its cached `.value` while something is actively collecting it, which would leave the
-  flag frozen at its initial value for code that reads `.value` directly without a collector,
-  same style as the existing `currentLocation`/`locationAccuracy`).
-- `startLocationUpdates()`: sets the flag to `currentLocation == null` at subscription start, then
-  clears it to `false` the moment a fix lands (both the immediate `lastKnownFix()` path and the
-  first `fixes()` emission), and also clears it in both the `NoProvider` and `PermissionDenied`
-  catch blocks — so the indicator never shows when there's no provider or the user denied
-  permission (preserves the existing silent-ignore behavior for `PermissionDenied` from #126).
-
-**`MapViewScreen.kt`**
-- Collects `showLocatingIndicator` and renders a Material3 `AssistChip` ("Locating…" + small
-  `CircularProgressIndicator` leading icon) as the top item of the existing bottom-right stacked-FAB
-  column (above "Plan a ride"), so it never overlaps the POI chip row or GPX/Layers row at the top.
-
-### Tests
-New tests in `MapViewViewModelTest`: indicator false before `startLocationUpdates()` is called,
-true immediately after starting with no fix yet, flips false as soon as a fix arrives, stays false
-across `PermissionDenied`, stays false across `NoProvider`.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.
-
-### Manual verification
-Not run in this session (no device/emulator attached) — behavior was verified via the unit tests
-above, which exercise the same state transitions (subscription start → indicator on, first fix →
-indicator off, permission denied → indicator stays off) that the acceptance criteria's manual
-check covers. Flagging this so a human can do the on-device fresh-install check before merge.
-
----
-
-## Test fix — RouteGeneratorTest "rejects a route whose actual distance falls outside every band"
-Completed: 2026-07-05
-
-### What was done
-
-This test failed even on a clean checkout of `main` (confirmed via a throwaway worktree at
-`2493a4a`), unrelated to any feature work in flight. Root cause: the test's fixture-based
-assumption was stale, not a production bug.
-
-The test asked for a 6 km loop against the 4-corridor `LoopFixtureRepository` fixture, on the
-assumption (from an old comment) that the fixture "cannot form a loop longer than ~2.6 km." That
-was true under the original single-anchor-per-quadrant skeleton, but issue #117 (CW/CCW windings +
-top-N anchor combos) added the ability to build loops that use the fixture's diagonal
-cross-connector edges (700 m each), which a plain single-combo quadrilateral never touched. That
-lets `RouteGenerator.generate` legitimately assemble a real, connected ~4.6 km loop from this
-fixture — which lands inside the 6 km target's widened +/-30% acceptance band ([4200, 7800]) at the
-loosest degradation tier, so generation correctly returns `Success` instead of `Failure`. The test
-was asserting the old (now-incorrect) upper bound, not a real defect in
-`RouteGenerator`/`DegradationPolicy`/`CorridorOrienteer`.
-
-**`RouteGeneratorTest.kt`**
-- Raised the requested distance in this test from 6000.0 to 50_000.0 — the fixture's total edge
-  length (corridors + connectors) is nowhere near enough to ever reach 50 km regardless of anchor
-  combos, windings, or future skeleton tweaks, so the test is robust rather than coupled to the
-  exact reachable ceiling of a specific algorithm version.
-- Rewrote the comment to record both the current reasoning and why the old 6 km figure broke.
-
-### Tests
-`testDebugUnitTest`: full suite passes (no failures) after the fix, confirmed via targeted run of
-`RouteGeneratorTest` alone and the full suite.
-
----
-
-## Issue #126 — Fix stale cached location shown on app open
-Completed: 2026-07-05
-
-### What was done
-
-`AndroidLocationSource.lastKnownFix()` used raw `LocationManager.getLastKnownLocation()` and
-filtered only by accuracy, never by age — so a location cached by the OS hours earlier could be
-served as "current location" on app open. This replaces the raw `LocationManager` path with
-Google Play services' `FusedLocationProviderClient` and adds a 2-minute staleness filter.
-
-**`app/build.gradle.kts` / `gradle/libs.versions.toml`**
-- Added `play-services-location:21.3.0` dependency.
-
-**`util/Constants.kt`**
-- New `LOCATION_CACHE_MAX_AGE_MS = 120_000L` — cached fixes older than this are rejected.
-
-**`data/location/AndroidLocationSource.kt`**
-- Constructor now takes `FusedLocationProviderClient` (injected) alongside `Context` (still used
-  for the `LocationManager` provider-enabled check that backs `LocationException.NoProvider`).
-- `fixes()`: switched from per-provider `LocationManager.requestLocationUpdates` to
-  `fusedLocationClient.requestLocationUpdates` with a `LocationRequest`
-  (`Priority.PRIORITY_HIGH_ACCURACY`, min interval `LOCATION_UPDATE_MIN_TIME_MS`) and a
-  `LocationCallback`; `awaitClose` calls `removeLocationUpdates`. `LocationSource` interface
-  unchanged, so `MapViewViewModel` required no changes.
-- `lastKnownFix()`: awaits `fusedLocationClient.lastLocation` (via a small `Task<T>.await()`
-  suspend adapter using `suspendCancellableCoroutine` — no extra `kotlinx-coroutines-play-services`
-  dependency needed) and now rejects the result if `accuracy > maxAccuracyM` **or**
-  `now - location.time > LOCATION_CACHE_MAX_AGE_MS`.
-
-**`di/LocationModule.kt`**
-- Added a `@Provides` for `FusedLocationProviderClient` via
-  `LocationServices.getFusedLocationProviderClient(context)`.
-
-### Tests
-New `AndroidLocationSourceTest.kt` (mockk-mocked `FusedLocationProviderClient`/`Task`/`Location`,
-no Robolectric needed since every accessed method is stubbed): stale cached fix (age >
-2 min) returns null; fresh cached fix (age well under 2 min) is surfaced with correct lat/lon;
-a fresh-but-inaccurate fix is still rejected by the existing accuracy check; no cached location
-returns null.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin` pass. `testDebugUnitTest`: all location/
-map-view tests pass (392 tests total, 1 pre-existing unrelated failure in `RouteGeneratorTest`
-confirmed present on a clean HEAD checkout before this change, not caused by it).
-
-### Note
-Found `progress.txt` uncommitted in the working tree truncated to ~240 lines (missing all
-history from issue #114 onward, which is already merged in later commits). Restored it from
-`git checkout -- progress.txt` before appending this entry — looked like leftover damage from an
-earlier interrupted session, not real work.

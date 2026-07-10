@@ -55,6 +55,14 @@ object RouteRefiner {
             return null
         }
 
+        // Convex hull over the loop's own waypoints + corridor centroids, biasing glue routing
+        // toward tracing the planned oval's perimeter instead of cutting through its interior.
+        // Degenerate loops (too few points, or too small an enclosed area) yield a null hull, which
+        // every hull-aware cost site treats as "no penalty" - today's behavior.
+        val hullPoints = allWaypointNodes.map { it.lat to it.lon } +
+            candidateCorridors.map { it.centroidLat to it.centroidLon }
+        val hull = LoopHull.build(hullPoints)
+
         val loadStart = System.currentTimeMillis()
         val chainBbox = computeChainBbox(allWaypointNodes, config.bboxMarginM * 2.0)
         val preloadedEdges = repository.getRoutingEdgesNear(
@@ -108,7 +116,7 @@ object RouteRefiner {
 
             val shortestPairsFromPreload = shortestPathAStar(
                 preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to, targetNode, config,
-                usedNodePairs, segmentTurns,
+                usedNodePairs, segmentTurns, hull,
             )
             var segmentPairs = shortestPairsFromPreload
 
@@ -133,7 +141,7 @@ object RouteRefiner {
                     edges.forEachIndexed { idx, edge ->
                         edgesByFromNode.getOrPut(edge.fromNode) { mutableListOf() }.add(idx)
                     }
-                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config, usedNodePairs, segmentTurns)
+                    segmentPairs = shortestPathAStar(edges, nodeMap, edgesByFromNode, from, to, targetNode, config, usedNodePairs, segmentTurns, hull)
                     if (segmentPairs != null) {
                         Log.d(TAG, "refine: segment[$segmentCount] OK from=$from to=$to ${segmentPairs.size} edges (fallback ${marginMultiplier}x)")
                         break
@@ -151,8 +159,9 @@ object RouteRefiner {
                 val shortestLength = shortestPairsFromPreload.sumOf { edgePairToLength[it] ?: 0.0 }
                 val pass1Reward = shortestPairsFromPreload.sumOf { edgePairToReward[it] ?: 0.0 }
                 val rewardPairs = rewardMaxDijkstra(
-                    preloadedEdges, preloadedEdgeIndex, from, to,
+                    preloadedEdges, preloadedNodeMap, preloadedEdgeIndex, from, to,
                     shortestLength * rewardFraction, config.maxAStarIterations,
+                    usedNodePairs, hull,
                 )
                 if (rewardPairs != null) {
                     val pass2Reward = rewardPairs.sumOf { edgePairToReward[it] ?: 0.0 }
@@ -197,12 +206,24 @@ object RouteRefiner {
         config: RefinerConfig,
         usedNodePairs: Set<Pair<Long, Long>> = emptySet(),
         turns: Map<Triple<Long, Long, Long>, MapTurn>? = null,
+        hull: LoopHull? = null,
     ): List<Pair<Long, Long>>? {
         fun heuristic(edgeIdx: Int): Double {
             val endNode = nodeMap[edges[edgeIdx].toNode] ?: return 0.0
             return GeoUtils.haversineDistance(
                 endNode.lat, endNode.lon, targetNode.lat, targetNode.lon,
             )
+        }
+
+        // Cost multiplier for cutting through the hull interior or overshooting past it, instead of
+        // tracing its perimeter. >= 1.0 and independent of the heuristic, so haversine-to-target
+        // stays admissible (real edge cost only ever grows from length*reuse).
+        fun hullFactor(edgeIdx: Int): Double {
+            if (hull == null) return 1.0
+            val edge = edges[edgeIdx]
+            val from = nodeMap[edge.fromNode] ?: return 1.0
+            val to = nodeMap[edge.toNode] ?: return 1.0
+            return hull.hullFactor((from.lat + to.lat) / 2.0, (from.lon + to.lon) / 2.0)
         }
 
         fun edgeBearing(edgeIdx: Int): Double? {
@@ -238,7 +259,7 @@ object RouteRefiner {
         }
         for (idx in startIndices) {
             val reuse = if (usedNodePairs.contains(edges[idx].fromNode to edges[idx].toNode)) config.edgeReusePenalty else 1.0
-            val cost = edges[idx].lengthM * reuse
+            val cost = edges[idx].lengthM * reuse * hullFactor(idx)
             gCosts[idx] = cost
             openSet.add(AStarEntry(idx, cost + heuristic(idx)))
         }
@@ -270,7 +291,7 @@ object RouteRefiner {
                 if (succIdx == current.idx) continue
 
                 val reuse = if (usedNodePairs.contains(edges[succIdx].fromNode to edges[succIdx].toNode)) config.edgeReusePenalty else 1.0
-                val newG = currentG + edges[succIdx].lengthM * reuse + turnCost(current.idx, succIdx)
+                val newG = currentG + edges[succIdx].lengthM * reuse * hullFactor(succIdx) + turnCost(current.idx, succIdx)
 
                 val bestG = gCosts[succIdx]
                 if (bestG != null && newG >= bestG) continue
@@ -324,13 +345,28 @@ object RouteRefiner {
 
     private fun rewardMaxDijkstra(
         edges: List<RoutingEdge>,
+        nodeMap: Map<Long, MapNode>,
         edgesByFromNode: Map<Long, List<Int>>,
         fromNode: Long,
         toNode: Long,
         maxLength: Double,
         maxIterations: Int,
+        usedNodePairs: Set<Pair<Long, Long>> = emptySet(),
+        hull: LoopHull? = null,
     ): List<Pair<Long, Long>>? {
         data class Entry(val edgeIdx: Int, val accLength: Double, val accReward: Double)
+
+        // Same hull-band cost as the connector A*, applied to the length budget: an edge that cuts
+        // through the hull interior "spends" more of maxLength per meter travelled, so a reward
+        // detour can no longer buy area-destroying shortcuts with the same length budget a
+        // ring-hugging detour would use.
+        fun hullFactor(edgeIdx: Int): Double {
+            if (hull == null) return 1.0
+            val edge = edges[edgeIdx]
+            val from = nodeMap[edge.fromNode] ?: return 1.0
+            val to = nodeMap[edge.toNode] ?: return 1.0
+            return hull.hullFactor((from.lat + to.lat) / 2.0, (from.lon + to.lon) / 2.0)
+        }
 
         val open = PriorityQueue<Entry>(compareByDescending { it.accReward })
         // Keyed by edge index so each edge is settled at most once, preventing cameFrom cycles.
@@ -341,9 +377,11 @@ object RouteRefiner {
         val starts = edgesByFromNode[fromNode] ?: return null
         for (idx in starts) {
             val e = edges[idx]
-            if (e.lengthM > maxLength) continue
+            if (e.fromNode to e.toNode in usedNodePairs) continue
+            val effLen = e.lengthM * hullFactor(idx)
+            if (effLen > maxLength) continue
             gReward[idx] = e.reward
-            open.add(Entry(idx, e.lengthM, e.reward))
+            open.add(Entry(idx, effLen, e.reward))
         }
 
         var bestDestReward = Double.NEGATIVE_INFINITY
@@ -371,7 +409,12 @@ object RouteRefiner {
             for (succIdx in succs) {
                 if (succIdx in settled) continue
                 val succ = edges[succIdx]
-                val newLen = curr.accLength + succ.lengthM
+                // Hard exclusion: a reward detour must never reuse a road the route has already
+                // ridden (e.g. out-and-back onto a high-reward edge) - the connector A* only
+                // soft-penalizes reuse, but this pass is free to wander further and needs a hard gate.
+                if (succ.fromNode to succ.toNode in usedNodePairs) continue
+                val effLen = succ.lengthM * hullFactor(succIdx)
+                val newLen = curr.accLength + effLen
                 if (newLen > maxLength) continue
                 val newReward = curr.accReward + succ.reward
                 val best = gReward[succIdx]

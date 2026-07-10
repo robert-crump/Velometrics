@@ -404,6 +404,77 @@ class RouteRefinerTest {
         )
     }
 
+    // --- Hull-band cost tests (issue #131) ---
+
+    @Test
+    fun `hull bias prefers a perimeter path over an interior chord of comparable length`() = runTest {
+        val (edges, nodes) = hullGridGraph()
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 1, exitNode = 2, lat = 50.0000, lon = 6.0000),
+            2L to corridor(2, entryNode = 3, exitNode = 4, lat = 50.0000, lon = 6.0300),
+            3L to corridor(3, entryNode = 5, exitNode = 6, lat = 50.0200, lon = 6.0300),
+            4L to corridor(4, entryNode = 7, exitNode = 8, lat = 50.0200, lon = 6.0000),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L, 3L, 4L),
+            totalDistanceM = 9000.0, totalReward = 0.0, flowScore = 0.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = null),
+        )
+
+        assertNotNull(result)
+        // Node 100 sits on the hull's south edge (ring); node 101 sits at the hull's interior
+        // centroid. The interior chord via 101 is 8m shorter in raw length, but the hull-band
+        // penalty on cutting deep into the interior should outweigh that small advantage.
+        assertTrue(
+            "Should trace the perimeter via node 100, not cut through the hull interior",
+            result!!.edges.any { it.fromNode == 2L && it.toNode == 100L },
+        )
+        assertFalse(
+            "Should not take the interior chord via node 101 despite its shorter raw length",
+            result.edges.any { it.fromNode == 2L && it.toNode == 101L },
+        )
+    }
+
+    @Test
+    fun `reward detour pass never reuses a node pair already used earlier in the route`() = runTest {
+        val (edges, nodes) = reusableRewardDetourGraph()
+        val corridorMap = mapOf(
+            1L to corridor(1, entryNode = 10, exitNode = 12, lat = 50.0, lon = 6.0),
+            2L to corridor(2, entryNode = 12, exitNode = 10, lat = 50.002, lon = 6.002),
+        )
+        val candidate = CandidateLoop(
+            corridors = listOf(1L, 2L), totalDistanceM = 500.0,
+            totalReward = 5.0, flowScore = 5.0, discoveryScore = 0.0,
+        )
+
+        val result = RouteRefiner.refine(
+            candidate, corridorMap, FakeRepository(edges, nodes),
+            config = RefinerConfig(connectorRewardBudgetFraction = 1.5),
+        )
+
+        assertNotNull(result)
+        // Segment 1 (10->12) takes the high-reward detour via node 13 (10->13->12).
+        assertTrue(
+            "First segment should still take its own reward detour via node 13",
+            result!!.edges.any { it.fromNode == 10L && it.toNode == 13L },
+        )
+        // Segment 2 (12->10) could reuse edge 13->10 (also high-reward) for "free" extra reward,
+        // but that edge pair was already used by segment 1 (10->13, reversed) - it must be
+        // hard-excluded rather than allowed as an out-and-back.
+        assertFalse(
+            "Second segment must not reuse the already-used edge 13->10",
+            result.edges.any { it.fromNode == 13L && it.toNode == 10L },
+        )
+        assertTrue(
+            "Second segment should fall back to its shortest path via node 11",
+            result.edges.any { it.fromNode == 12L && it.toNode == 11L },
+        )
+    }
+
     // --- Turn cost tests ---
 
     @Test
@@ -608,6 +679,66 @@ class RouteRefinerTest {
             edge(5, 6, 100.0),
             edge(6, 1, 100.0),
             edge(5, 2, 50.0),
+        )
+        return edges to nodes
+    }
+
+    /**
+     * A ~2.1km x 2.2km rectangular loop (corridors at the 4 corners, entry=exit=corner so the
+     * corridor waypoints + centroids resolve to exactly the 4 corners, giving a clean rectangular
+     * hull well above the 1 km^2 degenerate-area floor). The south-edge connector (node 2 -> node 3)
+     * has two paths of comparable length: via node 100 (exactly on the south-edge ring) and via
+     * node 101 (the hull's interior centroid, 8m shorter in raw length).
+     */
+    private fun hullGridGraph(): Pair<List<MapEdge>, List<MapNode>> {
+        val nodes = listOf(
+            node(1, 50.0000, 6.0000), node(2, 50.0000, 6.0000),
+            node(3, 50.0000, 6.0300), node(4, 50.0000, 6.0300),
+            node(5, 50.0200, 6.0300), node(6, 50.0200, 6.0300),
+            node(7, 50.0200, 6.0000), node(8, 50.0200, 6.0000),
+            node(100, 50.0000, 6.0150),
+            node(101, 50.0100, 6.0150),
+        )
+        val edges = listOf(
+            edge(1, 2, 10.0),
+            edge(2, 100, 1074.0),
+            edge(100, 3, 1074.0),
+            edge(2, 101, 1070.0),
+            edge(101, 3, 1070.0),
+            edge(3, 4, 10.0),
+            edge(4, 5, 2226.0),
+            edge(5, 6, 10.0),
+            edge(6, 7, 2148.0),
+            edge(7, 8, 10.0),
+            edge(8, 1, 2226.0),
+        )
+        return edges to nodes
+    }
+
+    /**
+     * Graph with two segments, each with its own shortest vs. reward-detour choice:
+     *   Segment 1 (10 -> 12): shortest 10->11->12 (200m, reward 0); detour 10->13->12 (290m,
+     *     reward 5 on 10->13) - within the 1.5x budget cap, so the detour is chosen.
+     *   Segment 2 (12 -> 10): shortest 12->11->10 (200m, reward 0); "detour" 12->13->10 (290m,
+     *     reward 5 on 13->10) - within budget, but 13->10 is the reverse of the 10->13 edge segment
+     *     1 already used, so it must be hard-excluded rather than reused.
+     */
+    private fun reusableRewardDetourGraph(): Pair<List<MapEdge>, List<MapNode>> {
+        val nodes = listOf(
+            node(10, 50.0, 6.0),
+            node(11, 50.001, 6.001),
+            node(12, 50.002, 6.002),
+            node(13, 50.001, 6.003),
+        )
+        val edges = listOf(
+            edge(10, 11, 100.0),
+            edge(11, 12, 100.0),
+            edge(10, 13, 100.0, pedalFlowCount = 5),
+            edge(13, 12, 190.0),
+            edge(12, 11, 100.0),
+            edge(11, 10, 100.0),
+            edge(12, 13, 190.0),
+            edge(13, 10, 100.0, pedalFlowCount = 5),
         )
         return edges to nodes
     }

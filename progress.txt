@@ -1,3 +1,67 @@
+## Issue #133 — Shape-aware candidate selection and trimming via RouteShapeMetrics
+Completed: 2026-07-10
+
+### What was done
+
+Parent #129's diagnosis found the winning candidate was picked by highest coarse reward among
+in-band refined routes, with the refined route's actual shape never factoring in — a lollipop
+could beat an oval on reward alone. This makes `RouteShapeMetrics` a first-class input to both
+candidate selection and the mid-generation trim.
+
+**`domain/service/RouteGenerator.kt`**
+- New `RouteShapeGateConfig(minCompactness = 0.30, maxRepeatFraction = 0.15)`, both configurable,
+  wired into `GeneratorConfig.shapeConfig`.
+- New internal `RefinedCandidate(coarseLoop, refinedRoute, shapeReport)` replaces the previous
+  `Pair<CandidateLoop, RefinedRoute>` used for the in-flight candidate pool. Every refined (and
+  stitched) candidate is now scored with `RouteShapeMetrics.evaluate(finalRoute.edges,
+  nodeCoords)` as soon as it's produced; `nodeCoords` comes from a new `resolveNodeCoords` helper
+  (mirrors the #130 diagnosis harness's own resolver) so compactness's polyline-decode fallback
+  has real coordinates to fall back to.
+- `selectWinner(candidates, targetDistanceM, bandFraction, shapeConfig)`: filters to in-band
+  candidates first, then prefers ones passing the shape gate (ties broken by reward), falling back
+  to the highest `compactness - repeatFraction` among in-band candidates when none pass. Replaces
+  the old `filter { inBand }.maxByOrNull { reward }` one-liner in `generate()`'s `Sufficient`
+  branch.
+- `trimRefined`: sort key extended from `(in-band, reward)` to `(in-band, gate-pass, reward)`, so
+  a relaxed tier's trim can no longer discard the only shapely candidate in favor of two
+  higher-reward lollipops. Marked `internal` (was `private`) so it's unit-testable directly, same
+  as `selectWinner` and the new `passesShapeGate`.
+- Added `shapes=[...]` and `selected ...` `Log.d` lines (compactness/repeat/gate per candidate)
+  purely for harness/manual verification — no behavior change.
+
+### Tests
+Three new `RouteGeneratorTest` cases construct `RefinedCandidate`s directly (via a small
+`shapeReport(compactness, repeatFraction)` + `refinedCandidate(...)` helper) to exercise
+`selectWinner`/`trimRefined` in isolation, matching the issue's acceptance criteria exactly:
+- `selectWinner prefers a gate-passing candidate over a higher-reward gate-failing one` — a
+  reward=100 lollipop (compact 0.05, repeat 0.60) loses to a reward=10 oval (compact 0.50, repeat
+  0.05).
+- `selectWinner falls back to the best-shaped candidate when none pass the gate` — both candidates
+  fail the gate; the one with the better `compactness - repeatFraction` wins despite lower reward.
+- `trimRefined keeps a gate-passing candidate over higher-reward gate-failing ones` — trimming a
+  3-candidate pool (2 high-reward lollipops + 1 low-reward oval) to `maxKeep = 1` keeps the oval.
+- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, 426
+  tests, 0 failures, no regressions.
+
+### Harness run (posted to #133)
+Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20/50/80km matrix against the production graph. Selection was
+verified correct by cross-referencing each run's per-tier `shapes=[...]` log line against its
+`selected ...` line: in all three runs, the tier that finally succeeded had at most one genuinely
+in-band candidate (any second candidate at that tier fell outside the tier's own distance band),
+so the winner was in-band-by-elimination rather than a real gate-pass-vs-reward tradeoff. None of
+the three runs exercised the "gate passes, wins on reward over a higher-reward failing candidate"
+path — there was never more than one in-band candidate to choose between. This mirrors #132's
+finding: `CorridorOrienteer`'s coarse skeleton produces very few genuinely distinct in-band
+candidates per tier on this graph (often 1-2, frequently near-duplicates), so shape-aware
+selection has too small a pool to meaningfully select from yet. Candidate-pool diversity within
+the accepted band is a separate, larger problem than this slice's scope (selection/trimming logic
+over whatever pool exists) — flagging as a follow-up rather than expanding #133's scope. Shape
+numbers themselves (0.02/0.15/0.20 compactness for 20/50/80km) are unchanged from the pre-#133
+baseline, as expected since #133 only changes which candidate wins a tie and there was rarely a
+tie to break on this matrix.
+
+---
+
 ## Issue #132 — Adaptive coarse-distance calibration
 Completed: 2026-07-10
 
@@ -476,55 +540,3 @@ per quadrant and returning one `CandidateLoop`. This adds two axes of diversity:
 - Updated two existing tests to remain stable under multi-combo ranking: the farthest anchor in
   the fill test and the NE anchor in the separation test each received explicit high rewards so
   their combos dominate the new diversity combos.
-
----
-
-## Issue #118 — Empty-quadrant fallback via high-traversal edge pseudo-corridor
-Completed: 2026-06-27
-
-### What was done
-
-At the tighter `reach = target / 3` radius a quadrant can end up with no qualifying anchor
-corridor, leaving a gap in the oval. This adds an edge fallback: when a quadrant is empty, the
-highest-`traversalCount` traversed edge in that quadrant whose heading matches the arc tangent is
-turned into a pseudo-corridor and used as the quadrant anchor, so the rest of the pipeline stays
-corridor-based. Quadrants with no suitable edge are skipped cleanly.
-
-**`domain/service/CorridorOrienteer.kt`**
-- `search` gains an `edgeResolver` lambda (mirrors `nodeResolver`): given a bounding box it returns
-  candidate `MapEdge`s. Default no-op returns empty, so the common all-quadrants-populated path and
-  every existing test resolve nothing and behave exactly as before.
-- New `fillEmptyQuadrantsFromEdges` runs after anchor selection: it finds quadrants with a null
-  anchor, fetches traversed edges (`traversalCount > 0`) within the reach bbox, resolves their
-  endpoint coordinates once (folded into the shared `nodeCoords` map, which is now mutable), groups
-  them by the quadrant of their endpoint-midpoint centroid, and for each empty quadrant picks the
-  highest-traversal edge that (a) heads within the arc-tangent cone (`adequateBearing`) and (b) stays
-  separated from the already-chosen anchors. The pick becomes the quadrant anchor and is added to
-  `chosen` so later picks/fills honour separation against it.
-- `buildPseudoCorridor(edge, id, nodeCoords)`: entry=fromNode, exit=toNode, length from the edge,
-  centroid from the endpoint midpoint, `pedalReward`/`gravityReward` from the edge flow counts,
-  `popularity` from `traversalCount`, `edgeList = [fromNode->toNode]` (so the separation rule and
-  RouteRefiner's waypoint walk both work). Synthetic id is negative (`-(q+1)`) so it never collides
-  with a positive DB corridor id. Centroid/heading derive from resolved node coords rather than
-  decoding the polyline geometry — keeps the domain service free of MapLibre deps and unit-testable.
-- `CandidateLoop` gains `syntheticCorridors: Map<Long, Corridor> = emptyMap()` carrying the
-  synthesized pseudo-corridors; their edge-derived reward is folded into the candidate's reward.
-
-**`domain/service/RouteGenerator.kt`**
-- Wires `edgeResolver` to `repository.getEdgesNear`.
-- Merges `candidate.syntheticCorridors` into the corridor map before `RouteRefiner.refine` and
-  `stitchRoute`, so a pseudo-corridor resolves and routes like a real one (RouteRefiner looks
-  corridors up by id in that map).
-
-### Tests
-`CorridorOrienteerTest`:
-- `search synthesizes a pseudo-corridor for an empty quadrant from a high-traversal edge`
-  (end-to-end: empty Q4 filled by an SE-heading edge; pseudo present in skeleton + `syntheticCorridors`).
-- `search skips an empty quadrant when no suitable edge exists` (empty edge resolver -> bare anchor set).
-- `search skips an empty quadrant when the only edge heads against the arc` (bearing gate rejects it).
-- `buildPseudoCorridor` field mapping + null on unresolved endpoint; `adequateBearing` accept/reject
-  and reject-on-unresolved. Added an `edge(...)` MapEdge helper.
-- Note: tests that supply `nodeResolver` coords activate the real separation rule, so quadrant
-  fixtures are spread to ±0.02deg to keep all four anchors > the 1500m adaptive separation apart.
-
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass.

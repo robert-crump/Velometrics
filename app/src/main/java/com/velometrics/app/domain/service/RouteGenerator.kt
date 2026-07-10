@@ -8,11 +8,22 @@ import com.velometrics.app.util.GeoUtils
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 
+/**
+ * Shape gate thresholds (issue #133): a candidate whose refined route meets both is preferred
+ * over any higher-reward candidate that doesn't. Provisional defaults per the issue; final values
+ * are locked by a follow-up calibration slice.
+ */
+data class RouteShapeGateConfig(
+    val minCompactness: Double = 0.30,
+    val maxRepeatFraction: Double = 0.15,
+)
+
 data class GeneratorConfig(
     val orienteerConfig: OrienteerConfig = OrienteerConfig(),
     val refinerConfig: RefinerConfig = RefinerConfig(),
     val degradationConfig: DegradationConfig = DegradationConfig(),
     val exitLegConfig: ExitLegConfig = ExitLegConfig(),
+    val shapeConfig: RouteShapeGateConfig = RouteShapeGateConfig(),
     val direction: RideDirection? = null,
     val seed: Long = System.currentTimeMillis(),
 )
@@ -30,6 +41,13 @@ data class ExitLegPlan(
     val exitCorridorId: Long,
     val adjustedTargetM: Double,
     val estimatedReturnDistM: Double,
+)
+
+/** A refined (and possibly stitched) candidate together with its route-shape scoring (issue #133). */
+internal data class RefinedCandidate(
+    val coarseLoop: CandidateLoop,
+    val refinedRoute: RefinedRoute,
+    val shapeReport: RouteShapeReport,
 )
 
 sealed interface RoutePlanResult {
@@ -91,7 +109,7 @@ object RouteGenerator {
 
         val maxCandidates = config.orienteerConfig.candidateCount
         var currentTier = DegradationPolicy.RelaxationTier.NONE
-        val allRefined = mutableListOf<Pair<CandidateLoop, RefinedRoute>>()
+        val allRefined = mutableListOf<RefinedCandidate>()
         var calibrationDone = false
 
         suspend fun runCoarseSearch(target: Double, orienteerConfig: OrienteerConfig): List<CandidateLoop> =
@@ -155,7 +173,7 @@ object RouteGenerator {
             }
 
             for ((idx, candidate) in coarseCandidates.withIndex()) {
-                if (allRefined.any { it.first.corridors == candidate.corridors }) continue
+                if (allRefined.any { it.coarseLoop.corridors == candidate.corridors }) continue
 
                 // Pseudo-corridors synthesized for empty quadrants are not in the repository-backed
                 // map, so merge them in before refining/stitching this candidate.
@@ -185,14 +203,17 @@ object RouteGenerator {
                     refined
                 }
 
-                Log.d(TAG, "generate: refine candidate[$idx] corridors=${candidate.corridors.size} -> ${finalRoute.edges.size} edges, ${finalRoute.actualDistanceM.toInt()}m${if (exitPlan != null) " (stitched)" else ""} in ${System.currentTimeMillis() - refineStart}ms")
-                allRefined.add(candidate to finalRoute)
+                val nodeCoords = resolveNodeCoords(repository, finalRoute.edges)
+                val shapeReport = RouteShapeMetrics.evaluate(finalRoute.edges, nodeCoords)
+
+                Log.d(TAG, "generate: refine candidate[$idx] corridors=${candidate.corridors.size} -> ${finalRoute.edges.size} edges, ${finalRoute.actualDistanceM.toInt()}m${if (exitPlan != null) " (stitched)" else ""} compact=${"%.2f".format(shapeReport.compactness)} repeat=${"%.2f".format(shapeReport.repeatFraction)} in ${System.currentTimeMillis() - refineStart}ms")
+                allRefined.add(RefinedCandidate(candidate, finalRoute, shapeReport))
             }
 
             val band = tierParams.distanceBandFraction
-            trimRefined(allRefined, maxCandidates * REFINED_BUFFER_FACTOR, targetDistanceM, band)
+            trimRefined(allRefined, maxCandidates * REFINED_BUFFER_FACTOR, targetDistanceM, band, config.shapeConfig)
 
-            val refinedDistances = allRefined.map { it.second.actualDistanceM }
+            val refinedDistances = allRefined.map { it.refinedRoute.actualDistanceM }
             val maxReachable = estimateMaxReachable(corridors, connectors)
 
             val bandLo = (targetDistanceM * (1.0 - band) / 1000.0).toInt()
@@ -203,6 +224,13 @@ object RouteGenerator {
                     if (d in targetDistanceM * (1.0 - band)..targetDistanceM * (1.0 + band)) "${km}km✓" else "${km}km✗"
                 }
             Log.d(TAG, "generate: tier=$currentTier band=[${bandLo}km,${bandHi}km] distances=[$distSummary]")
+            val shapeSummary = allRefined.joinToString {
+                "${(it.refinedRoute.actualDistanceM / 1000.0).toInt()}km" +
+                    " compact=${"%.2f".format(it.shapeReport.compactness)}" +
+                    " repeat=${"%.2f".format(it.shapeReport.repeatFraction)}" +
+                    " gate=${passesShapeGate(it.shapeReport, config.shapeConfig)}"
+            }
+            Log.d(TAG, "generate: tier=$currentTier shapes=[$shapeSummary]")
 
             val outcome = DegradationPolicy.evaluate(
                 refinedDistances, targetDistanceM, currentTier,
@@ -213,12 +241,17 @@ object RouteGenerator {
             when (outcome) {
                 is DegradationPolicy.EvaluationOutcome.Sufficient -> {
                     val band = tierParams.distanceBandFraction
-                    val lower = targetDistanceM * (1.0 - band)
-                    val upper = targetDistanceM * (1.0 + band)
-                    val (coarse, refined) = allRefined
-                        .filter { it.second.actualDistanceM in lower..upper }
-                        .maxByOrNull { it.first.totalReward }
+                    val winner = selectWinner(allRefined, targetDistanceM, band, config.shapeConfig)
                         ?: continue
+                    val coarse = winner.coarseLoop
+                    val refined = winner.refinedRoute
+                    Log.d(
+                        TAG,
+                        "generate: selected ${(refined.actualDistanceM / 1000.0).toInt()}km " +
+                            "compact=${"%.2f".format(winner.shapeReport.compactness)} " +
+                            "repeat=${"%.2f".format(winner.shapeReport.repeatFraction)} " +
+                            "gate=${passesShapeGate(winner.shapeReport, config.shapeConfig)}",
+                    )
                     val deviation = if (targetDistanceM > 0) {
                         (refined.actualDistanceM - targetDistanceM) / targetDistanceM * 100.0
                     } else {
@@ -361,23 +394,69 @@ object RouteGenerator {
         return RefinedRoute(edges, distance)
     }
 
-    private fun trimRefined(
-        refined: MutableList<Pair<CandidateLoop, RefinedRoute>>,
+    /** True when a refined route's shape clears both #133 thresholds. */
+    internal fun passesShapeGate(report: RouteShapeReport, config: RouteShapeGateConfig): Boolean =
+        report.compactness >= config.minCompactness && report.repeatFraction <= config.maxRepeatFraction
+
+    /** Composite ranking used only to pick among candidates that fail the shape gate. */
+    private fun shapeScore(report: RouteShapeReport): Double = report.compactness - report.repeatFraction
+
+    /**
+     * Winner among in-band candidates: prefers shape-gate-passing candidates (ties broken by
+     * reward), falling back to the best-shaped in-band candidate when none pass (issue #133).
+     * Null when no candidate is in-band.
+     */
+    internal fun selectWinner(
+        candidates: List<RefinedCandidate>,
+        targetDistanceM: Double,
+        bandFraction: Double,
+        shapeConfig: RouteShapeGateConfig,
+    ): RefinedCandidate? {
+        val lo = targetDistanceM * (1.0 - bandFraction)
+        val hi = targetDistanceM * (1.0 + bandFraction)
+        val inBand = candidates.filter { it.refinedRoute.actualDistanceM in lo..hi }
+        if (inBand.isEmpty()) return null
+        val gatePassing = inBand.filter { passesShapeGate(it.shapeReport, shapeConfig) }
+        return if (gatePassing.isNotEmpty()) {
+            gatePassing.maxByOrNull { it.coarseLoop.totalReward }
+        } else {
+            inBand.maxByOrNull { shapeScore(it.shapeReport) }
+        }
+    }
+
+    /**
+     * In-band routes are kept before out-of-band routes; within each group, shape-gate-passing
+     * candidates are kept before failing ones; within each of those groups, higher reward wins
+     * (issue #133 — a relaxed tier's trim can no longer discard the only shapely candidate in
+     * favor of two higher-reward lollipops).
+     */
+    internal fun trimRefined(
+        refined: MutableList<RefinedCandidate>,
         maxKeep: Int,
         targetDistanceM: Double,
         bandFraction: Double,
+        shapeConfig: RouteShapeGateConfig,
     ) {
         if (refined.size <= maxKeep) return
         val lo = targetDistanceM * (1.0 - bandFraction)
         val hi = targetDistanceM * (1.0 + bandFraction)
-        // In-band routes are kept before out-of-band routes; within each group, higher reward wins.
         refined.sortWith(
-            compareByDescending<Pair<CandidateLoop, RefinedRoute>> { it.second.actualDistanceM in lo..hi }
-                .thenByDescending { it.first.totalReward },
+            compareByDescending<RefinedCandidate> { it.refinedRoute.actualDistanceM in lo..hi }
+                .thenByDescending { passesShapeGate(it.shapeReport, shapeConfig) }
+                .thenByDescending { it.coarseLoop.totalReward },
         )
         while (refined.size > maxKeep) {
             refined.removeAt(refined.lastIndex)
         }
+    }
+
+    private suspend fun resolveNodeCoords(
+        repository: MapGraphRepository,
+        edges: List<MapEdge>,
+    ): Map<Long, Pair<Double, Double>> {
+        val ids = edges.flatMapTo(LinkedHashSet()) { listOf(it.fromNode, it.toNode) }
+        if (ids.isEmpty()) return emptyMap()
+        return repository.getNodesByIds(*ids.toLongArray()).associate { it.id to (it.lat to it.lon) }
     }
 
     internal fun estimateMaxReachable(

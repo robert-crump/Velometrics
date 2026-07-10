@@ -448,6 +448,82 @@ class RouteGeneratorTest {
         )
     }
 
+    // --- Shape-aware selection and trimming (#133) ---
+
+    private fun shapeReport(compactness: Double, repeatFraction: Double) = RouteShapeReport(
+        totalLengthM = 10_000.0,
+        repeatedLengthM = repeatFraction * 10_000.0,
+        repeatFraction = repeatFraction,
+        rawRepeatedLengthM = repeatFraction * 10_000.0,
+        rawRepeatFraction = repeatFraction,
+        compactness = compactness,
+        repeatedRoadCount = if (repeatFraction > 0.0) 1 else 0,
+    )
+
+    private fun refinedCandidate(
+        id: Long,
+        reward: Double,
+        actualDistanceM: Double,
+        compactness: Double,
+        repeatFraction: Double,
+    ) = RefinedCandidate(
+        coarseLoop = CandidateLoop(
+            corridors = listOf(id),
+            totalDistanceM = actualDistanceM,
+            totalReward = reward,
+            flowScore = 0.0,
+            discoveryScore = 0.0,
+        ),
+        refinedRoute = RefinedRoute(edges = emptyList(), actualDistanceM = actualDistanceM),
+        shapeReport = shapeReport(compactness, repeatFraction),
+    )
+
+    @Test
+    fun `selectWinner prefers a gate-passing candidate over a higher-reward gate-failing one`() {
+        // Lollipop: high reward but fails both thresholds (compactness too low, repeat too high).
+        val lollipop = refinedCandidate(1, reward = 100.0, actualDistanceM = 10_000.0, compactness = 0.05, repeatFraction = 0.60)
+        // Oval: low reward but clears both thresholds.
+        val oval = refinedCandidate(2, reward = 10.0, actualDistanceM = 10_000.0, compactness = 0.50, repeatFraction = 0.05)
+
+        val winner = RouteGenerator.selectWinner(
+            listOf(lollipop, oval), targetDistanceM = 10_000.0, bandFraction = 0.15,
+            shapeConfig = RouteShapeGateConfig(),
+        )
+
+        assertEquals("Gate-passing oval should win despite lower reward", oval, winner)
+    }
+
+    @Test
+    fun `selectWinner falls back to the best-shaped candidate when none pass the gate`() {
+        val worse = refinedCandidate(1, reward = 100.0, actualDistanceM = 10_000.0, compactness = 0.05, repeatFraction = 0.60)
+        val lessWorse = refinedCandidate(2, reward = 1.0, actualDistanceM = 10_000.0, compactness = 0.20, repeatFraction = 0.20)
+
+        val winner = RouteGenerator.selectWinner(
+            listOf(worse, lessWorse), targetDistanceM = 10_000.0, bandFraction = 0.15,
+            shapeConfig = RouteShapeGateConfig(),
+        )
+
+        assertEquals(
+            "Best-shaped candidate should win when none pass the gate, even with lower reward",
+            lessWorse, winner,
+        )
+    }
+
+    @Test
+    fun `trimRefined keeps a gate-passing candidate over higher-reward gate-failing ones`() {
+        val oval = refinedCandidate(1, reward = 5.0, actualDistanceM = 10_000.0, compactness = 0.50, repeatFraction = 0.05)
+        val lollipopA = refinedCandidate(2, reward = 100.0, actualDistanceM = 10_000.0, compactness = 0.05, repeatFraction = 0.60)
+        val lollipopB = refinedCandidate(3, reward = 90.0, actualDistanceM = 10_000.0, compactness = 0.10, repeatFraction = 0.50)
+        val pool = mutableListOf(lollipopA, lollipopB, oval)
+
+        RouteGenerator.trimRefined(
+            pool, maxKeep = 1, targetDistanceM = 10_000.0, bandFraction = 0.15,
+            shapeConfig = RouteShapeGateConfig(),
+        )
+
+        assertEquals(listOf(oval), pool)
+    }
+
     // --- Helpers ---
 
     private fun corridor(

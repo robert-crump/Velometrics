@@ -17,6 +17,11 @@ data class ExitLegConfig(
     val softCapFraction: Double = 0.15,
     val edgeFallbackBudgetFraction: Double = 1.0 / 6.0,
     val maxAStarIterations: Int = 50_000,
+    // Soft cost multiplier applied when the return leg's A* would reuse a road already ridden by
+    // the exit leg (issue #134). Same value as RefinerConfig.edgeReusePenalty - a multiplier, not
+    // an exclusion, so a dead-end topology where the only road back is the exit leg's road can
+    // still resolve.
+    val returnLegReusePenalty: Double = 5.0,
 )
 
 data class ExitLeg(
@@ -117,6 +122,7 @@ object ExitLegPlanner {
         homeLon: Double,
         repository: MapGraphRepository,
         config: ExitLegConfig = ExitLegConfig(),
+        avoidNodePairs: Set<Pair<Long, Long>> = emptySet(),
     ): ExitLeg? {
         val bbox = buildCoveringBbox(fromLat, fromLon, homeLat, homeLon, config.bboxHalfSizeM)
         val allEdges = repository.getEdgesNear(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon)
@@ -143,6 +149,7 @@ object ExitLegPlanner {
             val path = aStarOnEdges(
                 filteredEdges, nodeMap, edgeIndex,
                 fromNode, homeNode.id, homeNode, config,
+                avoidNodePairs,
             )
 
             if (path != null) {
@@ -164,10 +171,20 @@ object ExitLegPlanner {
         toNode: Long,
         targetNode: MapNode,
         config: ExitLegConfig,
+        avoidNodePairs: Set<Pair<Long, Long>> = emptySet(),
     ): List<MapEdge>? {
         fun heuristic(edgeIdx: Int): Double {
             val endNode = nodeMap[edges[edgeIdx].toNode] ?: return 0.0
             return GeoUtils.haversineDistance(endNode.lat, endNode.lon, targetNode.lat, targetNode.lon)
+        }
+
+        // Soft multiplier (not a hard exclusion) for edges the exit leg already rode, so a
+        // dead-end topology where the only road back happens to be the exit leg's road can still
+        // resolve (issue #134).
+        fun reusePenalty(edgeIdx: Int): Double {
+            if (avoidNodePairs.isEmpty()) return 1.0
+            val edge = edges[edgeIdx]
+            return if ((edge.fromNode to edge.toNode) in avoidNodePairs) config.returnLegReusePenalty else 1.0
         }
 
         data class AStarEntry(val idx: Int, val fCost: Double)
@@ -179,7 +196,7 @@ object ExitLegPlanner {
 
         val startIndices = edgesByFromNode[fromNode] ?: return null
         for (idx in startIndices) {
-            val cost = edges[idx].lengthM
+            val cost = edges[idx].lengthM * reusePenalty(idx)
             gCosts[idx] = cost
             openSet.add(AStarEntry(idx, cost + heuristic(idx)))
         }
@@ -207,7 +224,7 @@ object ExitLegPlanner {
             for (succIdx in successors) {
                 if (succIdx in closedSet) continue
                 if (succIdx == current.idx) continue
-                val newG = currentG + edges[succIdx].lengthM
+                val newG = currentG + edges[succIdx].lengthM * reusePenalty(succIdx)
                 val bestG = gCosts[succIdx]
                 if (bestG != null && newG >= bestG) continue
                 gCosts[succIdx] = newG
@@ -216,6 +233,16 @@ object ExitLegPlanner {
             }
         }
         return null
+    }
+
+    /** Both directions of every edge's node pair, for reuse-avoidance sets (issue #134). */
+    internal fun nodePairsOf(edges: List<MapEdge>): Set<Pair<Long, Long>> {
+        val pairs = HashSet<Pair<Long, Long>>(edges.size * 2)
+        for (edge in edges) {
+            pairs.add(edge.fromNode to edge.toNode)
+            pairs.add(edge.toNode to edge.fromNode)
+        }
+        return pairs
     }
 
     internal fun scoreExitLeg(path: List<MapEdge>): Double {

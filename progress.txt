@@ -1,3 +1,66 @@
+## Issue #134 — Return leg must diverge from the exit leg outside the 8km stem windows
+Completed: 2026-07-10
+
+### What was done
+
+Parent #129's diagnosis flagged the exit leg (home → exit corridor) and return leg (last
+corridor → home) as planned fully independently, with `ExitLegPlanner.computeReturnLeg` knowing
+nothing about the exit leg's edges — on a topology with two comparable ways home, they could
+retrace the same roads for their entire length rather than sharing only the first/last 8 km per
+the #129 stem policy. This is the deliberately small fix: pass the exit leg's node pairs into
+return-leg planning and penalize (not exclude) their reuse.
+
+**`domain/service/ExitLegPlanner.kt`**
+- `ExitLegConfig` gains `returnLegReusePenalty: Double = 5.0` — same value and same semantics as
+  `RefinerConfig.edgeReusePenalty`, a soft cost multiplier rather than a hard exclusion, so a
+  dead-end topology where the only road back happens to be the exit leg's road can still resolve.
+- `computeReturnLeg(...)` gains `avoidNodePairs: Set<Pair<Long, Long>> = emptySet()`, threaded
+  into `aStarOnEdges`. `computeExitLeg`'s own `aStarOnEdges` call is untouched (default empty
+  set, no penalty) — only the return leg needs to know about the exit leg, not the reverse, since
+  the exit leg is always planned first.
+- `aStarOnEdges` gains the same `avoidNodePairs` param and a local `reusePenalty(edgeIdx)` closure
+  applied to both the initial start-edge costs and successor relaxation, mirroring
+  `RouteRefiner.shortestPathAStar`'s existing `usedNodePairs`/`edgeReusePenalty` pattern.
+- New `internal fun nodePairsOf(edges: List<MapEdge>): Set<Pair<Long, Long>>` — both directions of
+  every edge's node pair (road identity is direction-agnostic, same convention as
+  `RouteShapeMetrics`), so callers don't need to know A*'s internal pair representation.
+
+**`domain/service/RouteGenerator.kt`**
+- `stitchRoute`'s `computeReturnLeg` call now passes
+  `avoidNodePairs = ExitLegPlanner.nodePairsOf(exitLeg.edges)`.
+
+### Tests
+Two new `ExitLegPlannerTest` cases matching the issue's acceptance criteria exactly:
+- `return leg avoids exit leg roads when a comparable alternate corridor exists` — a synthetic
+  graph with two equal-length paths from the last corridor back home (via node 2 or node 3); the
+  exit leg's node pairs cover the node-2 path, and the returned route uses none of them.
+- `return leg still resolves on a single-road topology shared with the exit leg` — the only path
+  home is exactly the exit leg's road; `avoidNodePairs` covers the whole path and the return leg
+  still resolves (proves penalty, not exclusion).
+Also `nodePairsOf includes both directions of every edge` (helper unit test).
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, 429 tests,
+0 failures, no regressions (18 in `ExitLegPlannerTest`, up from 15).
+
+### Harness before/after (posted to #134)
+Ran `ROUTE_SHAPE_DIAGNOSIS` on the 50/80km matrix against the production graph, before (clean
+pre-#134 checkout, captured earlier this session for #131/#132/#133) and after.
+
+- **50km:** repeat fraction 0.05 → 0.00, repeated-road count 35 → 3 — the reuse penalty
+  measurably cut exit/return overlap outside the stem windows. Tier (`WIDEN_BAND`) and actual
+  distance (58.2 → 58.3km) essentially unchanged, so the penalty didn't push the route out of its
+  distance band. Compactness dipped slightly (0.15 → 0.12, not gated by this issue) — the return
+  leg now takes a marginally less direct path home to avoid the exit leg's roads, the expected
+  cost of a soft penalty.
+- **80km:** identical across every metric (repeat 0.01, tier `NONE`, 88.2km both runs). This run's
+  return leg apparently never overlapped the exit leg's roads to begin with, matching diagnosis
+  ranking this issue "secondary" — confirms the penalty is a no-op with nothing to engage on
+  rather than a lucky wash.
+
+Both runs completed (`Success`, not `Failure`) at their existing tiers — acceptance criteria met:
+repeat fraction inside the stem windows unchanged (80km) or lower (50km), route still completes.
+
+---
+
 ## Issue #133 — Shape-aware candidate selection and trimming via RouteShapeMetrics
 Completed: 2026-07-10
 
@@ -497,46 +560,3 @@ Found `progress.txt` uncommitted in the working tree truncated to ~240 lines (mi
 history from issue #114 onward, which is already merged in later commits). Restored it from
 `git checkout -- progress.txt` before appending this entry — looked like leftover damage from an
 earlier interrupted session, not real work.
-
----
-
-## Issue #117 — Candidate diversity via windings × alternate anchors
-Completed: 2026-06-27
-
-### What was done
-
-`CorridorOrienteer.search()` previously built a single skeleton by selecting the one best anchor
-per quadrant and returning one `CandidateLoop`. This adds two axes of diversity:
-
-1. **CW and CCW windings** — corridors are classified into quadrants twice: once with the real
-   lateral sign (clockwise oval) and once with the lateral sign negated (counter-clockwise oval),
-   so Q0/Q1/Q2/Q3 map to opposite sides of the road network in each winding.
-2. **Top-N anchor combos per quadrant** — `ANCHOR_COMBOS_PER_QUADRANT = 2` keeps the two
-   geometry-best anchors per quadrant. All valid Cartesian-product combos (respecting the
-   pairwise 2km separation rule) are enumerated via the new `enumerateAnchorCombos` recursive
-   helper. Each quadrant can also contribute `null` (no anchor); all-null combos are filtered.
-3. **Deduplication by corridor-set** — after each combo is anchored, empty-quadrant pseudo-
-   corridors are filled, the loop is filled toward `target × 0.9`, and the sorted corridor-id
-   set becomes the dedup key in `seenCorridorSets`; identical sets from the two windings are
-   collapsed to one.
-4. **Reward ranking** — `allResults` across both windings is sorted by `totalReward` descending
-   and the top `config.candidateCount` candidates are returned.
-
-**`domain/service/CorridorOrienteer.kt`**
-- `search()` body replaced with a `for (cw in listOf(true, false))` loop.
-- `arcTangentBearing(rideBearing, q, cw)` gains a `cw: Boolean = true` param; CCW negates the
-  offset, flipping which side of the route each quadrant represents. All existing call sites
-  (`fillEmptyQuadrantsFromEdges`, `anchorScore`) use the default, so they're unaffected.
-- `anchorScore(…, cw)` similarly gains `cw: Boolean = true` and passes it to `arcTangentBearing`
-  so the heading term is correct for whichever winding is being ranked.
-- `private const val ANCHOR_COMBOS_PER_QUADRANT = 2` caps the combo fan-out.
-- New `enumerateAnchorCombos(topPerQ, sep, nodeCoords)` — recursive Cartesian enumeration with
-  separation pruning; returns `List<Array<Corridor?>>`.
-
-**`domain/service/CorridorOrienteerTest.kt`**
-- Three new tests per acceptance criteria: `search returns up to candidateCount distinct
-  candidates`, `dedupe collapses identical corridor sets from both windings`, `candidates are
-  ranked by descending total reward`.
-- Updated two existing tests to remain stable under multi-combo ranking: the farthest anchor in
-  the fill test and the NE anchor in the separation test each received explicit high rewards so
-  their combos dominate the new diversity combos.

@@ -190,6 +190,59 @@ class ExitLegPlannerTest {
     }
 
     @Test
+    fun `return leg avoids exit leg roads when a comparable alternate corridor exists`() = runTest {
+        val (edges, nodes) = twoReturnCorridorsGraph()
+        val config = configWithSmallBbox().copy(fallbackThresholds = listOf(0.0))
+        // Exit leg rode home -> 2 -> 100, the same roads as "path A" below.
+        val exitLegEdges = listOf(
+            edge(1, 2, 500.0, traversalCount = 5),
+            edge(2, 100, 500.0, traversalCount = 5),
+        )
+        val avoidNodePairs = ExitLegPlanner.nodePairsOf(exitLegEdges)
+
+        val result = ExitLegPlanner.computeReturnLeg(
+            fromNode = 100L,
+            fromLat = HOME_LAT + 0.01,
+            fromLon = HOME_LON,
+            homeLat = HOME_LAT,
+            homeLon = HOME_LON,
+            repository = FakeRepo(edges, nodes),
+            config = config,
+            avoidNodePairs = avoidNodePairs,
+        )
+
+        assertNotNull(result)
+        val usedPairs = result!!.edges.map { it.fromNode to it.toNode }.toSet()
+        assertTrue(
+            "Return leg should route via node 3, not retrace the exit leg's node 2",
+            usedPairs.none { it in avoidNodePairs },
+        )
+    }
+
+    @Test
+    fun `return leg still resolves on a single-road topology shared with the exit leg`() = runTest {
+        val (edges, nodes) = returnLegGraph()
+        val config = configWithSmallBbox().copy(fallbackThresholds = listOf(0.0))
+        // The only road home is exactly the exit leg's road - a hard exclusion would strand it.
+        val avoidNodePairs = ExitLegPlanner.nodePairsOf(edges)
+
+        val result = ExitLegPlanner.computeReturnLeg(
+            fromNode = 100L,
+            fromLat = HOME_LAT + 0.04,
+            fromLon = HOME_LON,
+            homeLat = HOME_LAT,
+            homeLon = HOME_LON,
+            repository = FakeRepo(edges, nodes),
+            config = config,
+            avoidNodePairs = avoidNodePairs,
+        )
+
+        assertNotNull("Penalty should not exclude the only viable path", result)
+        assertEquals(1L, result!!.targetNode)
+        assertTrue(result.edges.isNotEmpty())
+    }
+
+    @Test
     fun `return leg returns null when no path exists`() = runTest {
         val nodes = listOf(
             node(1, HOME_LAT, HOME_LON),
@@ -279,6 +332,13 @@ class ExitLegPlannerTest {
     }
 
     @Test
+    fun `nodePairsOf includes both directions of every edge`() {
+        val edges = listOf(edge(1, 2, 100.0), edge(2, 3, 100.0))
+        val pairs = ExitLegPlanner.nodePairsOf(edges)
+        assertEquals(setOf(1L to 2L, 2L to 1L, 2L to 3L, 3L to 2L), pairs)
+    }
+
+    @Test
     fun `findNearestNode picks closest node`() {
         val nodes = listOf(
             node(1, 50.0, 6.0),
@@ -333,6 +393,23 @@ class ExitLegPlannerTest {
         val edges = listOf(
             edge(100, 50, 500.0, traversalCount = 8),
             edge(50, 1, 500.0, traversalCount = 10),
+        )
+        return edges to nodes
+    }
+
+    /** Two equal-length paths from node 100 back to home: via node 2 (path A) or node 3 (path B). */
+    private fun twoReturnCorridorsGraph(): Pair<List<MapEdge>, List<MapNode>> {
+        val nodes = listOf(
+            node(1, HOME_LAT, HOME_LON),
+            node(2, HOME_LAT + 0.005, HOME_LON + 0.002),
+            node(3, HOME_LAT + 0.005, HOME_LON - 0.002),
+            node(100, HOME_LAT + 0.01, HOME_LON),
+        )
+        val edges = listOf(
+            edge(100, 2, 500.0, traversalCount = 5),
+            edge(2, 1, 500.0, traversalCount = 5),
+            edge(100, 3, 500.0, traversalCount = 5),
+            edge(3, 1, 500.0, traversalCount = 5),
         )
         return edges to nodes
     }

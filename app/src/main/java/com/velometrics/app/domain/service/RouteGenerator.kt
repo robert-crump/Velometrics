@@ -379,6 +379,7 @@ object RouteGenerator {
                 lastCorridor.centroidLat, lastCorridor.centroidLon,
                 homeLat, homeLon,
                 repository, exitLegConfig,
+                avoidNodePairs = ExitLegPlanner.nodePairsOf(exitLeg.edges),
             )
         } else {
             null

@@ -49,8 +49,29 @@ object CorridorOrienteer {
 
     private const val TAG = "CorridorOrienteer"
 
-    /** Outer reach radius as a fraction of the target distance (reach = target / 3). */
-    internal const val FAR_POINT_BUDGET_FRACTION = 1.0 / 3.0
+    /**
+     * Outer reach radius as a fraction of the target distance.
+     *
+     * Derived, not tuned (#138). The coarse skeleton is a 5-vertex cycle home -> Q1 -> Q2 -> Q3 ->
+     * Q4 -> home, and `anchorScore`'s far term (`along/reach`) favors anchors near the reach
+     * boundary. Modeling anchors as sitting exactly on that boundary, evenly spaced 360/4=90
+     * degrees apart around home, the expected perimeter is
+     * `reach * (2 + 2*(QUADRANT_COUNT-1)*sin(pi/QUADRANT_COUNT))`: the two home<->anchor legs of
+     * length `reach`, plus `QUADRANT_COUNT-1` inter-anchor chords of length
+     * `2*reach*sin(pi/QUADRANT_COUNT)`. For `QUADRANT_COUNT=4` that factor is `2+3*sqrt(2) ~=
+     * 6.243`. Solving for the fraction that lands this expected perimeter at
+     * `FILL_TARGET_FRACTION * target` (so `fillToTarget` still has headroom to add reward-bearing
+     * corridors on a typical, sub-boundary anchor rather than the skeleton alone already exceeding
+     * the fill ceiling) gives `FILL_TARGET_FRACTION / 6.243 ~= 0.1442`.
+     *
+     * This replaces the placeholder `1/3` from the original quadrant-skeleton design
+     * (#113-#119), which — per the #138 diagnosis against the production graph — sized the coarse
+     * skeleton at roughly 2x the requested target before any refinement, hard-failing 20km routes
+     * outright once a direction cone also narrowed the candidate pool. The model above predicted
+     * that overshoot (6.243 * (target/3) ~= 2.08x target) within 2% of the diagnosed actual coarse
+     * `totalDistanceM` (~40.9km planned for a 20km target).
+     */
+    internal const val FAR_POINT_BUDGET_FRACTION = 0.1442
 
     /** Rough road-vs-straight-line factor for the informational coarse distance estimate. */
     private const val ROAD_DISTANCE_FACTOR = 1.3

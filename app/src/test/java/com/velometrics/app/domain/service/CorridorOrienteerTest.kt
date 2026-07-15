@@ -18,6 +18,7 @@ class CorridorOrienteerTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         )
 
         val skeleton = results.single().corridors
@@ -37,6 +38,7 @@ class CorridorOrienteerTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 12000.0,
             direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         )
 
         val skeleton = results.single().corridors
@@ -58,6 +60,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
             startCorridorId = 5L,
+            config = LEGACY_REACH_THIRD,
         )
 
         val skeleton = results.single().corridors
@@ -66,18 +69,32 @@ class CorridorOrienteerTest {
         assertTrue(skeleton.size >= 2)
     }
 
-    // --- Reach radius (target / 3) ---
+    // --- Reach radius (#138: derived from FILL_TARGET_FRACTION, not a flat target/3) ---
 
     @Test
-    fun `search excludes corridors beyond reach of target over three`() = runTest {
+    fun `reach fraction is derived from the fill target and the 4-anchor perimeter factor`() {
+        // #138: the coarse skeleton is a 5-vertex cycle home->Q1->Q2->Q3->Q4->home. Modeling
+        // anchors as sitting on the reach boundary, evenly spaced 90deg apart, its expected
+        // perimeter is reach*(2 + 2*(N-1)*sin(pi/N)) for N=4 quadrants (the two home<->anchor legs
+        // plus 3 inter-anchor chords). Sizing that at FILL_TARGET_FRACTION*target -- not 1.0x --
+        // leaves fillToTarget headroom below its own 0.9x ceiling for a typical, sub-boundary
+        // anchor, rather than the anchor-only skeleton already exceeding it.
+        val perimeterFactor = 2 + 2 * 3 * kotlin.math.sin(Math.PI / 4)
+        val expectedFraction = CorridorOrienteer.FILL_TARGET_FRACTION / perimeterFactor
+        assertEquals(expectedFraction, CorridorOrienteer.FAR_POINT_BUDGET_FRACTION, 1e-3)
+    }
+
+    @Test
+    fun `search excludes corridors beyond the derived reach fraction`() = runTest {
+        // reach = 9000 * 0.1442 ~= 1298m.
         val home = corridor(id = 1, lat = 50.0, lon = 6.0)
-        val near = corridor(id = 2, lat = 50.01, lon = 6.0)   // ~1113m north, within 3000m reach
-        val far = corridor(id = 3, lat = 50.05, lon = 6.0)    // ~5566m north, beyond 3000m reach
+        val near = corridor(id = 2, lat = 50.006, lon = 6.0)  // ~668m north, within reach
+        val far = corridor(id = 3, lat = 50.03, lon = 6.0)    // ~3340m north, beyond reach
 
         val results = CorridorOrienteer.search(
             listOf(home, near, far),
             homeLat = 50.0, homeLon = 6.0,
-            targetDistanceM = 9000.0, // reach = 3000m
+            targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
         )
 
@@ -91,10 +108,12 @@ class CorridorOrienteerTest {
         val run1 = CorridorOrienteer.search(
             quadrantFixture(), homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0, direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         )
         val run2 = CorridorOrienteer.search(
             quadrantFixture(), homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0, direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         )
         assertEquals(run1.single().corridors, run2.single().corridors)
     }
@@ -121,6 +140,7 @@ class CorridorOrienteerTest {
         val results = CorridorOrienteer.search(
             quadrantFixture(), homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0, direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         )
         val candidate = results.single()
         assertTrue(candidate.flowScore >= 0.0)
@@ -148,6 +168,7 @@ class CorridorOrienteerTest {
             corridors, homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 24000.0, // reach = 8000m, band floor = 21600m
             direction = RideDirection.NORTH,
+            config = LEGACY_REACH_THIRD,
         ).single()
 
         assertTrue("Fill must add corridors beyond the anchor", result.corridors.size > 2)
@@ -178,6 +199,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 30000.0, // reach = 10km, sep = 2km
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         ).single().corridors
 
         assertTrue("Higher-reward fill chosen", skeleton.contains(3L))
@@ -203,6 +225,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 30000.0,
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         ).single().corridors
 
         assertEquals("No valid fill -> bare anchor skeleton", listOf(1L, 2L), skeleton)
@@ -289,6 +312,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 30000.0, // reach = 10km, sep = 2km
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         )
 
         val skeleton = results.single().corridors
@@ -419,6 +443,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         ).single().corridors
 
         assertTrue("NE-heading twin chosen for the Q1 arc", skeleton.contains(2L))
@@ -439,6 +464,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         ).single().corridors
 
         assertEquals(listOf(1L, 2L), skeleton)
@@ -471,6 +497,7 @@ class CorridorOrienteerTest {
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
             edgeResolver = { _, _, _, _ -> listOf(seEdge) },
+            config = LEGACY_REACH_THIRD,
         ).single()
 
         val pseudoId = -4L // empty quadrant index 3 -> -(3+1)
@@ -506,6 +533,7 @@ class CorridorOrienteerTest {
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
             edgeResolver = { _, _, _, _ -> emptyList() },
+            config = LEGACY_REACH_THIRD,
         ).single()
 
         assertTrue("No pseudo-corridor when no edge is available", result.syntheticCorridors.isEmpty())
@@ -537,6 +565,7 @@ class CorridorOrienteerTest {
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
             edgeResolver = { _, _, _, _ -> listOf(wrongWayEdge) },
+            config = LEGACY_REACH_THIRD,
         ).single()
 
         assertTrue("Against-arc edge is not adopted", result.syntheticCorridors.isEmpty())
@@ -643,6 +672,7 @@ class CorridorOrienteerTest {
             targetDistanceM = 30000.0,
             direction = RideDirection.NORTH,
             nodeResolver = { ids -> coords.filterKeys { it in ids } },
+            config = LEGACY_REACH_THIRD,
         ).single().corridors
 
         assertTrue("Anchor present", skeleton.contains(2L))
@@ -774,7 +804,7 @@ class CorridorOrienteerTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
-            config = OrienteerConfig(candidateCount = 2),
+            config = OrienteerConfig(candidateCount = 2, reachFraction = 1.0 / 3.0),
         )
 
         assertEquals("Two distinct single-anchor combos returned", 2, results.size)
@@ -794,7 +824,7 @@ class CorridorOrienteerTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
-            config = OrienteerConfig(candidateCount = 5),
+            config = OrienteerConfig(candidateCount = 5, reachFraction = 1.0 / 3.0),
         )
 
         assertEquals("Duplicate corridor-sets from CW and CCW collapsed to one", 1, results.size)
@@ -814,7 +844,7 @@ class CorridorOrienteerTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 9000.0,
             direction = RideDirection.NORTH,
-            config = OrienteerConfig(candidateCount = 2),
+            config = OrienteerConfig(candidateCount = 2, reachFraction = 1.0 / 3.0),
         )
 
         assertEquals(2, results.size)
@@ -826,6 +856,11 @@ class CorridorOrienteerTest {
     }
 
     // --- Helpers ---
+
+    // Most fixtures below were hand-tuned against the pre-#138 default (reach = target/3) and are
+    // testing quadrant/fill/separation/twin behavior, not the reach-fraction default itself, so
+    // they opt back into the old ratio explicitly rather than being rewritten around the new one.
+    private val LEGACY_REACH_THIRD = OrienteerConfig(reachFraction = 1.0 / 3.0)
 
     private fun corridor(
         id: Long = 1,

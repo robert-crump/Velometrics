@@ -14,8 +14,10 @@ data class DegradationConfig(
     // ignores.
     val baseHeadingConeCosine: Double = 0.0,        // cos 90deg cone
     val widenedHeadingConeCosine: Double = -0.5,    // cos 120deg cone
-    val baseReachFraction: Double = 1.0 / 3.0,      // reach = target / 3
-    val extendedReachFraction: Double = 0.5,        // reach = target / 2
+    // Mirrors CorridorOrienteer.FAR_POINT_BUDGET_FRACTION (#138 derivation); kept as a literal
+    // here since DegradationConfig lives independently of CorridorOrienteer's OrienteerConfig.
+    val baseReachFraction: Double = 0.1442,         // reach = target * 0.1442 (was target/3, #138)
+    val extendedReachFraction: Double = 0.2163,     // 1.5x base, same ratio as the pre-#138 0.5/(1/3)
     val baseSeparationM: Double = 2000.0,
     val shrunkSeparationM: Double = 1000.0,
 )

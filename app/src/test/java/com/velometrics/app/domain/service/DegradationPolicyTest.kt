@@ -25,7 +25,7 @@ class DegradationPolicyTest {
         val params = DegradationPolicy.tierParams(RelaxationTier.NONE)
 
         assertEquals(0.0, params.headingConeCosine, 1e-9)
-        assertEquals(1.0 / 3.0, params.reachFraction, 1e-9)
+        assertEquals(0.1442, params.reachFraction, 1e-9)
         assertEquals(2000.0, params.separationM, 1e-9)
         assertEquals(0.15, params.distanceBandFraction, 1e-9)
     }
@@ -35,7 +35,7 @@ class DegradationPolicyTest {
         val params = DegradationPolicy.tierParams(RelaxationTier.WIDEN_CONE)
 
         assertEquals(-0.5, params.headingConeCosine, 1e-9)
-        assertEquals(1.0 / 3.0, params.reachFraction, 1e-9)
+        assertEquals(0.1442, params.reachFraction, 1e-9)
         assertEquals(2000.0, params.separationM, 1e-9)
         assertEquals(0.15, params.distanceBandFraction, 1e-9)
     }
@@ -45,7 +45,7 @@ class DegradationPolicyTest {
         val params = DegradationPolicy.tierParams(RelaxationTier.EXTEND_REACH)
 
         assertEquals(-0.5, params.headingConeCosine, 1e-9)
-        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(0.2163, params.reachFraction, 1e-9)
         assertEquals(2000.0, params.separationM, 1e-9)
         assertEquals(0.15, params.distanceBandFraction, 1e-9)
     }
@@ -55,7 +55,7 @@ class DegradationPolicyTest {
         val params = DegradationPolicy.tierParams(RelaxationTier.SHRINK_SEPARATION)
 
         assertEquals(-0.5, params.headingConeCosine, 1e-9)
-        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(0.2163, params.reachFraction, 1e-9)
         assertEquals(1000.0, params.separationM, 1e-9)
         assertEquals(0.15, params.distanceBandFraction, 1e-9)
     }
@@ -65,7 +65,7 @@ class DegradationPolicyTest {
         val params = DegradationPolicy.tierParams(RelaxationTier.WIDEN_BAND)
 
         assertEquals(-0.5, params.headingConeCosine, 1e-9)
-        assertEquals(0.5, params.reachFraction, 1e-9)
+        assertEquals(0.2163, params.reachFraction, 1e-9)
         assertEquals(1000.0, params.separationM, 1e-9)
         assertEquals(0.30, params.distanceBandFraction, 1e-9)
     }

@@ -27,6 +27,15 @@ class RouteGeneratorTest {
     // inside the default +/-15% acceptance band ([2550, 3450]).
     private val fixtureTargetM = 3000.0
 
+    // LoopFixtureRepository's corridors were hand-placed against the pre-#138 reach = target/3
+    // ratio; opt back into it for tests that exercise other RouteGenerator behavior (scoring, home
+    // snapping, deviation reporting) rather than the reach fraction itself. Mirrors
+    // CorridorOrienteerTest's LEGACY_REACH_THIRD.
+    private val legacyReachDegradation = DegradationConfig(
+        baseReachFraction = 1.0 / 3.0,
+        extendedReachFraction = 0.5,
+    )
+
     @Test
     fun `generates a candidate with sub-scores on small fixture`() = runTest {
         val repo = LoopFixtureRepository()
@@ -35,7 +44,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = fixtureTargetM,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
@@ -55,7 +64,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = fixtureTargetM,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue("Expected Success, got $result", result is RoutePlanResult.Success)
@@ -85,7 +94,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = 50_000.0,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue("Expected Failure for an unreachable distance, got $result", result is RoutePlanResult.Failure)
@@ -101,7 +110,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = fixtureTargetM,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue(result is RoutePlanResult.Success)
@@ -122,7 +131,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = fixtureTargetM,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue(result is RoutePlanResult.Success)
@@ -146,7 +155,7 @@ class RouteGeneratorTest {
             homeLat = 50.0, homeLon = 6.0,
             targetDistanceM = targetM,
             repository = repo,
-            config = GeneratorConfig(seed = 42L),
+            config = GeneratorConfig(seed = 42L, degradationConfig = legacyReachDegradation),
         )
 
         assertTrue(result is RoutePlanResult.Success)
@@ -434,6 +443,7 @@ class RouteGeneratorTest {
                     minCorridorDistM = 50_000.0,
                     maxCorridorDistM = 100_000.0,
                 ),
+                degradationConfig = legacyReachDegradation,
                 seed = 42L,
             ),
         )

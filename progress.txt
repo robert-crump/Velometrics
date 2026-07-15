@@ -1,3 +1,75 @@
+## Issue #138 — Coarse skeleton (reach=target/3) overshoots target before any refinement
+Completed: 2026-07-15
+
+### What was done
+
+The #138 diagnosis (filed while closing #132) found the coarse skeleton's own `totalDistanceM`
+was already ~2x the requested target before any refinement, purely from `reach = target/3`
+(`CorridorOrienteer.FAR_POINT_BUDGET_FRACTION`) placing quadrant anchors near the reach boundary.
+At 20km + a direction constraint this became a hard failure outright (3 of 4 direction-constrained
+20km runs in #135's matrix), the last blocker keeping #135 and #129 open.
+
+**`domain/service/CorridorOrienteer.kt`**
+- `FAR_POINT_BUDGET_FRACTION` recalculated from a derivation, not tuned by hand. The coarse
+  skeleton is a 5-vertex cycle `home -> Q1 -> Q2 -> Q3 -> Q4 -> home`; modeling anchors as sitting
+  on the reach boundary (matching `anchorScore`'s far term, `along/reach`), evenly spaced 90deg
+  apart, the expected perimeter is `reach * (2 + 2*(N-1)*sin(pi/N))` for `N=4` quadrants — the two
+  home<->anchor legs plus 3 inter-anchor chords, factor `2+3*sqrt(2) ~= 6.243`. Solving for the
+  fraction that lands this at `FILL_TARGET_FRACTION * target` (0.9x, not 1.0x, so `fillToTarget`
+  still has headroom to add reward-bearing corridors on a typical sub-boundary anchor) gives
+  `0.9 / 6.243 ~= 0.1442`, replacing the placeholder `1/3` from the original quadrant-skeleton
+  design (#113-#119). The model predicted the pre-fix overshoot (6.243 * (target/3) ~= 2.08x
+  target) within 2% of the #138 diagnosis's measured coarse `totalDistanceM` (~40.9km planned for
+  a 20km target), which gave confidence to derive rather than hand-tune the replacement.
+
+**`domain/service/DegradationPolicy.kt`**
+- `DegradationConfig.baseReachFraction` mirrors the new `0.1442` (duplicated as a literal since
+  `DegradationConfig` doesn't depend on `CorridorOrienteer`). `extendedReachFraction` (the
+  `EXTEND_REACH` relaxation tier) rescaled to `0.2163`, keeping the same 1.5x ratio over base that
+  the pre-#138 `0.5 / (1/3)` pair had.
+
+### Tests
+- New `CorridorOrienteerTest`: `reach fraction is derived from the fill target and the 4-anchor
+  perimeter factor` — recomputes the perimeter-factor formula independently and asserts it matches
+  the shipped constant (regression guard against the derivation and the constant drifting apart).
+  `search excludes corridors beyond the derived reach fraction` replaces the old target/3-specific
+  test with one tuned to the new default.
+- Most existing `CorridorOrienteerTest`/`RouteGeneratorTest` fixtures were hand-placed against the
+  pre-#138 `reach = target/3` ratio to test unrelated behavior (quadrant classification, fill,
+  separation, twin orientation, candidate scoring, home snapping) — decoupled from the production
+  default via an explicit `OrienteerConfig(reachFraction = 1.0/3.0)` /
+  `DegradationConfig(baseReachFraction = 1.0/3.0, extendedReachFraction = 0.5)` override rather
+  than rederiving dozens of lat/lon fixtures around the new, much smaller reach.
+- `DegradationPolicyTest`: updated the hardcoded `1.0/3.0` / `0.5` expectations to `0.1442` /
+  `0.2163`.
+- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest` (`--rerun-tasks`,
+  matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
+  regressions.
+
+### Harness before/after (posted to #138)
+Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20km leg only (20km x {NONE,NORTH,EAST,SOUTH,WEST}, 5 runs,
+production graph, real home coordinates) — the exact matrix slice #135 flagged as the remaining
+blocker.
+
+**Before (from #135's matrix):** 3 of 4 direction-constrained runs hard-failed outright ("Could not
+generate a loop from your home location"); the lone success (`d20km_west`) needed the loosest tier
+(`WIDEN_BAND`) and landed at +20% deviation with 0.02 compactness — never a maintainer-approved
+oval at this distance in 15 runs across all three distances.
+
+**After:** 5/5 succeeded, all at tier `NONE` (no relaxation needed), all within the base +/-15%
+band (max deviation 8.9%, `d20km_any`). Compactness: `d20km_any` 0.11, `d20km_north` 0.13,
+`d20km_east` 0.25, `d20km_south` 0.26, `d20km_west` 0.12 — `d20km_south` clears the #135-calibrated
+`minCompactness=0.26` shape gate (`gate=true` in the harness log), the first 20km run ever to pass
+it. `d20km_east` at 0.25 is one hundredth short.
+
+This clears #138's own scope (no more hard failures, coarse skeleton tracks target) and produces
+the "at least one 20km combo" data #135 needs to close, but final acceptance for #135/#129 is
+explicitly human-in-the-loop (maintainer visual sign-off on the rendering, not just the compactness
+number) — posting this run to #135 for that review rather than closing it here. #138 itself is
+fully in scope and closed.
+
+---
+
 ## Issue #135 — Calibrate shape-gate thresholds and land the tier-2 real-graph shape-gate test
 Status: IN PROGRESS (not closed — see "Remaining" below)
 

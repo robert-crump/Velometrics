@@ -8,6 +8,7 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
+import org.maplibre.android.geometry.LatLng
 
 @Singleton
 class GpxExporter @Inject constructor() {
@@ -20,6 +21,22 @@ class GpxExporter @Inject constructor() {
     }
 
     fun toGpxString(edges: List<MapEdge>, routeName: String): String {
+        val points = edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
+        return writeGpx(points, routeName)
+    }
+
+    /** Exports a raw recorded track (e.g. [com.velometrics.app.domain.model.RepeatedRoute.representativeTrack]) as-is. */
+    fun exportTrack(coords: List<List<Double>>, routeName: String, outputStream: OutputStream) {
+        val gpx = toGpxStringFromTrack(coords, routeName)
+        outputStream.write(gpx.toByteArray(Charsets.UTF_8))
+    }
+
+    fun toGpxStringFromTrack(coords: List<List<Double>>, routeName: String): String {
+        val points = coords.mapNotNull { c -> if (c.size >= 2) LatLng(c[0], c[1]) else null }
+        return writeGpx(points, routeName)
+    }
+
+    private fun writeGpx(points: List<LatLng>, routeName: String): String {
         val writer = StringWriter()
         val timestamp = isoFormatter.format(Instant.now())
 
@@ -36,11 +53,8 @@ class GpxExporter @Inject constructor() {
         writer.append("    <name>${escapeXml(routeName)}</name>\n")
         writer.append("    <trkseg>\n")
 
-        for (edge in edges) {
-            val points = PolylineDecoder.decode(edge.geometryEncoded)
-            for (point in points) {
-                writer.append("      <trkpt lat=\"${point.latitude}\" lon=\"${point.longitude}\"/>\n")
-            }
+        for (point in points) {
+            writer.append("      <trkpt lat=\"${point.latitude}\" lon=\"${point.longitude}\"/>\n")
         }
 
         writer.append("    </trkseg>\n")

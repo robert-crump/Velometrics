@@ -96,4 +96,34 @@ class GpxExporterTest {
             assertEquals(expectedPoints[i].longitude, track.points[i].longitude, 1e-5)
         }
     }
+
+    @Test
+    fun `raw track produces trkpt elements for each coordinate pair`() {
+        val coords = listOf(listOf(51.5, -0.1), listOf(51.51, -0.11))
+        val gpx = exporter.toGpxStringFromTrack(coords, "Repeated Route")
+
+        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
+        assertEquals(2, track.points.size)
+        assertEquals(51.5, track.points[0].latitude, 1e-9)
+        assertEquals(-0.1, track.points[0].longitude, 1e-9)
+        assertEquals(51.51, track.points[1].latitude, 1e-9)
+        assertEquals(-0.11, track.points[1].longitude, 1e-9)
+    }
+
+    @Test
+    fun `raw track ignores malformed coordinate pairs`() {
+        val coords = listOf(listOf(51.5, -0.1), listOf(51.51))
+        val gpx = exporter.toGpxStringFromTrack(coords, "Repeated Route")
+
+        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
+        assertEquals(1, track.points.size)
+    }
+
+    @Test
+    fun `empty raw track produces valid but empty GPX`() {
+        val gpx = exporter.toGpxStringFromTrack(emptyList(), "Empty Route")
+
+        assertTrue(gpx.contains("<gpx version=\"1.1\""))
+        assertFalse(gpx.contains("<trkpt"))
+    }
 }

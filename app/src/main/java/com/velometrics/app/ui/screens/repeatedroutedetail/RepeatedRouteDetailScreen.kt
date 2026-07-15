@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -44,9 +46,23 @@ fun RepeatedRouteDetailScreen(
     viewModel: RepeatedRouteDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val exportError by viewModel.exportError.collectAsState()
     var isEditing by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf(TextFieldValue("")) }
     val focusRequester = remember { FocusRequester() }
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.shareIntent.collect { context.startActivity(it) }
+    }
+
+    LaunchedEffect(exportError) {
+        exportError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearExportError()
+        }
+    }
 
     // Slider index for the power → duration estimator (local UI state)
     var sliderIndex by remember { mutableIntStateOf(1) }
@@ -105,10 +121,16 @@ fun RepeatedRouteDetailScreen(
                         }) {
                             Icon(Icons.Default.Edit, contentDescription = "Rename route")
                         }
+                        if (!uiState.route?.representativeTrack.isNullOrEmpty()) {
+                            IconButton(onClick = { viewModel.exportGpx() }) {
+                                Icon(Icons.Default.Share, contentDescription = "Export GPX")
+                            }
+                        }
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

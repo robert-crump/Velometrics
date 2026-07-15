@@ -1,18 +1,33 @@
 ﻿package com.velometrics.app.ui.screens.repeatedroutedetail
 
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
+import com.velometrics.app.domain.service.GpxExporter
 import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /**
@@ -56,10 +71,18 @@ data class RepeatedRouteDetailUiState(
 @HiltViewModel
 class RepeatedRouteDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val repository: RepeatedRouteRepository
+    private val repository: RepeatedRouteRepository,
+    private val gpxExporter: GpxExporter,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val routeId: Long = checkNotNull(savedStateHandle["routeId"])
+
+    private val _shareIntent = MutableSharedFlow<Intent>(extraBufferCapacity = 1)
+    val shareIntent: SharedFlow<Intent> = _shareIntent.asSharedFlow()
+
+    private val _exportError = MutableStateFlow<String?>(null)
+    val exportError: StateFlow<String?> = _exportError.asStateFlow()
 
     val uiState: StateFlow<RepeatedRouteDetailUiState> = repository
         .getRouteById(routeId)
@@ -139,6 +162,44 @@ class RepeatedRouteDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.renameRoute(routeId, newName.trim().ifEmpty { "Repeated Route" })
         }
+    }
+
+    fun exportGpx() {
+        val route = uiState.value.route ?: return
+        val track = route.representativeTrack
+        if (track.isNullOrEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"))
+                val safeName = route.name.replace(Regex("[^A-Za-z0-9 _-]"), "_").trim().ifEmpty { "route" }
+                val fileBaseName = "${date}_$safeName"
+
+                val file = File(context.cacheDir, "$fileBaseName.gpx")
+                file.outputStream().use { gpxExporter.exportTrack(track, route.name, it) }
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file,
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/gpx+xml"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, fileBaseName)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                _shareIntent.emit(Intent.createChooser(intent, fileBaseName))
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _exportError.value = "Export failed: ${e.message}"
+                }
+            }
+        }
+    }
+
+    fun clearExportError() {
+        _exportError.value = null
     }
 
     private fun buildPowerDurationModel(

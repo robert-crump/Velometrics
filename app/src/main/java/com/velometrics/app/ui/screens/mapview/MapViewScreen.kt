@@ -208,6 +208,10 @@ fun MapViewScreen(
         planARideViewModel.shareIntent.collect { context.startActivity(it) }
     }
 
+    LaunchedEffect(fastWayHomeViewModel) {
+        fastWayHomeViewModel.shareIntent.collect { context.startActivity(it) }
+    }
+
     // Load a GPX file opened from another app (ACTION_VIEW / ACTION_SEND)
     LaunchedEffect(pendingGpxUri) {
         val uri = pendingGpxUri ?: return@LaunchedEffect
@@ -749,6 +753,7 @@ fun MapViewScreen(
                     result = fastWayHomeResult,
                     message = fastWayHomeMessage,
                     isLoading = isFindingFastWayHome,
+                    onExportGpx = { fastWayHomeViewModel.exportGpx() },
                     onDismiss = { fastWayHomeViewModel.clearFastWayHome() },
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )

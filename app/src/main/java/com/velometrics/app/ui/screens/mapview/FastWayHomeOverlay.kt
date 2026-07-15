@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,6 +43,7 @@ fun FastWayHomeCard(
     result: FastWayHomeResult?,
     message: String?,
     isLoading: Boolean,
+    onExportGpx: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -85,6 +87,13 @@ fun FastWayHomeCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onExportGpx,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Export GPX")
+                    }
                 }
                 message != null -> {
                     Text(

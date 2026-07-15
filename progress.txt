@@ -1,3 +1,61 @@
+## Issue #135 — 20km maintainer sign-off (post-#138): rejected, follow-up issues #141/#142 filed
+Completed: 2026-07-15 (session outcome; #135 and #129 remain open)
+
+### What was done
+
+With #138 (coarse-skeleton reach=target/3 overshoot) landed and closed, re-ran the 20km leg of
+#135's matrix (20km x {NONE,NORTH,EAST,SOUTH,WEST}, production graph) — the exact slice #135 was
+blocked on. All 5 combos now succeed at tier `NONE` (previously 3/4 hard-failed), and `d20km_south`
+(0.26 compactness) clears the calibrated `minCompactness=0.26` shape gate for the first time at
+this distance, with `d20km_east` (0.25) close behind.
+
+Rendered all 5 locally for maintainer visual review (`render_routes.py`, scratchpad-only, not
+committed) — iterated the renderer per the maintainer's requests from an initial minimal-SVG
+version (thicker strokes, then a 1km-grid/distance-ring offline backdrop) to a final version using
+Leaflet + live OpenStreetMap tiles. Note: fetching real map tiles sends the route's bounding box
+(a ~20km-wide area centered on the exact home address) to tile.openstreetmap.org over the network —
+a deliberate, explicitly-confirmed exception to the standing rule of never letting anything that
+embeds the home address leave the machine (previously enforced by keeping renders fully offline).
+Confirmed with the maintainer before switching to live tiles.
+
+**Maintainer verdict: none of the 5 read as a rideable oval**, including the gate-passing
+`d20km_south`. Feedback, verbatim substance:
+- Too many inner loops; track repeatedly moves toward the loop's center before heading back
+  outward, even on the gate-passing combo. Convex-hull-based compactness doesn't catch this — hull
+  area doesn't meaningfully shrink from an interior excursion as long as the outer extreme points
+  are unchanged.
+- `d20km_east`'s route sits mainly *west* of home, not east — direction labeling doesn't match
+  actual geometry at this radius.
+- `d20km_west` spends significant distance through Aachen's city center (heavy traffic) despite
+  #125's hazard/stop-weighted junction costs.
+
+Posted the full finding to #135:
+https://github.com/robert-crump/Velometrics/issues/135#issuecomment-4977742372
+
+**Scope decision (maintainer, HITL):** the shape defect (interior excursions, not caught by
+compactness) and the road-choice defects (direction mislabeling, city-center routing) are different
+kinds of problems — kept as two separate new issues rather than one, so neither's acceptance
+criteria gets blurred (matches #129's own warning about scope-mixing after #107/#111/#113-#119):
+- #141 — 20km reward-bearing corridors cut toward the loop interior, not caught by convex-hull
+  compactness. Suggested starting point: check whether `LoopHull`'s `hullFactor` band clamp
+  (`clamp(0.15 * meanRingRadiusM, 500, 2000)`) leaves too little relative margin at 20km-loop scale
+  before adding a new interior-excursion metric; also whether intra-corridor reward-segment
+  selection is unconstrained by hull bias today (only connector A* and the reward-detour pass use
+  `hullFactor`).
+- #142 — 20km direction-constrained routes: heading mislabeled and routed through Aachen city
+  center. Suggested starting point: verify `DirectionConstraint` heading-cone filtering against
+  actual generated waypoint bearings (not just anchor placement) at 20km; check whether #125's
+  per-junction hazard costs aggregate correctly against cumulative urban-core exposure or need a
+  distinct area-density avoidance signal.
+
+### Net effect
+#135's "sign-off at all three distances" acceptance criterion still isn't met — #138 fixed the
+hard-failure/overshoot problem but not the underlying 20km shape/quality problem. #135 and #129
+remain open, now blocked on #141 and #142 rather than #138. No code changes this session (pure
+diagnosis + HITL sign-off); nothing to compile/test.
+
+---
+
 ## Issue #138 — Coarse skeleton (reach=target/3) overshoots target before any refinement
 Completed: 2026-07-15
 

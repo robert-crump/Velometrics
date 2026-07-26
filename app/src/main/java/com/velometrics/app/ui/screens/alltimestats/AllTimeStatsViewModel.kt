@@ -9,6 +9,7 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.util.FormatUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
+import java.time.Year
 import java.time.ZoneId
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -86,18 +87,7 @@ class AllTimeStatsViewModel @Inject constructor(
             powerCurvePoint(1800, "30min", bestEfforts) { it.power30m }
         )
 
-        val yearStats = sessions
-            .groupBy { it.sessionStart.atZone(ZoneId.systemDefault()).year }
-            .map { (year, yearSessions) ->
-                YearStat(
-                    year = year,
-                    rideCount = yearSessions.size,
-                    totalDistanceKm = yearSessions.sumOf { it.distanceKm },
-                    totalElevationGainM = yearSessions.sumOf { it.elevationGainM ?: 0.0 },
-                    totalNetDurationSec = yearSessions.sumOf { it.netDurationSec }
-                )
-            }
-            .sortedByDescending { it.year }
+        val yearStats = buildYearStats(sessions)
 
         return AllTimeStatsUiState(
             isLoading = false,
@@ -114,7 +104,7 @@ class AllTimeStatsViewModel @Inject constructor(
         val best = sessions.maxByOrNull { it.distanceKm }
         return RecordEntry(
             label = "Longest ride",
-            value = best?.let { FormatUtils.formatDistance(it.distanceKm) },
+            value = best?.let { FormatUtils.formatDistanceRounded(it.distanceKm) },
             emptyMessage = "No rides recorded yet",
             sessionId = best?.id,
             date = best?.let { FormatUtils.formatDate(it.sessionStart) }
@@ -125,11 +115,33 @@ class AllTimeStatsViewModel @Inject constructor(
         val best = sessions.filter { it.elevationGainM != null }.maxByOrNull { it.elevationGainM!! }
         return RecordEntry(
             label = "Biggest climb",
-            value = best?.elevationGainM?.let { FormatUtils.formatElevationGain(it) },
+            value = best?.elevationGainM?.let { FormatUtils.formatElevationGainRounded(it) },
             emptyMessage = "No elevation data recorded yet",
             sessionId = best?.id,
             date = best?.let { FormatUtils.formatDate(it.sessionStart) }
         )
+    }
+
+    // Contiguous range from the current calendar year down to the earliest year with a
+    // recorded session, so the year-navigation arrows always step one calendar year at a
+    // time and the view can start on the current year even before any ride is logged for it.
+    private fun buildYearStats(sessions: List<CyclingSession>): List<YearStat> {
+        if (sessions.isEmpty()) return emptyList()
+
+        val byYear = sessions.groupBy { it.sessionStart.atZone(ZoneId.systemDefault()).year }
+        val currentYear = Year.now(ZoneId.systemDefault()).value
+        val earliestYear = minOf(byYear.keys.min(), currentYear)
+
+        return (currentYear downTo earliestYear).map { year ->
+            val yearSessions = byYear[year].orEmpty()
+            YearStat(
+                year = year,
+                rideCount = yearSessions.size,
+                totalDistanceKm = yearSessions.sumOf { it.distanceKm },
+                totalElevationGainM = yearSessions.sumOf { it.elevationGainM ?: 0.0 },
+                totalNetDurationSec = yearSessions.sumOf { it.netDurationSec }
+            )
+        }
     }
 
     private fun longestDurationEntry(sessions: List<CyclingSession>): RecordEntry {

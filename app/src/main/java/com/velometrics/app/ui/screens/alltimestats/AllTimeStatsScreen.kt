@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -371,6 +372,10 @@ private fun PowerCurveChart(
 
 @Composable
 private fun YearBreakdownSection(yearStats: List<YearStat>) {
+    // yearStats is sorted from the current year down to the earliest year with data, so index 0
+    // is always the current year — the requested starting point.
+    var selectedIndex by remember(yearStats) { mutableStateOf(0) }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -386,49 +391,61 @@ private fun YearBreakdownSection(yearStats: List<YearStat>) {
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             } else {
-                yearStats.forEachIndexed { index, year ->
-                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                        Text(
-                            "${year.year}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            YearStatCell(
-                                "Rides",
-                                "${year.rideCount}",
-                                Modifier.weight(1f)
-                            )
-                            YearStatCell(
-                                "Distance",
-                                FormatUtils.formatDistance(year.totalDistanceKm),
-                                Modifier.weight(1f)
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            YearStatCell(
-                                "Elev. gain",
-                                FormatUtils.formatElevationGain(year.totalElevationGainM),
-                                Modifier.weight(1f)
-                            )
-                            YearStatCell(
-                                "Duration",
-                                FormatUtils.formatDuration(year.totalNetDurationSec),
-                                Modifier.weight(1f)
-                            )
-                        }
+                val year = yearStats[selectedIndex]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { selectedIndex++ },
+                        enabled = selectedIndex < yearStats.lastIndex
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous year")
                     }
-                    if (index != yearStats.lastIndex) {
-                        HorizontalDivider()
+                    Text(
+                        "${year.year}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    IconButton(
+                        onClick = { selectedIndex-- },
+                        enabled = selectedIndex > 0
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next year")
                     }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    YearStatCell(
+                        "Rides",
+                        "${year.rideCount}",
+                        Modifier.weight(1f)
+                    )
+                    YearStatCell(
+                        "Distance",
+                        FormatUtils.formatDistanceRounded(year.totalDistanceKm),
+                        Modifier.weight(1f)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    YearStatCell(
+                        "Elev. gain",
+                        FormatUtils.formatElevationGainRounded(year.totalElevationGainM),
+                        Modifier.weight(1f)
+                    )
+                    YearStatCell(
+                        "Duration",
+                        FormatUtils.formatDuration(year.totalNetDurationSec),
+                        Modifier.weight(1f)
+                    )
                 }
             }
         }

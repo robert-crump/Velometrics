@@ -39,11 +39,17 @@ object FormatUtils {
 
     fun formatDistance(km: Double): String = "%.1f km".format(Locale.US, km)
 
+    // Rounded to the nearest whole km with a thousands separator (e.g. "1,234 km").
+    fun formatDistanceRounded(km: Double): String = "%,.0f km".format(Locale.US, km)
+
     fun formatSpeed(kmh: Double): String = "%.1f km/h".format(Locale.US, kmh)
 
     fun formatPower(watts: Int): String = "$watts W"
 
     fun formatElevationGain(meters: Double): String = "%.0f m".format(Locale.US, meters)
+
+    // Rounded to the nearest whole metre with a thousands separator (e.g. "1,234 m").
+    fun formatElevationGainRounded(meters: Double): String = "%,.0f m".format(Locale.US, meters)
 
     // Elevation gain scaled to a 100 km ride, rounded to the nearest 10 m, with a thousands
     // separator (e.g. a 1500 m result renders as "1,500 m").

@@ -21,6 +21,7 @@ import org.junit.Before
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
+import java.time.Year
 import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -120,12 +121,31 @@ class AllTimeStatsViewModelTest {
 
         val state = vm.uiState.first { !it.isLoading }
 
-        assertEquals(listOf(2025, 2024, 2023), state.yearStats.map { it.year })
+        val currentYear = Year.now().value
+        assertEquals((currentYear downTo 2023).toList(), state.yearStats.map { it.year })
         val year2025 = state.yearStats.first { it.year == 2025 }
         assertEquals(2, year2025.rideCount)
         assertEquals(50.0, year2025.totalDistanceKm, 0.001)
         assertEquals(500.0, year2025.totalElevationGainM, 0.001)
         assertEquals(5000, year2025.totalNetDurationSec)
+    }
+
+    @Test
+    fun `yearStats fills the current year with zeroed stats when it has no sessions yet`() = runTest(testDispatcher) {
+        val sessions = listOf(
+            session(1, midYearInstant(2023), distanceKm = 10.0, netDurationSec = 1000, elevationGainM = 100.0)
+        )
+        val vm = buildViewModel(sessions = sessions)
+
+        val state = vm.uiState.first { !it.isLoading }
+
+        val currentYear = Year.now().value
+        assertEquals(currentYear, state.yearStats.first().year)
+        val currentYearStat = state.yearStats.first { it.year == currentYear }
+        assertEquals(0, currentYearStat.rideCount)
+        assertEquals(0.0, currentYearStat.totalDistanceKm, 0.001)
+        assertEquals(0.0, currentYearStat.totalElevationGainM, 0.001)
+        assertEquals(0, currentYearStat.totalNetDurationSec)
     }
 
     // ---------------------------------------------------------------------
@@ -145,7 +165,7 @@ class AllTimeStatsViewModelTest {
 
         val longest = state.bestTrio.first { it.label == "Longest ride" }
         assertEquals(2L, longest.sessionId)
-        assertEquals(FormatUtils.formatDistance(90.0), longest.value)
+        assertEquals(FormatUtils.formatDistanceRounded(90.0), longest.value)
     }
 
     @Test
@@ -179,7 +199,7 @@ class AllTimeStatsViewModelTest {
 
         val biggestClimb = state.bestTrio.first { it.label == "Biggest climb" }
         assertEquals(2L, biggestClimb.sessionId)
-        assertEquals(FormatUtils.formatElevationGain(50.0), biggestClimb.value)
+        assertEquals(FormatUtils.formatElevationGainRounded(50.0), biggestClimb.value)
     }
 
     // ---------------------------------------------------------------------

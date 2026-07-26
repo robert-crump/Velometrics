@@ -20,6 +20,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     }
     data object Info : Screen("info", "Info", Icons.Default.Info)
     data object HomeAddress : Screen("home_address", "Home Location", Icons.Default.Home)
+    data object AllTimeStats : Screen("all_time_stats", "All-time Stats", Icons.Default.Info)
 }
 
 // Bottom navigation items (top-level destinations)

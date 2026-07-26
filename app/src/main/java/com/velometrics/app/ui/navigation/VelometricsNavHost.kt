@@ -9,6 +9,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.velometrics.app.ui.screens.alltimestats.AllTimeStatsScreen
 import com.velometrics.app.ui.screens.home.HomeScreen
 import com.velometrics.app.ui.screens.homeaddress.HomeAddressScreen
 import com.velometrics.app.ui.screens.info.InfoScreen
@@ -34,6 +35,18 @@ fun VelometricsNavHost(
         composable(Screen.Home.route) {
             HomeScreen(
                 onSessionClick = { sessionId ->
+                    navController.navigate(Screen.SessionDetail.createRoute(sessionId))
+                },
+                onNavigateToAllTimeStats = {
+                    navController.navigate(Screen.AllTimeStats.route)
+                }
+            )
+        }
+
+        composable(Screen.AllTimeStats.route) {
+            AllTimeStatsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToSession = { sessionId ->
                     navController.navigate(Screen.SessionDetail.createRoute(sessionId))
                 }
             )

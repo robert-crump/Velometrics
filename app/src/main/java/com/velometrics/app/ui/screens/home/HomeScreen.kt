@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -94,6 +95,7 @@ private class OpenMultipleDocumentsSorted : ActivityResultContract<String, List<
 @Composable
 fun HomeScreen(
     onSessionClick: (Long) -> Unit,
+    onNavigateToAllTimeStats: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val sessions by viewModel.sessions.collectAsState()
@@ -105,6 +107,8 @@ fun HomeScreen(
     val isInitialLoading by viewModel.isInitialLoading.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val dropboxSyncMessage by viewModel.dropboxSyncMessage.collectAsState()
+
+    var overflowMenuExpanded by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     var isSnackbarVisible by remember { mutableStateOf(false) }
@@ -158,6 +162,25 @@ fun HomeScreen(
                                 text = "$sessionCount rides",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { overflowMenuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = overflowMenuExpanded,
+                            onDismissRequest = { overflowMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("All-time stats") },
+                                onClick = {
+                                    overflowMenuExpanded = false
+                                    onNavigateToAllTimeStats()
+                                }
                             )
                         }
                     }

@@ -1,3 +1,77 @@
+## Issue #145 — All-time Stats: build the screen UI + navigation (#143 follow-up)
+Completed: 2026-07-26
+
+### What was done
+
+Follow-up to #143 (data layer already on `main`) and picked over its sibling #146 (test coverage)
+as higher-impact: the data layer was already shipped but completely inaccessible without this UI,
+so this unlocks the whole feature rather than just hardening code nobody can reach yet. Built the
+screen and navigation exactly per the design worked out with the maintainer in #143's grill-me
+session.
+
+**`ui/navigation/Screen.kt`**
+- New `Screen.AllTimeStats("all_time_stats", ...)`.
+
+**`ui/navigation/VelometricsNavHost.kt`**
+- Wired `Screen.AllTimeStats.route` to a new `AllTimeStatsScreen` composable, with
+  `onNavigateToSession` routing to the existing `Screen.SessionDetail`. `HomeScreen` gained an
+  `onNavigateToAllTimeStats` callback wired to the new route.
+
+**`ui/screens/home/HomeScreen.kt`**
+- New overflow menu (`DropdownMenu` behind a `MoreVert` `IconButton`) on Home's `TopAppBar`, same
+  pattern as `RepeatedRoutesScreen`'s sort filter menu — single "All-time stats" entry.
+
+**`ui/screens/alltimestats/AllTimeStatsScreen.kt`** (new)
+- Top-to-bottom: all-time-best trio, distance-split records, power curve, per-year breakdown — all
+  consuming the existing `AllTimeStatsViewModel` with no ViewModel changes needed.
+- Best-trio/distance-split records rendered as `RecordRow`s: value+date when present, an explicit
+  `emptyMessage` (not a hidden section) when null; row is `clickable` only when `sessionId != null`,
+  navigating to `SessionDetailScreen`.
+- Power curve: custom `Canvas` line chart (hand-rolled, matching `HomeScreen`'s existing
+  `MonthlyLineChart` pattern rather than a charting library), log-scale x-axis
+  (`xFor(i)` maps `ln(durationSec)` linearly into chart width, since durations span 1s-30min and a
+  linear axis would crush the short-duration end into a few pixels). Highlighted point defaults to
+  the smallest-duration bucket that actually has data (first entry of `availableIndices`, not index
+  0 of the fixed 9-bucket list, since 1s/3s/etc. can be individually null) and updates on drag via
+  the same `awaitEachGesture`/`detectDragGestures`-style pointer input as `MonthlyLineChart`, snapping
+  to the nearest available (non-null) point by x-distance. Gated on `hasAnyPowerCurveData`; shows
+  "Import a ride with power data to see your power curve" otherwise (covers GPX-only users, per the
+  issue — GPX imports never carry power).
+- Per-year breakdown: initially a 4-column row (Rides/Distance/Elev. gain/Duration) matching the
+  issue's stat list, but on-device testing showed "km"/"m" suffixes wrapping onto their own line at
+  4-per-row width — reflowed to a 2×2 grid (Rides+Distance, then Elev. gain+Duration) which fixed it
+  cleanly at the tested screen width.
+- Overall empty state (`!hasAnySessions`): single centered "No rides recorded yet" message instead
+  of rendering four empty sections.
+
+### Manual verification (on-device, real production data — 148 rides)
+Built and installed the debug APK on a connected device (not just Robolectric) per this project's
+UI-testing convention. Confirmed: overflow menu shows "All-time stats"; navigating in shows real
+all-time-best data (400.5 km longest ride, 3196 m biggest climb, 14h 7m longest duration, all with
+correct dates); distance-split and power-curve sections correctly show their empty-state copy (none
+of the 148 pre-#143 rides have best-effort data — the known, by-design gap since `FitImportService`
+discards the raw per-record stream after import); tapping the "Longest ride" record navigates to
+`SessionDetailScreen` and shows the matching 400.5 km / 5 July 2025 ride; per-year breakdown shows
+2023-2026 correctly sorted most-recent-first with the fixed 2×2 grid. Did not verify the power
+curve's with-data rendering/drag-to-highlight path live, since doing so needs a ride re-imported
+after #143 landed and no sample `.fit` file exists in this repo or environment — verified that path
+by code review only, consistent with the issue's own note that this is an accepted, known gap.
+
+One environment note for future sessions: running `./gradlew assembleDebug` concurrently with a
+still-running background `testDebugUnitTest` on Windows corrupts the packaged APK (Windows file
+locking makes `transformDebugClassesWithAsm` silently fail to fully replace class outputs, producing
+a `ClassNotFoundException` on `VelometricsApplication` at launch) — serialize Gradle invocations
+against the same build directory rather than running them in parallel.
+
+### Tests
+No new tests added (this issue's own scope explicitly excludes UI/Compose tests, deferring to
+manual on-device verification; unit test coverage for the underlying `BestEffortCalculator`/
+`AllTimeStatsViewModel` logic is #146, not this issue). `compileDebugKotlin`,
+`compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching the known Gradle
+env-var/test-filter stale-cache quirk from #135): all pass, no regressions.
+
+---
+
 ## Issue #143 — All-time Stats: data layer (screen UI split into follow-ups #145/#146)
 Status: IN PROGRESS — data layer landed, UI/nav/tests split into #145/#146
 Session: 2026-07-26
@@ -584,64 +658,3 @@ diagnosis) and once with this change.
   Shipped #131 with the design-session's exact constants (`w=0.4`, `bandM` formula) rather than
   hand-tuning against one harness run; the tier-cascade data is input for #132/#133, not evidence
   the constants are wrong.
-
----
-
-## Issue #125 — Turn-aware junction costs from map_turns
-Completed: 2026-07-06
-
-### What was done
-
-`JunctionCost` was orphaned — never called anywhere except its own test — and modeled turn risk
-via a left-turn-vs-right-turn heuristic modulated by `MapEdge.avgStopCount`, an edge-level proxy
-noted in its own comment as a stand-in until real per-turn data shipped. #123 already landed that
-data (`map_turns`, `MapTurn`, `MapGraphRepository.getTurnsNear`) but nothing consumed it yet. This
-wires it into the A* relaxation loop that `RouteRefiner` already runs per connector segment.
-
-**`domain/service/JunctionCost.kt`**
-- Rewrote `computeTurnCost` to take a `MapTurn?` (looked up by the caller) instead of a `MapEdge`,
-  and to return a **meters-equivalent** penalty so it can be added straight onto A* g-cost
-  alongside edge lengths, rather than the old 0–1-ish normalized value.
-- Dropped the left-turn surcharge / `avgStopCount` waiver entirely — real per-turn hazard/stop/
-  braking/ke-delta data supersedes that geometric proxy.
-- New composition: when a `MapTurn` row exists, cost = angle term (unchanged bearing-difference
-  penalty) + `hazardScore * hazardWeightM` + `stopPenalty * stopWeightM` +
-  `(brakingProbability ?: 0.0) * brakingWeightM` + `(medianKeDelta ?: 0.0).coerceAtLeast(0.0) *
-  keDeltaWeightM`. When no row exists: if the bearing change is negligible (< `negligibleAngleDeg`,
-  default 5°) cost is 0 — most graph nodes are plain geometry pass-through points on a single road
-  and were never written to `map_turns`, so charging every one of them would penalize routes with
-  more nodes over equivalent-length routes with fewer. Only a real, unmeasured bearing change
-  incurs the angle term plus a flat `unmeasuredTurnPenaltyM` surcharge for the unknown risk.
-- A hazardous junction with *no* bearing change (e.g. crossing a busy road straight through) still
-  costs something, since the composed-cost branch doesn't gate on angle — only the no-data branch does.
-
-**`domain/service/RouteRefiner.kt`**
-- `refine()` now preloads `repository.getTurnsNear(...)` for the same chain bbox as the edges/nodes
-  preload, into a `Map<Triple<fromNode, junctionNode, toNode>, MapTurn>`.
-- Waypoints alternate intra-corridor (entry→exit, reward already baked in) and connector
-  (exit_i→entry_(i+1)) segments; since `buildWaypoints` always emits pairs in that order, segment
-  index parity tells them apart (odd `i` = connector) with no new bookkeeping needed.
-- `shortestPathAStar` gains a `turns` param (null for intra-corridor segments, the preloaded map for
-  connector segments). In the successor relaxation it computes approach/exit bearings from
-  `nodeMap` via the existing `GeoUtils.computeBearing`, looks up the turn keyed
-  `(current.fromNode, current.toNode, succ.toNode)`, and adds `JunctionCost.computeTurnCost(...)`
-  onto `newG` alongside the existing length + reuse-penalty terms.
-- Scope note: the very first edge choice at a connector segment's start node isn't charged a turn
-  cost (no "approach edge" carries over from the previous, independently-solved intra-corridor
-  segment) — only turns strictly inside a segment's own A* search are covered. Widening that would
-  require threading state across segment boundaries, which the issue didn't ask for.
-
-### Tests
-- Rewrote `JunctionCostTest.kt` for the new `MapTurn?`-based signature: angle-only monotonicity and
-  wrap-around (unmeasured), each of hazard/stop/braking/ke-delta increasing cost independently,
-  null braking/ke-delta treated as zero, negative ke-delta clamped to zero, a straight-through
-  junction still costing something when hazard data exists, and a full sum-of-terms check against
-  the default config's weights.
-- `RouteRefinerTest.kt`: extended `FakeRepository` with a `turns` param feeding `getTurnsNear`. Two
-  new tests on a shared fixture (direct 2→3→5 path with a hazardous turn record at the node-3
-  junction vs. a longer straight 2→4→5 detour with no turn data): the connector-segment test
-  asserts the detour is chosen once the hazardous turn's cost pushes the direct path above it; the
-  intra-corridor-segment test (single corridor, `closeLoop = false`) asserts the same hazardous
-  record is ignored and the shorter direct path wins, proving turn cost is scoped to connectors only.
-- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, and the full `testDebugUnitTest` suite pass
-  (403 tests, 0 failures).

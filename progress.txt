@@ -1,3 +1,61 @@
+## Issue #146 — All-time Stats: test coverage for BestEffortCalculator + AllTimeStatsViewModel (#143 follow-up)
+Completed: 2026-07-26
+
+### What was done
+
+Only `ready-for-agent` issue in the queue. Follow-up to #143/#145: the data layer and screen UI
+both shipped without unit coverage (scope was cut short each session) — this lands the test
+coverage called out in the issue, no production code changes.
+
+**`domain/service/BestEffortCalculatorTest.kt`** (new)
+- Direct tests against the `internal` `bestTimeForDistance`/`bestAvgPowerForDuration` two-pointer
+  functions using hand-built `DoubleArray` fixtures (no need to round-trip through `Datapoint`/
+  haversine for these): exact match at a sample boundary, interpolated mid-segment match, ride
+  shorter than target (null), target reachable only right at the very end of the ride (only the
+  whole-ride window clears it), and a case with multiple candidate windows where a later fast burst
+  beats an earlier slow window (regression guard on the two-pointer's window-tracking, since a naive
+  implementation could get stuck returning the first window found rather than the fastest).
+- `bestAvgPowerForDuration`: constant power returns that same wattage regardless of window position,
+  a short high-power burst inside a longer low-power ride is correctly found (400W burst beats the
+  surrounding 100W), ride shorter than duration returns null, duration exactly matching ride length
+  resolves via the single whole-ride window.
+- `compute`: power fields are all null when `hasPower = false` even when some `Datapoint.power`
+  values are non-null (simulates a GPS-only ride with stray power readings); fewer than 2 datapoints
+  returns an all-null `BestEffortValues()`.
+- Cross-check test: a synthetic straight-line-north ride (pure meridian, so haversine distance is
+  exactly `EARTH_RADIUS_M * dLatRadians` — no floating approximation) at a constant 10 m/s and
+  constant 200W, 5 steps of 5000m/500s. Hand-calculated expectation: total distance is exactly
+  25000m (the whole ride, so `split25kSec` == total elapsed time 2500s, `split50kSec`/`split100kSec`
+  null since the ride never reaches them), and every power-curve bucket up to 1800s reads exactly
+  200W since power is constant throughout. Exercises the full `compute()` wiring (datapoints ->
+  cumulative distance/energy -> both algorithms), not just the array-level logic.
+
+**`ui/screens/alltimestats/AllTimeStatsViewModelTest.kt`** (new)
+- `yearStats` buckets sessions by calendar year via `ZoneId.systemDefault()` (mid-year instants used
+  in fixtures to avoid timezone-boundary flakiness) and sorts years descending; per-year sums
+  (`rideCount`/`totalDistanceKm`/`totalElevationGainM`/`totalNetDurationSec`) verified against a
+  mixed multi-year session list.
+- `longestRideEntry`/`longestDurationEntry` pick the correct session out of a mixed list.
+- `biggestClimbEntry` ignores a session with `elevationGainM == null` even though it has the
+  greatest distance of the three — proves null is excluded rather than treated as a climb of 0.
+- `splitEntry`/`powerCurvePoint` pick the minimum time / maximum watts respectively across multiple
+  `BestEffortRecord`s and carry through the winning record's `sessionId`/date.
+- Empty-session-list and empty-best-efforts-list cases produce the expected all-null/empty
+  `AllTimeStatsUiState` without throwing.
+- New `FakeBestEffortRepository` test double (matching the existing `FakeCyclingSessionRepository`
+  pattern) since none existed yet. `uiState` is collected via `vm.uiState.first { !it.isLoading }`
+  rather than manually launching a collector job — simpler than the alternatives since
+  `FakeCyclingSessionRepository.getAllSessions()` is a completed `flowOf(...)`, so the
+  `WhileSubscribed(5000)`-backed `StateFlow` settles on its first real emission as soon as anything
+  subscribes.
+
+### Tests
+21 new test cases (12 `BestEffortCalculatorTest`, 9 `AllTimeStatsViewModelTest`), all passing.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
+the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no regressions.
+
+---
+
 ## Issue #145 — All-time Stats: build the screen UI + navigation (#143 follow-up)
 Completed: 2026-07-26
 
@@ -128,8 +186,8 @@ navigation) and #146 (test coverage) for the rest, commented on #143 with the sp
   tap-through-to-`SessionDetailScreen` requirement.
 
 ### Tests
-None yet — filed as #146 (`BestEffortCalculator`'s interpolation math and `AllTimeStatsViewModel`'s
-aggregation logic both need real coverage, not just this session's manual reasoning).
+None yet at the time — landed in #146 (`BestEffortCalculator`'s interpolation math and
+`AllTimeStatsViewModel`'s aggregation logic both now have real coverage).
 
 ### Build
 `compileDebugKotlin` (includes `kspDebugKotlin` — confirms the Room schema/migration and Hilt
@@ -582,79 +640,3 @@ mismatch, not a connector-distance-estimation mismatch) — flagging for a follo
 expanding #132's scope to cover it. The calibration mechanism itself is verified correct (unit tests
 above) and remains a real safety net for graphs/regions where the targeted mismatch does occur; it
 was simply not the dominant error source in this specific harness matrix.
-
----
-
-## Issue #131 — Constrain glue routing to the corridor hull (LoopHull + hull-band cost)
-Completed: 2026-07-10
-
-### What was done
-
-The core #129 fix: corridor edges were only 6-10% of a generated route, with the other ~92% being
-per-segment A* glue routing with no shape objective, producing near-zero enclosed area (compactness
-0.03-0.25) even when the anti-backtrack/separation machinery from #111-#119 kept literal road
-repetition low. This makes glue routing trace the planned oval's perimeter instead of
-shortest-pathing through its interior.
-
-**`domain/service/LoopHull.kt`** (new)
-- `LoopHull.build(points)`: convex hull (Andrew's monotone chain) over a candidate's resolved
-  waypoint nodes + corridor centroids, in a local equirectangular projection anchored at the first
-  point. Returns null (degenerate — no penalty) for fewer than 3 hull vertices (e.g. collinear
-  input) or an enclosed area under ~1 km², preserving prior behavior for small/degenerate loops.
-- `hullFactor(lat, lon, w=0.4) = 1 + w * min(ringDistM/bandM, 3)^2`, `bandM =
-  clamp(0.15 * meanRingRadiusM, 500, 2000)` — exactly the design-session spec, kept as config
-  defaults rather than hand-tuned. `distanceToRingM` is the perpendicular distance to the nearest
-  hull boundary edge (point-to-segment, not point-to-vertex), so both cutting into the interior and
-  overshooting outward the hull are penalized symmetrically.
-
-**`domain/service/RouteRefiner.kt`**
-- `refine()` builds one `LoopHull?` per candidate from `allWaypointNodes` + `candidateCorridors`
-  centroids, threaded into every `shortestPathAStar` call (preload pass and the bbox-expansion
-  fallback) and `rewardMaxDijkstra`.
-- `shortestPathAStar`: edge cost becomes `lengthM * reusePenalty * hullFactor(edge midpoint) +
-  turnCost`, applied to both the initial start-edge costs and successor relaxation. hullFactor is
-  ≥1 and independent of the haversine-to-target heuristic, so the heuristic stays admissible (real
-  cost only ever grows above plain length).
-- `rewardMaxDijkstra`: same hullFactor applied to the length spent against the reward-detour budget
-  (`effLen = lengthM * hullFactor`), so an interior-cutting detour can no longer buy the same
-  amount of reward-collecting distance as a ring-hugging one. Also gained a hard exclusion
-  (`usedNodePairs`) — previously this pass had no reuse guard at all and could freely route an
-  out-and-back onto a high-reward edge already ridden by an earlier segment; the connector A* only
-  soft-penalizes reuse via `edgeReusePenalty`, but this pass needed a hard gate since it isn't
-  bounded by the A* heuristic's preference for the direct route.
-
-### Tests
-- `LoopHullTest.kt` (new): degenerate fallback (fewer than 3 points, collinear input, sub-1km²
-  area all return null), a real hull for a well-separated rectangle, `distanceToRingM` zero on the
-  boundary and growing toward the interior centroid, `hullFactor` exactly 1.0 on the ring and
-  capping at 3 band multiples, `convexHull`/`polygonArea` unit checks.
-- `RouteRefinerTest.kt`: `hull bias prefers a perimeter path over an interior chord of comparable
-  length` (synthetic ~2.1km x 2.2km rectangular loop; the interior chord is 8m shorter in raw
-  length but loses once hull-band cost is applied), `reward detour pass never reuses a node pair
-  already used earlier in the route` (segment 2's reward detour would reuse segment 1's edge in
-  reverse for identical bonus reward — hard-excluded, falls back to its own shortest path).
-- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest` suite: all pass, no
-  regressions (every pre-existing `RouteRefinerTest` case runs at a scale well under the 1km²
-  degenerate-hull floor, so the whole existing suite doubles as a regression check that the
-  fallback leaves untouched behavior alone).
-
-### Harness before/after (posted to #131)
-Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20/50/80km matrix twice: once on a clean pre-#131 checkout
-(reproduced the cited #129 baseline exactly — 0.03/0.25/0.03 compactness, confirming no drift since
-diagnosis) and once with this change.
-- 80km: clean win, same tier (`NONE`), compactness 0.03 -> 0.20 (~6.7x) — hull cost alone fixing
-  the interior-chord problem with no other side effects.
-- 20km/50km: compactness *worse* (0.03->0.02, 0.25->0.15), but via a **tier cascade**, not the hull
-  cost working backwards — ring-hugging connectors are, by design, physically longer than the
-  shortest path they replace (that extra length is real: `actualDistanceM` sums real edge lengths,
-  unaffected by `hullFactor`). Enough connectors growing pushes a candidate that used to fit
-  `DegradationPolicy`'s distance band at `NONE` out of band, forcing relaxation to a looser tier
-  (wider heading cone, smaller separation) with a worse candidate pool — 50km's `NONE ->
-  WIDEN_BAND` jump and 5->35 repeated roads is exactly that.
-- This is the interaction #132 (adaptive coarse-distance calibration — the coarse search still
-  budgets connectors at haversine x1.3, unaware #131 makes real connector paths longer) and #133
-  (shape-aware candidate selection — today's tier fallback and `trimRefined` rank by reward only,
-  so a relaxed tier can hand back a worse-shaped high-reward candidate) are already scoped to close.
-  Shipped #131 with the design-session's exact constants (`w=0.4`, `bandM` formula) rather than
-  hand-tuning against one harness run; the tier-cascade data is input for #132/#133, not evidence
-  the constants are wrong.

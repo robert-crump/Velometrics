@@ -3,8 +3,10 @@
 import android.util.Log
 import com.velometrics.app.domain.model.Datapoint
 import com.velometrics.app.data.preferences.UserSettingsRepository
+import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
+import com.velometrics.app.domain.service.BestEffortCalculator
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
 import com.velometrics.app.domain.service.SprintDetector
@@ -34,7 +36,8 @@ class FitImportService @Inject constructor(
     private val intervalMatcher: IntervalMatcher,
     private val intervalRepository: IntervalRepository,
     private val sprintDetector: SprintDetector,
-    private val userSettingsRepository: UserSettingsRepository
+    private val userSettingsRepository: UserSettingsRepository,
+    private val bestEffortRepository: BestEffortRepository
 ) {
 
     companion object {
@@ -113,6 +116,13 @@ class FitImportService @Inject constructor(
 
             // 9. Persist
             val id = sessionRepository.insertSession(session)
+
+            // 9b. Best-effort records (distance splits + power curve), computed here while the
+            // per-record datapoint stream is still in memory — it isn't persisted anywhere.
+            val bestEfforts = BestEffortCalculator.compute(datapoints, hasPower)
+            if (bestEfforts.hasAnyData) {
+                bestEffortRepository.insert(id, bestEfforts)
+            }
 
             // 10. Interval detection & matching (power rides only)
             var intervalCount = 0

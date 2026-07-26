@@ -1,3 +1,71 @@
+## Issue #143 — All-time Stats: data layer (screen UI split into follow-ups #145/#146)
+Status: IN PROGRESS — data layer landed, UI/nav/tests split into #145/#146
+Session: 2026-07-26
+
+### What was done
+
+Issue #143 was a stub ("Where should the page live? What statistics should it contain?..."), so
+this was a full /grill-me design session before any code: nav placement (overflow menu on Home,
+not a new bottom-nav tab or link), data source scope (`cycling_sessions` only), page structure
+(all-time-best trio → distance splits → power curve → per-year breakdown), the exact stat set, and
+— the one real feasibility fork — how to get fastest-25k/50k/100k splits and a Wahoo-style power
+curve (best watts for 1s-30min) when `FitImportService` discards the per-record datapoint stream
+after computing aggregates. Resolved: compute both at import time (where the stream is still in
+memory) via a rolling-window best-effort algorithm, persisted per-session; historical rides already
+imported won't have this data unless re-imported (accepted gap, no backfill).
+
+Mid-session the user asked to cut scope to "finish the current step, then file the rest as
+follow-up issues for a different session" — landed the data layer only, filed #145 (screen UI +
+navigation) and #146 (test coverage) for the rest, commented on #143 with the split, left #143 open.
+
+**`domain/service/BestEffortCalculator.kt`** (new)
+- `bestTimeForDistance`/`bestAvgPowerForDuration`: O(n) two-pointer sweeps over cumulative
+  distance/energy arrays (both monotonically increasing), interpolating across the boundary segment
+  so results aren't quantized to ~1Hz sample spacing. Same rolling-window semantics for both
+  (Strava Best Efforts / TrainingPeaks power curve), per an earlier grill-me answer applying it
+  consistently to distance splits and the power curve rather than mixing whole-ride-only semantics.
+- `compute(datapoints, hasPower)`: distance splits (25k/50k/100k) computed for every ride; power
+  curve (1s/3s/5s/20s/30s/1min/5min/20min/30min) only when `hasPower` (GPX imports never have power
+  at all — `GpxParser` has no power field).
+
+**`data/local/entity/SessionBestEffortEntity.kt`, `data/local/dao/SessionBestEffortDao.kt`** (new)
+- One row per session (FK to `cycling_sessions`, cascade delete), 12 nullable columns. `getAllWithSessionDate()`
+  joins against `cycling_sessions` so callers get the source ride's date without a second query.
+
+**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`**
+- DB version 10 -> 11, `MIGRATION_10_11` creates `session_best_efforts` (`CREATE TABLE` +
+  unique index on `sessionId`), following the existing raw-SQL migration pattern in this file.
+
+**`domain/repository/BestEffortRepository.kt`, `data/repository/BestEffortRepositoryImpl.kt`, `di/RepositoryModule.kt`**
+- Thin repository wrapping the DAO, bound via the existing `@Binds` pattern.
+
+**`data/fitimport/FitImportService.kt`**
+- New step 9b, right after session insert: `BestEffortCalculator.compute(datapoints, hasPower)`,
+  persisted only if `hasAnyData` (skips writing an all-null row for short/GPS-only rides that never
+  clear any bucket).
+
+**`ui/screens/alltimestats/AllTimeStatsViewModel.kt`** (new, data layer only — no screen yet)
+- Combines `CyclingSessionRepository.getAllSessions()` with `BestEffortRepository.getAllWithSessionDate()`
+  into `AllTimeStatsUiState`: best-trio (longest ride/biggest climb/longest duration, ignoring
+  sessions with null `elevationGainM` for the climb record rather than treating null as 0),
+  distance-split records (min time per bucket), power curve (max watts per bucket), and a per-year
+  breakdown (grouped via `ZoneId.systemDefault()`, matching `HomeViewModel`'s existing monthly-grouping
+  convention). Every record carries its source `sessionId`/date for the follow-up screen's
+  tap-through-to-`SessionDetailScreen` requirement.
+
+### Tests
+None yet — filed as #146 (`BestEffortCalculator`'s interpolation math and `AllTimeStatsViewModel`'s
+aggregation logic both need real coverage, not just this session's manual reasoning).
+
+### Build
+`compileDebugKotlin` (includes `kspDebugKotlin` — confirms the Room schema/migration and Hilt
+DI graph for the new entity/DAO/repository all resolve cleanly): `BUILD SUCCESSFUL`, no new
+warnings. Full `testDebugUnitTest` not run this session (no new tests to exercise yet, and no
+existing code path was touched that risks a regression — `FitImportService`'s new step 9b is
+additive and gated on `hasAnyData`).
+
+---
+
 ## Issue #144 — Add Elev. gain / 100km field to Session Detail and Repeated Route Detail
 Completed: 2026-07-26
 

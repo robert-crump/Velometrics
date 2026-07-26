@@ -129,6 +129,32 @@ object DatabaseModule {
         }
     }
 
+    private val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS session_best_efforts (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "sessionId INTEGER NOT NULL, " +
+                    "split25kSec REAL, " +
+                    "split50kSec REAL, " +
+                    "split100kSec REAL, " +
+                    "power1s INTEGER, " +
+                    "power3s INTEGER, " +
+                    "power5s INTEGER, " +
+                    "power20s INTEGER, " +
+                    "power30s INTEGER, " +
+                    "power1m INTEGER, " +
+                    "power5m INTEGER, " +
+                    "power20m INTEGER, " +
+                    "power30m INTEGER, " +
+                    "FOREIGN KEY(sessionId) REFERENCES cycling_sessions(id) ON DELETE CASCADE)"
+            )
+            database.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_session_best_efforts_sessionId ON session_best_efforts(sessionId)"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -137,7 +163,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -160,6 +186,11 @@ object DatabaseModule {
     @Provides
     fun provideRepeatedIntervalDao(database: VelometricsDatabase): RepeatedIntervalDao {
         return database.repeatedIntervalDao()
+    }
+
+    @Provides
+    fun provideSessionBestEffortDao(database: VelometricsDatabase): SessionBestEffortDao {
+        return database.sessionBestEffortDao()
     }
 
     @Provides

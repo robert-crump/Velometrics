@@ -1,10 +1,12 @@
 ﻿package com.velometrics.app.di
 
+import com.velometrics.app.data.repository.BestEffortRepositoryImpl
 import com.velometrics.app.data.repository.CyclingSessionRepositoryImpl
 import com.velometrics.app.data.repository.IntervalRepositoryImpl
 import com.velometrics.app.data.repository.MapGraphRepositoryImpl
 import com.velometrics.app.data.repository.RepeatedIntervalRepositoryImpl
 import com.velometrics.app.data.repository.RepeatedRouteRepositoryImpl
+import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
@@ -49,4 +51,10 @@ abstract class RepositoryModule {
     abstract fun bindRepeatedIntervalRepository(
         impl: RepeatedIntervalRepositoryImpl
     ): RepeatedIntervalRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBestEffortRepository(
+        impl: BestEffortRepositoryImpl
+    ): BestEffortRepository
 }

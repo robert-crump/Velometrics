@@ -12,9 +12,10 @@ import com.velometrics.app.data.local.entity.*
         CyclingSessionEntity::class,
         IntervalSessionEntity::class,
         RepeatedRouteEntity::class,
-        RepeatedIntervalEntity::class
+        RepeatedIntervalEntity::class,
+        SessionBestEffortEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -23,4 +24,5 @@ abstract class VelometricsDatabase : RoomDatabase() {
     abstract fun intervalSessionDao(): IntervalSessionDao
     abstract fun repeatedRouteDao(): RepeatedRouteDao
     abstract fun repeatedIntervalDao(): RepeatedIntervalDao
+    abstract fun sessionBestEffortDao(): SessionBestEffortDao
 }

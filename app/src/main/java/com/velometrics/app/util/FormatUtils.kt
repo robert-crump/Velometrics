@@ -45,6 +45,15 @@ object FormatUtils {
 
     fun formatElevationGain(meters: Double): String = "%.0f m".format(Locale.US, meters)
 
+    // Elevation gain scaled to a 100 km ride, rounded to the nearest 10 m, with a thousands
+    // separator (e.g. a 1500 m result renders as "1,500 m").
+    fun formatElevationGainPer100km(gainM: Double, distanceKm: Double): String? {
+        if (distanceKm <= 0.0) return null
+        val scaled = gainM / distanceKm * 100.0
+        val rounded = (scaled / 10.0).roundToInt() * 10
+        return "%,d m".format(Locale.US, rounded)
+    }
+
     fun formatCardiacEfficiency(wattsPerBpm: Double): String = "%.2f W/bpm".format(Locale.US, wattsPerBpm)
 
     fun formatDate(instant: Instant): String = dateFormatter.format(instant)

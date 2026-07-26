@@ -386,6 +386,19 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     median = null,
                     higherIsBetter = false
                 )
+                val elevGainPer100km = session.elevationGainM?.let {
+                    FormatUtils.formatElevationGainPer100km(it, session.distanceKm)
+                }
+                if (elevGainPer100km != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MetricCell(
+                        label = "Elev. gain / 100km",
+                        value = elevGainPer100km,
+                        current = null,
+                        median = null,
+                        higherIsBetter = false
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {

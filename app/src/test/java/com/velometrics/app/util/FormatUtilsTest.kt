@@ -120,4 +120,32 @@ class FormatUtilsTest {
     fun `categoryDisplayName maps friture to Fast food`() {
         assertEquals("Fast food", FormatUtils.categoryDisplayName("friture"))
     }
+
+    @Test
+    fun `formatElevationGainPer100km scales and rounds to nearest 10`() {
+        // 500m over 50km -> 1000m/100km exactly
+        assertEquals("1,000 m", FormatUtils.formatElevationGainPer100km(500.0, 50.0))
+    }
+
+    @Test
+    fun `formatElevationGainPer100km rounds to nearest ten, not up`() {
+        // 241m/100km -> nearest 10 is 240, not ceiling to 250
+        assertEquals("240 m", FormatUtils.formatElevationGainPer100km(241.0, 100.0))
+    }
+
+    @Test
+    fun `formatElevationGainPer100km uses comma thousands separator above 1000`() {
+        // 20km ride with 800m gain -> 4000m/100km
+        assertEquals("4,000 m", FormatUtils.formatElevationGainPer100km(800.0, 20.0))
+    }
+
+    @Test
+    fun `formatElevationGainPer100km returns null for zero distance`() {
+        assertEquals(null, FormatUtils.formatElevationGainPer100km(500.0, 0.0))
+    }
+
+    @Test
+    fun `formatElevationGainPer100km returns null for negative distance`() {
+        assertEquals(null, FormatUtils.formatElevationGainPer100km(500.0, -5.0))
+    }
 }

@@ -11,6 +11,7 @@ import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import com.velometrics.app.domain.service.GpxExporter
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.FormatUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,7 @@ data class RepeatedRouteDetailUiState(
     val avgSpeedKmh: Double = 0.0,
     val avgPowerW: Int? = null,
     val avgNormalizedPowerW: Int? = null,
+    val elevGainPer100km: String? = null,
     val speedPowerPoints: List<Pair<Float, Float>> = emptyList(),
     val speedNpPoints: List<Pair<Float, Float>> = emptyList(),
     val showPowerPlots: Boolean = false,
@@ -107,6 +109,14 @@ class RepeatedRouteDetailViewModel @Inject constructor(
                     npSessions.sumOf { it.normalizedPower!! } / npSessions.size
                 else null
 
+                val elevationGains = sessions.mapNotNull { it.elevationGainM }
+                val avgElevGainM = if (elevationGains.isNotEmpty())
+                    elevationGains.sum() / elevationGains.size
+                else null
+                val elevGainPer100km = avgElevGainM?.let {
+                    FormatUtils.formatElevationGainPer100km(it, avgDist)
+                }
+
                 val showPlots = sessions.any { it.hasPower }
 
                 // x = power, y = speed
@@ -148,6 +158,7 @@ class RepeatedRouteDetailViewModel @Inject constructor(
                     avgSpeedKmh = avgSpeed,
                     avgPowerW = avgPower,
                     avgNormalizedPowerW = avgNp,
+                    elevGainPer100km = elevGainPer100km,
                     speedPowerPoints = speedPowerPoints,
                     speedNpPoints = speedNpPoints,
                     showPowerPlots = showPlots,

@@ -1,3 +1,52 @@
+## Issue #144 — Add Elev. gain / 100km field to Session Detail and Repeated Route Detail
+Completed: 2026-07-26
+
+### What was done
+
+New normalized "climb density" field so rides/routes of different lengths can be compared on
+hilliness independent of distance. Grilled via /grill-me before implementing — resolved the
+rounding rule (nearest-10, not ceiling), no minimum-distance threshold for short rides, null/zero
+handling, the repeated-route aggregation order, and a real conflict in the original spec (it asked
+for "." as a thousands separator, which collides with the app's existing Locale.US decimal-point
+convention used elsewhere on the same screens).
+
+**`util/FormatUtils.kt`**
+- New `formatElevationGainPer100km(gainM, distanceKm)`: `gainM / distanceKm * 100`, rounded to the
+  nearest 10m, formatted `"%,d m"` (Locale.US comma thousands separator, not the originally
+  requested "." — avoids ambiguity with this file's existing decimal-point convention, e.g. a
+  literal "1.500 m" reads as 1.5 m). Returns null when `distanceKm <= 0`.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
+- New "Elev. gain / 100km" `MetricCell`, placed immediately after the existing "Elevation gain"
+  cell. Hidden entirely (no cell rendered) when `elevationGainM` is null or the helper returns null.
+
+**`ui/screens/repeatedroutedetail/RepeatedRouteDetailViewModel.kt`**
+- `RepeatedRouteDetailUiState` gains `elevGainPer100km: String?`, computed as
+  `avg(elevationGainM over sessions with non-null data) / avgDistanceKm * 100` — averages first,
+  then scales once, rather than scaling each session and averaging the ratios (avoids over-
+  weighting a short outlier session in the cluster). Sessions missing elevation data are excluded
+  from the gain average but still counted in the distance average, matching existing
+  `avgDistanceKm` behavior.
+
+**`ui/screens/repeatedroutedetail/RepeatedRouteDetailScreen.kt`**
+- New "Elev. gain / 100km" `MetricStatCell`. Pre-implementation research had assumed the 2x3 stats
+  grid had an open 6th slot — it didn't; all 6 cells (Times, Avg duration, Avg distance, Avg
+  speed, Avg power, Avg NP) were already filled. Reflowed to a 3rd row instead: the new cell starts
+  row 2 (immediately after Avg distance, honoring the original placement decision), Avg NP moves to
+  its own row 3 with two weighted spacers to preserve column alignment. Shows "--" when null,
+  matching this screen's existing convention for missing `avgPowerW`/`avgNormalizedPowerW` (session
+  detail's stricter "hide the cell" rule wasn't extended here, since removing a cell from a
+  weighted `Row` would misalign it against the row above).
+
+### Tests
+New `FormatUtilsTest` cases: exact-scale rounding, round-to-nearest-not-ceiling, comma thousands
+separator above 1000m, null on zero/negative distance.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest` (`--rerun-tasks`,
+matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
+regressions.
+
+---
+
 ## Issue #135 — 20km maintainer sign-off (post-#138): rejected, follow-up issues #141/#142 filed
 Completed: 2026-07-15 (session outcome; #135 and #129 remain open)
 

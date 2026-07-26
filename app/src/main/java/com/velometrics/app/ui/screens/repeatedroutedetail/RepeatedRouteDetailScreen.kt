@@ -198,6 +198,11 @@ fun RepeatedRouteDetailScreen(
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
                         MetricStatCell(
+                            label = "Elev. gain / 100km",
+                            value = uiState.elevGainPer100km ?: "--",
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricStatCell(
                             label = "Avg speed",
                             value = FormatUtils.formatSpeed(uiState.avgSpeedKmh),
                             modifier = Modifier.weight(1f)
@@ -207,11 +212,15 @@ fun RepeatedRouteDetailScreen(
                             value = uiState.avgPowerW?.let { FormatUtils.formatPower(it) } ?: "--",
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         MetricStatCell(
                             label = "Avg NP",
                             value = uiState.avgNormalizedPowerW?.let { FormatUtils.formatPower(it) } ?: "--",
                             modifier = Modifier.weight(1f)
                         )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
 

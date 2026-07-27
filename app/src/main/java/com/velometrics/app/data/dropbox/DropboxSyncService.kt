@@ -14,6 +14,7 @@ import com.velometrics.app.data.preferences.UserSettingsRepository
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -63,11 +64,20 @@ class DropboxSyncService @Inject constructor(
             }
 
             while (true) {
+                var pageHadError = false
                 for (entry in listing.entries) {
                     if (entry is FileMetadata && entry.name.endsWith(".fit", ignoreCase = true)) {
-                        results.add(downloadAndImport(client, entry))
+                        val result = downloadAndImport(client, entry)
+                        results.add(result)
+                        if (result is ImportResult.Error) pageHadError = true
                     }
                 }
+
+                // Only advance the cursor past a page once every file in it is durably
+                // imported. The cursor is a one-way pointer into Dropbox's change history -
+                // saving it past a failed file would make that file permanently unretryable,
+                // even though it never actually made it into the local database.
+                if (pageHadError) break
 
                 credentialStore.saveSyncCursor(syncFolder, listing.cursor)
 
@@ -95,6 +105,8 @@ class DropboxSyncService @Inject constructor(
             if (isPersistentAuthFailure(e)) throw e
             Log.e(TAG, "Failed to sync ${entry.name}", e)
             ImportResult.Error("Sync error for ${entry.name}: ${e.message}")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync ${entry.name}", e)
             ImportResult.Error("Sync error for ${entry.name}: ${e.message}")

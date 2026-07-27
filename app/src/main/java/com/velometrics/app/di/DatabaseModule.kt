@@ -12,6 +12,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import org.json.JSONObject
 import javax.inject.Singleton
 
 @Module
@@ -155,6 +156,45 @@ object DatabaseModule {
         }
     }
 
+    // Speed histogram buckets narrowed from 8 to 5 (#148); every new boundary aligns with an old
+    // one, so existing rows are merged rather than discarded. Old label -> new label.
+    private val SPEED_HISTOGRAM_BUCKET_MERGE = mapOf(
+        "0-5 km/h" to "0-10 km/h",
+        "5-10 km/h" to "0-10 km/h",
+        "10-20 km/h" to "10-20 km/h",
+        "20-25 km/h" to "20-30 km/h",
+        "25-30 km/h" to "20-30 km/h",
+        "30-35 km/h" to "30-40 km/h",
+        "35-40 km/h" to "30-40 km/h",
+        ">40 km/h" to ">40 km/h"
+    )
+    private val SPEED_HISTOGRAM_NEW_BUCKETS =
+        listOf("0-10 km/h", "10-20 km/h", "20-30 km/h", "30-40 km/h", ">40 km/h")
+
+    internal val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            val cursor = database.query("SELECT id, speedHistogram FROM cycling_sessions")
+            cursor.use {
+                val idIndex = it.getColumnIndexOrThrow("id")
+                val histIndex = it.getColumnIndexOrThrow("speedHistogram")
+                while (it.moveToNext()) {
+                    val id = it.getLong(idIndex)
+                    val oldHist = JSONObject(it.getString(histIndex))
+                    val newCounts = SPEED_HISTOGRAM_NEW_BUCKETS.associateWith { 0 }.toMutableMap()
+                    oldHist.keys().forEach { oldLabel ->
+                        val newLabel = SPEED_HISTOGRAM_BUCKET_MERGE[oldLabel] ?: return@forEach
+                        newCounts[newLabel] = (newCounts[newLabel] ?: 0) + oldHist.getInt(oldLabel)
+                    }
+                    val newJson = JSONObject(newCounts as Map<String, Any>).toString()
+                    database.execSQL(
+                        "UPDATE cycling_sessions SET speedHistogram = ? WHERE id = ?",
+                        arrayOf(newJson, id)
+                    )
+                }
+            }
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -163,7 +203,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .fallbackToDestructiveMigration()
             .build()
     }

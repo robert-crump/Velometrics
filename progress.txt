@@ -1,3 +1,79 @@
+## Issue #148 — Speed distribution: changes
+Completed: 2026-07-27
+
+### What was done
+
+Full /grill-me design session before implementing (issue was terse: new buckets plus "the ride
+session Detail Screen should also receive a Speed distribution card"). Resolved: historical-data
+handling (the new 5-bucket scheme is an exact coarsening of the old 8-bucket one — every new
+boundary lines up with an old one — so a real Room migration merges existing rows' counts instead
+of relying on `fallbackToDestructiveMigration`, which would have silently wiped every ride on
+upgrade), scope of the bucket change (global — `CyclingConstants.SPEED_HISTOGRAM_BINS` is a single
+shared constant, so RepeatedRouteDetail's existing average card picks up the new buckets too, not
+just the new per-ride card), card placement (SessionDetailScreen, right after Power Zones, always
+shown since speed comes from GPS not the power meter), percentage-calc layering (in
+SessionDetailViewModel, mirroring RepeatedRouteDetailViewModel's existing count-to-percentage
+convention rather than inside the Composable), and test scope (only the migration — the
+count-to-percentage math is simple enough to skip dedicated coverage, but the migration runs once
+against real persisted ride data and a bug there is silent and hard to recover from).
+
+Mid-session (post #147, which had already landed on `main` an all-rides average reference line for
+Power/HR zone charts on this same screen and a `GlobalAverageCache.speedHistogramAverages`), wired
+the new card to that same cache for consistency with its Power Zones/HR Zones siblings, rather than
+leaving it as the only distribution card on the screen without a reference tick.
+
+**`util/Constants.kt`**
+- `SPEED_HISTOGRAM_BINS` narrowed from 8 buckets (0-5, 5-10, 10-20, 20-25, 25-30, 30-35, 35-40, >40)
+  to 5 (0-10, 10-20, 20-30, 30-40, >40), per the issue.
+
+**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`**
+- DB version 11 -> 12. New `MIGRATION_11_12` (made `internal`, not `private`, so
+  `VelometricsMigrationTest` can reference it directly): reads every `cycling_sessions.speedHistogram`
+  row's JSON, sums old-bucket counts into the new 5 labels via a fixed old-label -> new-label map
+  (`"0-5 km/h"`/`"5-10 km/h"` both -> `"0-10 km/h"`, `"10-20 km/h"` unchanged, etc.), and writes the
+  merged JSON back. No raw datapoints needed (`FitImportService` discards those after import) since
+  the merge only needs the already-aggregated old counts.
+
+**`ui/components/SpeedHistogramChart.kt`**
+- `barColors`/`shortLabels` cut from 8 to 5 entries (yellow-to-red gradient over the new buckets).
+- New `SpeedHistogramChart(percentages, allRidesAveragePercentages)` composable for a single ride,
+  delegating to the existing private `SpeedHistogramChartContent` (same rendering, including the
+  #147 average-tick-mark behavior) that `SpeedHistogramChartAvg` already used for the RepeatedRoute
+  average card.
+
+**`ui/screens/sessiondetail/SessionDetailViewModel.kt`**
+- New `speedHistogram: StateFlow<Map<String, Float>>`: this ride's own bucket counts converted to
+  percentage-of-total, computed from `session` the same way `RepeatedRouteDetailViewModel` already
+  converts counts to percentages per bin.
+- New `speedHistogramAverages: StateFlow<Map<String, Float>>` sourced directly from
+  `GlobalAverageCache`, mirroring the existing `powerZoneAverages`/`hrZoneAverages` wiring.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
+- New `SpeedHistogramChart` call inserted right after the Power Zones card/placeholder block and
+  before Heart Rate Zones, always rendered (no `hasPower`/null gating, unlike Power Zones).
+
+**`app/build.gradle.kts`**
+- New `sourceSets { getByName("debug").assets.srcDirs("$projectDir/schemas") }` (plus `androidTest`
+  for parity) so `MigrationTestHelper` can find the Room-exported schema JSONs. First attempt added
+  this to the `test` source set instead, which compiled but failed at runtime
+  (`FileNotFoundException: ... Missing file: .../11.json`) — Robolectric's local unit tests read
+  assets from the `debug` variant's merged-assets output (`isIncludeAndroidResources`), not a
+  `test`-scoped source set; switching to `debug` (rather than `main`) also keeps the schema JSONs
+  out of release builds.
+
+### Tests
+New `VelometricsMigrationTest` (`MigrationTestHelper` + Robolectric, `@SQLiteMode(NATIVE)`,
+`@Config(application = Application::class)` matching `CyclingAssetDatabaseFixtureTest`'s pattern):
+seeds a v11 row with all 8 old buckets populated with distinct counts, runs
+`DatabaseModule.MIGRATION_11_12`, and asserts each new bucket equals the exact sum of its
+contributing old buckets with no extra/missing keys. Per the grill-me scope decision, no new tests
+for the calculator/ViewModel percentage math (verified by inspection).
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
+the known Gradle env-var/test-filter stale-cache quirk from #135): all pass (467 tests), no
+regressions. No manual on-device verification this session (outside this issue's explicit scope).
+
+---
+
 ## Issue #149 — All-time Stats: point clouds diagram
 Completed: 2026-07-27
 
@@ -605,65 +681,3 @@ lands, re-run the 20km leg of this matrix and get sign-off on at least one 20km 
 
 Posted in full to #135: https://github.com/robert-crump/Velometrics/issues/135#issuecomment-4938484211
 
----
-
-## Issue #134 — Return leg must diverge from the exit leg outside the 8km stem windows
-Completed: 2026-07-10
-
-### What was done
-
-Parent #129's diagnosis flagged the exit leg (home → exit corridor) and return leg (last
-corridor → home) as planned fully independently, with `ExitLegPlanner.computeReturnLeg` knowing
-nothing about the exit leg's edges — on a topology with two comparable ways home, they could
-retrace the same roads for their entire length rather than sharing only the first/last 8 km per
-the #129 stem policy. This is the deliberately small fix: pass the exit leg's node pairs into
-return-leg planning and penalize (not exclude) their reuse.
-
-**`domain/service/ExitLegPlanner.kt`**
-- `ExitLegConfig` gains `returnLegReusePenalty: Double = 5.0` — same value and same semantics as
-  `RefinerConfig.edgeReusePenalty`, a soft cost multiplier rather than a hard exclusion, so a
-  dead-end topology where the only road back happens to be the exit leg's road can still resolve.
-- `computeReturnLeg(...)` gains `avoidNodePairs: Set<Pair<Long, Long>> = emptySet()`, threaded
-  into `aStarOnEdges`. `computeExitLeg`'s own `aStarOnEdges` call is untouched (default empty
-  set, no penalty) — only the return leg needs to know about the exit leg, not the reverse, since
-  the exit leg is always planned first.
-- `aStarOnEdges` gains the same `avoidNodePairs` param and a local `reusePenalty(edgeIdx)` closure
-  applied to both the initial start-edge costs and successor relaxation, mirroring
-  `RouteRefiner.shortestPathAStar`'s existing `usedNodePairs`/`edgeReusePenalty` pattern.
-- New `internal fun nodePairsOf(edges: List<MapEdge>): Set<Pair<Long, Long>>` — both directions of
-  every edge's node pair (road identity is direction-agnostic, same convention as
-  `RouteShapeMetrics`), so callers don't need to know A*'s internal pair representation.
-
-**`domain/service/RouteGenerator.kt`**
-- `stitchRoute`'s `computeReturnLeg` call now passes
-  `avoidNodePairs = ExitLegPlanner.nodePairsOf(exitLeg.edges)`.
-
-### Tests
-Two new `ExitLegPlannerTest` cases matching the issue's acceptance criteria exactly:
-- `return leg avoids exit leg roads when a comparable alternate corridor exists` — a synthetic
-  graph with two equal-length paths from the last corridor back home (via node 2 or node 3); the
-  exit leg's node pairs cover the node-2 path, and the returned route uses none of them.
-- `return leg still resolves on a single-road topology shared with the exit leg` — the only path
-  home is exactly the exit leg's road; `avoidNodePairs` covers the whole path and the return leg
-  still resolves (proves penalty, not exclusion).
-Also `nodePairsOf includes both directions of every edge` (helper unit test).
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, 429 tests,
-0 failures, no regressions (18 in `ExitLegPlannerTest`, up from 15).
-
-### Harness before/after (posted to #134)
-Ran `ROUTE_SHAPE_DIAGNOSIS` on the 50/80km matrix against the production graph, before (clean
-pre-#134 checkout, captured earlier this session for #131/#132/#133) and after.
-
-- **50km:** repeat fraction 0.05 → 0.00, repeated-road count 35 → 3 — the reuse penalty
-  measurably cut exit/return overlap outside the stem windows. Tier (`WIDEN_BAND`) and actual
-  distance (58.2 → 58.3km) essentially unchanged, so the penalty didn't push the route out of its
-  distance band. Compactness dipped slightly (0.15 → 0.12, not gated by this issue) — the return
-  leg now takes a marginally less direct path home to avoid the exit leg's roads, the expected
-  cost of a soft penalty.
-- **80km:** identical across every metric (repeat 0.01, tier `NONE`, 88.2km both runs). This run's
-  return leg apparently never overlapped the exit leg's roads to begin with, matching diagnosis
-  ranking this issue "secondary" — confirms the penalty is a no-op with nothing to engage on
-  rather than a lucky wash.
-
-Both runs completed (`Success`, not `Failure`) at their existing tiers — acceptance criteria met:
-repeat fraction inside the stem windows unchanged (80km) or lower (50km), route still completes.

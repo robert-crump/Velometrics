@@ -10,6 +10,7 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.SessionComparator
+import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -26,11 +27,23 @@ class SessionDetailViewModel @Inject constructor(
 
     val powerZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.powerZoneAverages
     val hrZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.hrZoneAverages
+    val speedHistogramAverages: StateFlow<Map<String, Float>> = globalAverageCache.speedHistogramAverages
 
     private val sessionId: Long = savedStateHandle.get<Long>("sessionId") ?: 0L
 
     private val _session = MutableStateFlow<CyclingSession?>(null)
     val session: StateFlow<CyclingSession?> = _session.asStateFlow()
+
+    /** This ride's own speed distribution as a percentage (0–100) per bin. */
+    val speedHistogram: StateFlow<Map<String, Float>> = _session
+        .map { s ->
+            val hist = s?.speedHistogram ?: return@map emptyMap()
+            val total = hist.values.sum().toFloat().coerceAtLeast(1f)
+            CyclingConstants.SPEED_HISTOGRAM_BINS.associate { (label, _) ->
+                label to (hist[label] ?: 0).toFloat() / total * 100f
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _comparison = MutableStateFlow<SessionComparison?>(null)
     val comparison: StateFlow<SessionComparison?> = _comparison.asStateFlow()

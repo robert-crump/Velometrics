@@ -16,17 +16,14 @@ import com.velometrics.app.util.CyclingConstants
 import kotlin.math.roundToInt
 
 private val barColors = listOf(
-    Color(0xFFFFEE58), // 0-5 km/h   – very light yellow (coming to a stop)
-    Color(0xFFFFD740), // 5-10 km/h  – yellow (climbing)
+    Color(0xFFFFEE58), // 0-10 km/h – light yellow (coming to a stop)
     Color(0xFFFFC107), // 10-20 km/h
-    Color(0xFFFFA726), // 20-25 km/h
-    Color(0xFFFF7043), // 25-30 km/h
-    Color(0xFFF44336), // 30-35 km/h
-    Color(0xFFE53935), // 35-40 km/h
+    Color(0xFFFFA726), // 20-30 km/h
+    Color(0xFFF44336), // 30-40 km/h
     Color(0xFFB71C1C)  // >40 km/h
 )
 
-private val shortLabels = listOf("0-5", "5-10", "10-20", "20-25", "25-30", "30-35", "35-40", ">40")
+private val shortLabels = listOf("0-10", "10-20", "20-30", "30-40", ">40")
 
 private const val CHART_HEIGHT_DP = 80
 
@@ -37,6 +34,20 @@ private const val CHART_HEIGHT_DP = 80
  */
 @Composable
 fun SpeedHistogramChartAvg(
+    percentages: Map<String, Float>,
+    allRidesAveragePercentages: Map<String, Float> = emptyMap()
+) {
+    SpeedHistogramChartContent(percentages, allRidesAveragePercentages)
+}
+
+/**
+ * Displays a single ride's own speed distribution as percentages per bin (0–100 scale).
+ * @param allRidesAveragePercentages all-rides-ever average percentage per bin, drawn as a thin
+ * tick mark on each bar for comparison against this ride's own distribution. Empty map draws no
+ * ticks.
+ */
+@Composable
+fun SpeedHistogramChart(
     percentages: Map<String, Float>,
     allRidesAveragePercentages: Map<String, Float> = emptyMap()
 ) {

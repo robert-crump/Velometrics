@@ -58,13 +58,10 @@ object CyclingConstants {
 
     // Speed histogram bins (label → [lower, upper) in km/h)
     val SPEED_HISTOGRAM_BINS = listOf(
-        "0-5 km/h" to (0.0 to 5.0),
-        "5-10 km/h" to (5.0 to 10.0),
+        "0-10 km/h" to (0.0 to 10.0),
         "10-20 km/h" to (10.0 to 20.0),
-        "20-25 km/h" to (20.0 to 25.0),
-        "25-30 km/h" to (25.0 to 30.0),
-        "30-35 km/h" to (30.0 to 35.0),
-        "35-40 km/h" to (35.0 to 40.0),
+        "20-30 km/h" to (20.0 to 30.0),
+        "30-40 km/h" to (30.0 to 40.0),
         ">40 km/h" to (40.0 to Double.MAX_VALUE)
     )
 

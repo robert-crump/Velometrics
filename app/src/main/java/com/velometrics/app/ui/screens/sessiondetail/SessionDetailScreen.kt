@@ -52,6 +52,8 @@ fun SessionDetailScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
     val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
+    val speedHistogram by viewModel.speedHistogram.collectAsState()
+    val speedHistogramAverages by viewModel.speedHistogramAverages.collectAsState()
 
     Scaffold(
         topBar = {
@@ -143,6 +145,11 @@ fun SessionDetailScreen(
                             }
                         }
                     }
+
+                    SpeedHistogramChart(
+                        percentages = speedHistogram,
+                        allRidesAveragePercentages = speedHistogramAverages
+                    )
 
                     if (s.hrZoneDistribution != null) {
                         HeartRateZoneChart(

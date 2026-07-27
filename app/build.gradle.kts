@@ -49,6 +49,14 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
     }
+    sourceSets {
+        // Exposes the Room-exported schema JSONs (ksp room.schemaLocation below) to
+        // MigrationTestHelper. Robolectric's local unit tests read assets from the `debug`
+        // variant's merged assets (isIncludeAndroidResources), not a "test"-scoped source set —
+        // adding it here (rather than "main") keeps the schema JSONs out of release builds.
+        getByName("debug").assets.srcDirs("$projectDir/schemas")
+        getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+    }
 }
 
 ksp {

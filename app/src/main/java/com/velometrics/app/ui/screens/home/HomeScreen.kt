@@ -236,34 +236,46 @@ fun HomeScreen(
     
                 when {
                     isInitialLoading -> {
-                        // Show blank screen while rides are loading from the DB
-                        Box(modifier = Modifier.fillMaxSize())
+                        // Empty but still scrollable, so PullToRefreshBox's nested-scroll
+                        // gesture detection has something to attach to before rides load.
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            item { Box(modifier = Modifier.fillParentMaxSize()) }
+                        }
                     }
                     sessions.isEmpty() -> {
-                        Box(
+                        // Must be a scrollable container (not a plain Box) so the pull
+                        // gesture reaches PullToRefreshBox via nested scroll on a fresh
+                        // install, before any rides have been imported.
+                        LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
+                                .weight(1f)
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.DirectionsBike,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(64.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    "No rides imported yet",
-                                    style = MaterialTheme.typography.titleLarge
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    "Tap the + button to import .fit files",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            item {
+                                Box(
+                                    modifier = Modifier.fillParentMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.DirectionsBike,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(64.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            "No rides imported yet",
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            "Tap the + button to import .fit files",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

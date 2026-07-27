@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app
 
 import android.app.Application
+import com.velometrics.app.data.cache.AllTimeStatsCache
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
 import com.velometrics.app.data.cache.RepeatedRoutesCache
@@ -15,4 +16,5 @@ class VelometricsApplication : Application() {
     @Inject lateinit var repeatedRoutesCache: RepeatedRoutesCache
     @Inject lateinit var repeatedIntervalsCache: RepeatedIntervalsCache
     @Inject lateinit var globalAverageCache: GlobalAverageCache
+    @Inject lateinit var allTimeStatsCache: AllTimeStatsCache
 }

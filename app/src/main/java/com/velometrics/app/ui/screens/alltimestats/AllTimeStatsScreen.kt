@@ -27,6 +27,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.domain.model.PowerCurvePoint
+import com.velometrics.app.domain.model.PowerSpeedPoint
+import com.velometrics.app.domain.model.RecordEntry
+import com.velometrics.app.domain.model.YearStat
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.roundedAxisBounds

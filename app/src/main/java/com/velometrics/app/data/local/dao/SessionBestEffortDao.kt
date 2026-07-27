@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.velometrics.app.data.local.entity.SessionBestEffortEntity
 import com.velometrics.app.domain.model.BestEffortRecord
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SessionBestEffortDao {
@@ -23,5 +24,5 @@ interface SessionBestEffortDao {
         JOIN cycling_sessions cs ON cs.id = sbe.sessionId
         """
     )
-    suspend fun getAllWithSessionDate(): List<BestEffortRecord>
+    fun getAllWithSessionDate(): Flow<List<BestEffortRecord>>
 }

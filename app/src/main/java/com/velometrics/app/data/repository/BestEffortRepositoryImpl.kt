@@ -5,6 +5,7 @@ import com.velometrics.app.data.local.entity.SessionBestEffortEntity
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.BestEffortValues
 import com.velometrics.app.domain.repository.BestEffortRepository
+import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,7 +34,7 @@ class BestEffortRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun getAllWithSessionDate(): List<BestEffortRecord> {
+    override fun getAllWithSessionDate(): Flow<List<BestEffortRecord>> {
         return dao.getAllWithSessionDate()
     }
 }

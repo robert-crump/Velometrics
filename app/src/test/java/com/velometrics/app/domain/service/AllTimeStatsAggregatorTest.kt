@@ -1,43 +1,19 @@
-package com.velometrics.app.ui.screens.alltimestats
+package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.repository.FakeBestEffortRepository
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.util.FormatUtils
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Year
 import java.time.ZoneId
 
-@OptIn(ExperimentalCoroutinesApi::class)
-class AllTimeStatsViewModelTest {
-
-    private val testDispatcher = StandardTestDispatcher()
-
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+class AllTimeStatsAggregatorTest {
 
     private fun session(
         id: Long,
@@ -96,30 +72,20 @@ class AllTimeStatsViewModelTest {
     private fun midYearInstant(year: Int): Instant =
         LocalDate.of(year, 7, 15).atStartOfDay(ZoneId.systemDefault()).toInstant()
 
-    private fun buildViewModel(
-        sessions: List<CyclingSession> = emptyList(),
-        bestEfforts: List<BestEffortRecord> = emptyList()
-    ): AllTimeStatsViewModel {
-        val sessionRepo = FakeCyclingSessionRepository().apply { this.sessions.addAll(sessions) }
-        val bestEffortRepo = FakeBestEffortRepository().apply { records.addAll(bestEfforts) }
-        return AllTimeStatsViewModel(sessionRepo, bestEffortRepo)
-    }
-
     // ---------------------------------------------------------------------
     // Per-year breakdown
     // ---------------------------------------------------------------------
 
     @Test
-    fun `yearStats buckets sessions by calendar year and sorts years descending`() = runTest(testDispatcher) {
+    fun `yearStats buckets sessions by calendar year and sorts years descending`() {
         val sessions = listOf(
             session(1, midYearInstant(2023), distanceKm = 10.0, netDurationSec = 1000, elevationGainM = 100.0),
             session(2, midYearInstant(2025), distanceKm = 20.0, netDurationSec = 2000, elevationGainM = 200.0),
             session(3, midYearInstant(2025), distanceKm = 30.0, netDurationSec = 3000, elevationGainM = 300.0),
             session(4, midYearInstant(2024), distanceKm = 40.0, netDurationSec = 4000, elevationGainM = 400.0)
         )
-        val vm = buildViewModel(sessions = sessions)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         val currentYear = Year.now().value
         assertEquals((currentYear downTo 2023).toList(), state.yearStats.map { it.year })
@@ -131,13 +97,12 @@ class AllTimeStatsViewModelTest {
     }
 
     @Test
-    fun `yearStats fills the current year with zeroed stats when it has no sessions yet`() = runTest(testDispatcher) {
+    fun `yearStats fills the current year with zeroed stats when it has no sessions yet`() {
         val sessions = listOf(
             session(1, midYearInstant(2023), distanceKm = 10.0, netDurationSec = 1000, elevationGainM = 100.0)
         )
-        val vm = buildViewModel(sessions = sessions)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         val currentYear = Year.now().value
         assertEquals(currentYear, state.yearStats.first().year)
@@ -153,15 +118,14 @@ class AllTimeStatsViewModelTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `longestRideEntry picks the session with the greatest distance`() = runTest(testDispatcher) {
+    fun `longestRideEntry picks the session with the greatest distance`() {
         val sessions = listOf(
             session(1, midYearInstant(2024), distanceKm = 30.0),
             session(2, midYearInstant(2024), distanceKm = 90.0),
             session(3, midYearInstant(2024), distanceKm = 60.0)
         )
-        val vm = buildViewModel(sessions = sessions)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         val longest = state.bestTrio.first { it.label == "Longest ride" }
         assertEquals(2L, longest.sessionId)
@@ -169,15 +133,14 @@ class AllTimeStatsViewModelTest {
     }
 
     @Test
-    fun `longestDurationEntry picks the session with the greatest net duration`() = runTest(testDispatcher) {
+    fun `longestDurationEntry picks the session with the greatest net duration`() {
         val sessions = listOf(
             session(1, midYearInstant(2024), netDurationSec = 1000),
             session(2, midYearInstant(2024), netDurationSec = 5000),
             session(3, midYearInstant(2024), netDurationSec = 2000)
         )
-        val vm = buildViewModel(sessions = sessions)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         val longestDuration = state.bestTrio.first { it.label == "Longest duration" }
         assertEquals(2L, longestDuration.sessionId)
@@ -185,7 +148,7 @@ class AllTimeStatsViewModelTest {
     }
 
     @Test
-    fun `biggestClimbEntry ignores sessions with null elevationGainM rather than treating null as 0`() = runTest(testDispatcher) {
+    fun `biggestClimbEntry ignores sessions with null elevationGainM rather than treating null as 0`() {
         val sessions = listOf(
             // Highest distance of the three, but no elevation data at all — must not win, and must
             // not be treated as a climb of 0m either.
@@ -193,9 +156,8 @@ class AllTimeStatsViewModelTest {
             session(2, midYearInstant(2024), distanceKm = 10.0, elevationGainM = 50.0),
             session(3, midYearInstant(2024), distanceKm = 20.0, elevationGainM = 30.0)
         )
-        val vm = buildViewModel(sessions = sessions)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         val biggestClimb = state.bestTrio.first { it.label == "Biggest climb" }
         assertEquals(2L, biggestClimb.sessionId)
@@ -207,7 +169,7 @@ class AllTimeStatsViewModelTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `splitEntry picks the minimum time across all best-effort records`() = runTest(testDispatcher) {
+    fun `splitEntry picks the minimum time across all best-effort records`() {
         val sessions = listOf(
             session(1, midYearInstant(2024)),
             session(2, midYearInstant(2024)),
@@ -218,9 +180,8 @@ class AllTimeStatsViewModelTest {
             bestEffort(2, sessionStart = 2_000L, split25kSec = 2500.0),
             bestEffort(3, sessionStart = 3_000L, split25kSec = 2800.0)
         )
-        val vm = buildViewModel(sessions = sessions, bestEfforts = bestEfforts)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, bestEfforts)
 
         val split25k = state.distanceSplits.first { it.label == "25 km" }
         assertEquals(2L, split25k.sessionId)
@@ -229,7 +190,7 @@ class AllTimeStatsViewModelTest {
     }
 
     @Test
-    fun `powerCurvePoint picks the maximum watts across all best-effort records`() = runTest(testDispatcher) {
+    fun `powerCurvePoint picks the maximum watts across all best-effort records`() {
         val sessions = listOf(
             session(1, midYearInstant(2024)),
             session(2, midYearInstant(2024)),
@@ -240,9 +201,8 @@ class AllTimeStatsViewModelTest {
             bestEffort(2, sessionStart = 2_000L, power1s = 900),
             bestEffort(3, sessionStart = 3_000L, power1s = 700)
         )
-        val vm = buildViewModel(sessions = sessions, bestEfforts = bestEfforts)
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, bestEfforts)
 
         val power1s = state.powerCurve.first { it.durationSec == 1 }
         assertEquals(2L, power1s.sessionId)
@@ -256,10 +216,8 @@ class AllTimeStatsViewModelTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `empty session list produces an all-null empty state without throwing`() = runTest(testDispatcher) {
-        val vm = buildViewModel(sessions = emptyList(), bestEfforts = emptyList())
-
-        val state = vm.uiState.first { !it.isLoading }
+    fun `empty session list produces an all-null empty state without throwing`() {
+        val state = AllTimeStatsAggregator.buildUiState(emptyList(), emptyList())
 
         assertFalse(state.hasAnySessions)
         state.bestTrio.forEach {
@@ -271,11 +229,10 @@ class AllTimeStatsViewModelTest {
     }
 
     @Test
-    fun `empty best-efforts list produces null splits and power curve without throwing`() = runTest(testDispatcher) {
+    fun `empty best-efforts list produces null splits and power curve without throwing`() {
         val sessions = listOf(session(1, midYearInstant(2024)))
-        val vm = buildViewModel(sessions = sessions, bestEfforts = emptyList())
 
-        val state = vm.uiState.first { !it.isLoading }
+        val state = AllTimeStatsAggregator.buildUiState(sessions, emptyList())
 
         assertTrue(state.hasAnySessions)
         state.distanceSplits.forEach {

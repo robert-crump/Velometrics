@@ -1,3 +1,82 @@
+## Issue #150 — Cache AllTimeStatsViewModel aggregates instead of recomputing on every load
+Completed: 2026-07-27
+
+### What was done
+
+Only `ready-for-agent` issue in the queue; a direct follow-up to #147, which introduced the
+`GlobalAverageCache` reactive-`StateFlow` pattern and filed this issue as the natural next
+application of it. `AllTimeStatsViewModel` previously recomputed the entire all-time-best trio,
+distance splits, power curve, per-year breakdown, and power/speed point cloud from scratch on every
+screen load (`sessionRepository.getAllSessions().map { buildUiState(...) }`), including an eager
+`bestEffortRepository.getAllWithSessionDate()` call inside that `map`. Applied the same
+computation/cache split #147 established for `GlobalAverageCalculator`/`GlobalAverageCache`: pulled
+the pure aggregation logic out into a standalone object with no ViewModel/coroutine dependencies,
+then wrapped it in a singleton, app-scoped hot `StateFlow` cache, eagerly registered in
+`VelometricsApplication` so computation starts at process launch rather than on first navigation.
+
+One wrinkle `GlobalAverageCache` didn't have to deal with: this screen combines two sources
+(`cycling_sessions` and `session_best_efforts`), and `FitImportService` writes them in two separate
+suspend calls — session insert first, best-effort insert second (not one transaction). A cache built
+by just hoisting `bestEffortRepository`'s old suspend `getAllWithSessionDate()` into a `.map` off the
+sessions Flow would only ever see best-effort data current as of whenever the cache happened to
+recompute, with no trigger to re-run after the second write landed. Fixed by changing
+`SessionBestEffortDao.getAllWithSessionDate()` from a suspend one-shot query to a Room `Flow`-returning
+query — since its SQL joins `session_best_efforts` against `cycling_sessions`, Room's invalidation
+tracker re-runs it on a write to *either* table, so `combine(sessions, bestEfforts)` naturally settles
+on consistent data shortly after both writes land, without any manual invalidation wiring (same
+"no manual invalidation" property #147 relied on).
+
+**`domain/model/AllTimeStatsUiState.kt`** (new)
+- `RecordEntry`, `PowerCurvePoint`, `YearStat`, `PowerSpeedPoint`, `AllTimeStatsUiState` moved here
+  verbatim from the ViewModel file, so the cache (`data/cache`) can depend on them without depending
+  on the `ui` package — matches `RepeatedRoutesCache`/`RepeatedIntervalsCache` returning
+  domain-layer types rather than UI types.
+
+**`domain/service/AllTimeStatsAggregator.kt`** (new)
+- `buildUiState(sessions, bestEfforts): AllTimeStatsUiState`, plus every private helper
+  (`longestRideEntry`, `biggestClimbEntry`, `buildYearStats`, `buildPowerSpeedPoints`,
+  `percentileRange`/`percentile`, `elevationBucketFor`, `splitEntry`, `powerCurvePoint`) moved
+  unchanged from the ViewModel into a plain `object`, mirroring `GlobalAverageCalculator`'s shape —
+  a pure function with no coroutine/DI surface, directly unit-testable.
+
+**`data/cache/AllTimeStatsCache.kt`** (new)
+- `combine(sessionRepository.getAllSessions(), bestEffortRepository.getAllWithSessionDate()) { ... }`
+  through `AllTimeStatsAggregator.buildUiState`, `.stateIn(scope, SharingStarted.Eagerly,
+  AllTimeStatsUiState())` — same shape as `GlobalAverageCache`.
+
+**`data/local/dao/SessionBestEffortDao.kt`, `domain/repository/BestEffortRepository.kt`,
+`data/repository/BestEffortRepositoryImpl.kt`**
+- `getAllWithSessionDate()` changed from `suspend fun (): List<BestEffortRecord>` to
+  `fun (): Flow<List<BestEffortRecord>>` for the reactivity reason above. `insert` untouched.
+
+**`ui/screens/alltimestats/AllTimeStatsViewModel.kt`**
+- Reduced to `val uiState: StateFlow<AllTimeStatsUiState> = cache.uiState`, no computation left —
+  matches how `RepeatedRoutesViewModel`/`RepeatedIntervalsViewModel` consume their caches.
+
+**`ui/screens/alltimestats/AllTimeStatsScreen.kt`**
+- No behavior change; added imports for the four data classes now living in `domain/model` instead
+  of the same package.
+
+**`VelometricsApplication.kt`**
+- New `@Inject lateinit var allTimeStatsCache: AllTimeStatsCache` alongside the other three eagerly
+  registered caches.
+
+### Tests
+Moved `AllTimeStatsViewModelTest` -> `domain/service/AllTimeStatsAggregatorTest.kt`: same 9 cases,
+now calling `AllTimeStatsAggregator.buildUiState(sessions, bestEfforts)` directly instead of
+constructing a ViewModel with fake repositories and collecting a `StateFlow` under
+`StandardTestDispatcher` — simpler and matches `GlobalAverageCalculatorTest`'s plain-JUnit style,
+since the logic is now a pure function with nothing to inject. `FakeBestEffortRepository` updated to
+return `flowOf(records.toList())` for the new `Flow`-returning signature. No dedicated
+`AllTimeStatsViewModelTest`/`AllTimeStatsCacheTest` added — no other cache-consuming ViewModel or
+cache in this codebase (`RepeatedRoutesCache`, `RepeatedIntervalsCache`, `GlobalAverageCache`) has
+one either; the pass-through wiring has nothing left to assert beyond what compilation already
+guarantees. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest
+--rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all
+pass, no regressions.
+
+---
+
 ## Issue #148 — Speed distribution: changes
 Completed: 2026-07-27
 
@@ -612,72 +691,3 @@ the "at least one 20km combo" data #135 needs to close, but final acceptance for
 explicitly human-in-the-loop (maintainer visual sign-off on the rendering, not just the compactness
 number) — posting this run to #135 for that review rather than closing it here. #138 itself is
 fully in scope and closed.
-
----
-
-## Issue #135 — Calibrate shape-gate thresholds and land the tier-2 real-graph shape-gate test
-Status: IN PROGRESS (not closed — see "Remaining" below)
-
-### What was done
-
-Parent #129's final acceptance is explicitly human-in-the-loop (issue tagged `ready-for-human`,
-worked collaboratively with the maintainer rather than autonomously). Ran the full harness matrix
-requested by the issue and used the maintainer's visual judgment on the renderings to calibrate the
-`RouteShapeGateConfig` thresholds #133 introduced as provisional.
-
-**Harness run**
-- `ROUTE_SHAPE_DIAGNOSIS=1` matrix: distances {20,50,80}km x directions {NONE,NORTH,EAST,SOUTH,WEST}
-  (15 runs) against the production `cycling_graph.db`, real home coordinates. First attempt was a
-  false pass — Gradle's `testDebugUnitTest` reported `UP-TO-DATE` and silently reused a stale prior
-  result because the task doesn't track `System.getenv()` reads as an input; re-ran with
-  `--rerun-tasks` to force real execution (41m19s wall).
-- 12/15 runs succeeded. All 3 failures were 20km + a direction constraint (NORTH/EAST/SOUTH) —
-  "Could not generate a loop from your home location", a hard failure. Folded this into existing
-  issue #138 (`reach = target/3` coarse-skeleton overshoot) as a comment rather than a new issue —
-  same root cause, just manifesting as total failure instead of a band miss at this distance.
-- Repeat fraction was uniformly low (0.00-0.04) across every run, good and bad shapes alike — the
-  original #129 retracing/backtracking symptom looks solved by #131-#134. Compactness (0.02-0.30
-  range) was the only metric that varied enough to be a useful gate.
-
-**Maintainer sign-off (rendered locally, not uploaded anywhere)**
-Built a local, offline, self-contained HTML/SVG renderer (`render_routes.py`, scratchpad-only,
-not committed) instead of pasting the harness's geojson into geojson.io — the geojson embeds the
-exact home address, which must not leave the machine. Maintainer reviewed all 12 successful runs
-and rated 3 as "reads as a rideable oval" (`d50km_east` 0.29, `d50km_south` 0.28, `d80km_west`
-0.30 compactness) and the rest as "too many inner loops" (worst of those: `d80km_north` at 0.24).
-That's a clean split in the 0.24-0.28 range.
-
-**`domain/service/RouteGenerator.kt`**
-- `RouteShapeGateConfig.minCompactness` calibrated from the provisional 0.30 to **0.26** — centered
-  in the maintainer-confirmed good/bad gap, with symmetric margin to both sides. `maxRepeatFraction`
-  left at #133's 0.15 (repeat fraction didn't discriminate good from bad in this matrix, so no data
-  to recalibrate it against).
-
-**`domain/service/RouteShapeGateRegressionTest.kt` (new, tier-2)**
-- Opt-in via `TIER2_SHAPE_GATE=1` (mirrors `ROUTE_SHAPE_DIAGNOSIS`'s pattern), opens the production
-  `cycling_graph.db` asset through Robolectric same as `RouteShapeDiagnosisHarness`, and asserts
-  `RouteGenerator.passesShapeGate` holds for exactly the 3 maintainer-confirmed-good (distance,
-  direction) combos above — deliberately not "every combo in the matrix", since `selectWinner`
-  treats the gate as a soft preference with a best-effort fallback (#133), not a guarantee, and
-  plenty of legitimate combos in this matrix don't clear it without that being a regression.
-  Pinning to confirmed-good combos makes this a real structural guard against a repeat of
-  #107/#111/#113-#119 ("fixed the mechanism, not the shape") rather than a flaky assertion.
-- Measured runtime for the 3 runs: ~5.7 min (221s + 47s + 75s) — over the issue's ~5 min per-PR
-  budget, so this is on-demand/nightly, not part of default `gradlew test`. No CI workflow exists
-  yet in this repo to wire a nightly trigger into, so for now the cadence decision is expressed as
-  the env-var opt-in; actual nightly wiring is deferred until CI exists.
-- First compile+run passed clean (`BUILD SUCCESSFUL` in 7m31s including Gradle daemon cold start).
-
-### Tests
-Full `testDebugUnitTest` suite: green, no regressions from the 0.30 -> 0.26 threshold change.
-
-### Remaining before this issue (and #129) can close
-20km never produced a maintainer-approved oval in this matrix (best compactness 0.02; the other
-three 20km+direction combos failed outright). #135's acceptance criteria require sign-off "at all
-three distances" — not met. Root cause is #138 (already open, now cross-referenced with this
-matrix's data). Discussed with the maintainer explicitly: keeping #135 open and #129 unclosed,
-blocked on #138, rather than force-closing against a partial 2-of-3-distance sign-off. Once #138
-lands, re-run the 20km leg of this matrix and get sign-off on at least one 20km combo.
-
-Posted in full to #135: https://github.com/robert-crump/Velometrics/issues/135#issuecomment-4938484211
-

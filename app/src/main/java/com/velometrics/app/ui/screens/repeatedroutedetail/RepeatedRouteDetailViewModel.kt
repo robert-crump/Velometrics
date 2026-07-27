@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
@@ -22,7 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,8 +67,10 @@ data class RepeatedRouteDetailUiState(
     val speedNpPoints: List<Pair<Float, Float>> = emptyList(),
     val showPowerPlots: Boolean = false,
     val powerDurationModel: PowerDurationModel? = null,
-    /** Average speed distribution percentages (0–100) per bin, across all sessions. */
-    val avgSpeedHistogram: Map<String, Float> = emptyMap()
+    /** Average speed distribution percentages (0–100) per bin, across this route's sessions. */
+    val avgSpeedHistogram: Map<String, Float> = emptyMap(),
+    /** Average speed distribution percentages (0–100) per bin, across every imported ride. */
+    val allRidesSpeedHistogram: Map<String, Float> = emptyMap()
 )
 
 @HiltViewModel
@@ -75,6 +78,7 @@ class RepeatedRouteDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: RepeatedRouteRepository,
     private val gpxExporter: GpxExporter,
+    globalAverageCache: GlobalAverageCache,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -86,9 +90,10 @@ class RepeatedRouteDetailViewModel @Inject constructor(
     private val _exportError = MutableStateFlow<String?>(null)
     val exportError: StateFlow<String?> = _exportError.asStateFlow()
 
-    val uiState: StateFlow<RepeatedRouteDetailUiState> = repository
-        .getRouteById(routeId)
-        .map { route ->
+    val uiState: StateFlow<RepeatedRouteDetailUiState> = combine(
+        repository.getRouteById(routeId),
+        globalAverageCache.speedHistogramAverages
+    ) { route, allRidesSpeedHistogram ->
             if (route == null) {
                 RepeatedRouteDetailUiState(isLoading = false)
             } else {
@@ -163,7 +168,8 @@ class RepeatedRouteDetailViewModel @Inject constructor(
                     speedNpPoints = speedNpPoints,
                     showPowerPlots = showPlots,
                     powerDurationModel = buildPowerDurationModel(powerSessions, sessions),
-                    avgSpeedHistogram = avgSpeedHistogram
+                    avgSpeedHistogram = avgSpeedHistogram,
+                    allRidesSpeedHistogram = allRidesSpeedHistogram
                 )
             }
         }

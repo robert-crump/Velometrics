@@ -226,7 +226,10 @@ fun RepeatedRouteDetailScreen(
 
                 // ─── Speed distribution (average across all sessions) ───
                 if (uiState.avgSpeedHistogram.isNotEmpty()) {
-                    SpeedHistogramChartAvg(percentages = uiState.avgSpeedHistogram)
+                    SpeedHistogramChartAvg(
+                        percentages = uiState.avgSpeedHistogram,
+                        allRidesAveragePercentages = uiState.allRidesSpeedHistogram
+                    )
                 }
 
                 // ─── Duration estimator (only when ≥2 sessions with power data) ───

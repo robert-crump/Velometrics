@@ -1,3 +1,92 @@
+## Issue #147 — Power/HR zone and speed distribution: all-rides average reference line
+Completed: 2026-07-27
+
+### What was done
+
+Full /grill-me design session before implementing (issue was open-ended: "I want to calculate an
+overall average over all rides... displayed in the diagrams as a thin horizontal line"). Resolved:
+scope (global average shown on session-level Power/HR zone charts, plus a second reference line on
+the RepeatedRoute speed histogram alongside its existing per-route average), equal-weight
+normalization (average of each ride's own percentage-of-time per zone/bin, not raw seconds — a
+20-minute and a 5-hour ride count equally, matching the existing per-route speed histogram average
+pattern), accepted the FTP/max-HR-drift limitation (zone boundaries are baked in per-ride at import
+time and raw streams aren't retained, so the average is computed over stored zone data as-is),
+missing-data handling (a ride without power or HR data is skipped only for that specific average),
+and the tick-mark visual (independent per-bar tick, not one continuous line, since each zone/bin
+has its own average value).
+
+Mid-session, the interview surfaced a better-fitting caching approach than the one first agreed:
+this codebase already has `RepeatedRoutesCache`/`RepeatedIntervalsCache` (`data/cache/`), an
+app-scoped hot `StateFlow` pattern that auto-refreshes whenever the underlying Room `Flow` emits.
+Switched the plan from a DataStore-persisted cache with manual recompute-after-import/delete calls
+(which would have needed a circular-dependency workaround) to the same reactive in-memory pattern
+instead.
+
+**`domain/service/GlobalAverageCalculator.kt`** (new)
+- `computePowerZoneAverages`/`computeHrZoneAverages`/`computeSpeedHistogramAverages`: each ride's
+  distribution is normalized to percentage-of-that-ride's-time per label first, then percentages
+  are averaged equally across rides (equal weight regardless of ride length). Rides missing a given
+  distribution (`powerZoneDistribution`/`hrZoneDistribution` null) are excluded from that specific
+  average via `mapNotNull`, but `speedHistogram` is never null so every ride always contributes to
+  that one.
+
+**`data/cache/GlobalAverageCache.kt`** (new)
+- Same shape as `RepeatedRoutesCache`: hoists `CyclingSessionRepository.getAllSessions()` into an
+  app-scoped `StateFlow`, with the three averages as derived `StateFlow`s via
+  `GlobalAverageCalculator`. Auto-refreshes on any DB change (import, delete) with no manual
+  invalidation wiring — sidesteps a circular-DI issue a DataStore-backed approach would have hit (a
+  repository depending on `CyclingSessionRepository` for reads, while
+  `CyclingSessionRepositoryImpl.deleteSession` would need to call back into it).
+- Registered eagerly in `VelometricsApplication` (same `@Inject lateinit var` pattern as the other
+  two caches) so `SharingStarted.Eagerly` collection starts at process launch.
+
+**`ui/components/PowerZoneChart.kt`, `HeartRateZoneChart.kt`, `SpeedHistogramChart.kt`**
+- New `averagePercentages`/`allRidesAveragePercentages` parameter (default `emptyMap()`, backward
+  compatible). Each bar's `Canvas` changed from a variable-height canvas (the old trick of sizing
+  the Canvas itself to the bar's height) to a fixed-height canvas that manually draws a
+  bottom-aligned bar rect plus an independent tick mark per bar — needed because a single average
+  value can exceed what a specific ride/route's own chart would otherwise scale to. The shared
+  per-chart max (`maxPct`) is computed across both the bar values and the average values so a tick
+  is never clipped off the top. Tick is drawn as two overlaid `drawLine`s (a wider
+  `colorScheme.surface` outline behind a narrower `colorScheme.onSurface` line) so it reads over any
+  zone/bin bar color in either theme. Preserved the original 2dp minimum-visible-bar-height floor
+  that the fixed-height restructuring would otherwise have dropped.
+
+**`ui/screens/sessiondetail/SessionDetailViewModel.kt`/`Screen.kt`**
+- New `powerZoneAverages`/`hrZoneAverages` `StateFlow`s sourced directly from `GlobalAverageCache`,
+  collected and passed into the two zone chart composables.
+
+**`ui/screens/repeatedroutedetail/RepeatedRouteDetailViewModel.kt`/`Screen.kt`**
+- `uiState` now built via `combine(repository.getRouteById(routeId),
+  globalAverageCache.speedHistogramAverages)` instead of a single `.map`; new
+  `allRidesSpeedHistogram` field passed through to `SpeedHistogramChartAvg`.
+
+Filed #150 as a related follow-up (maintainer requested during the design session): apply the same
+`GlobalAverageCache`-style reactive caching to `AllTimeStatsViewModel`'s existing aggregates, which
+currently recompute on every screen load — `ready-for-agent`, depends on this issue's pattern.
+
+### Manual verification (on-device, real production data — 148 rides)
+Built and installed the debug APK on a connected device. Confirmed on a real ride's detail screen:
+Power Zones and Heart Rate Zones charts both show a contrasting tick mark on every bar (including
+zones where this ride shows a small or zero percentage but the all-rides average is higher — e.g.
+HR Zone 1/4/5 at 0% still show a tick above the bar, proving the shared-max scaling works).
+Confirmed on a 9-session RepeatedRoute's detail screen: Speed Distribution shows ticks on every
+bin, including near-empty bins, alongside the route's own pre-existing average bars.
+
+### Tests
+New `GlobalAverageCalculatorTest`: equal-weight-per-ride-length normalization (a 10-minute and
+10-hour ride's zone percentages are averaged, not duration-weighted), per-metric skip-on-missing-data
+(a ride without power data doesn't dilute the HR or speed averages, and vice versa), empty-input and
+no-matching-data edge cases, and a zone present in only some rides is still averaged against the
+full ride count (not just the rides that reached it). One iteration needed on the "skip per-metric"
+test: `speedHistogram` is never null on a real session, so a fixture using `emptyMap()` as a
+stand-in for "no data" was actually counted as a real (degenerate 0%) contribution — fixed by giving
+both fixture sessions real speed data. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full
+`testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk
+from #135): all pass, no regressions.
+
+---
+
 ## Issue #146 — All-time Stats: test coverage for BestEffortCalculator + AllTimeStatsViewModel (#143 follow-up)
 Completed: 2026-07-26
 
@@ -569,74 +658,3 @@ over whatever pool exists) — flagging as a follow-up rather than expanding #13
 numbers themselves (0.02/0.15/0.20 compactness for 20/50/80km) are unchanged from the pre-#133
 baseline, as expected since #133 only changes which candidate wins a tie and there was rarely a
 tie to break on this matrix.
-
----
-
-## Issue #132 — Adaptive coarse-distance calibration
-Completed: 2026-07-10
-
-### What was done
-
-Parent #129's diagnosis attributed the #131 tier-cascade regression (20km/50km routes overshooting
-their band, forced into looser relaxation tiers with worse candidate pools) to the coarse search
-budgeting connectors at `haversine * 1.3` while #131's hull-bias makes real connector paths longer
-than that assumes. This adds a one-shot recalibration: refine the first coarse candidate that
-resolves, compare its real `actualDistanceM` to its own coarse `totalDistanceM`, and if the ratio is
-outside +/-15%, redo the coarse search once with the target rescaled by the inverse ratio before
-refining the rest of the pool.
-
-**`domain/service/RouteGenerator.kt`**
-- `effectiveTargetM` is now a `var`; the coarse-search call is factored into a local
-  `runCoarseSearch(target, orienteerConfig)` closure so both the initial call and a possible
-  recalibration redo share the same wiring.
-- New `calibrateTarget(...)`: iterates coarse candidates until one refines successfully (matches
-  #134's "first viable candidate" framing), computes `ratio = actualDistanceM / candidate.totalDistanceM`,
-  and returns a rescaled target only when the ratio falls outside `CALIBRATION_TOLERANCE = 0.15`.
-  Returns `attempted = false` when nothing refines (e.g. an empty coarse pool at a tight tier), so
-  the generator keeps probing on the next relaxation tier instead of giving up on calibration.
-- `generate()`'s tier loop gates this behind a per-call `calibrationDone` boolean set the first time
-  `calibrateTarget` actually evaluates a candidate (win or lose) — guarantees at most one rescale
-  redo for the whole `generate()` call, regardless of how many tiers it relaxes through afterward.
-  When an exit leg exists, `effectiveTargetM` is already the corridor-loop-only budget (exit/return
-  legs excluded), so rescaling it only touches the corridor loop, per the issue's scope note.
-
-### Tests
-- `RouteGeneratorTest`: `adaptive calibration reaches tier NONE despite roads that systematically
-  exceed straight-line estimates` — `CorridorOrienteer` is mocked to a small deterministic stand-in
-  for real fill-to-target behavior (nearest-fill-first, stop at 0.9x target) so the test controls
-  candidate growth precisely without fighting the real quadrant/separation skeleton by hand;
-  `RouteRefiner` runs for real over a `MeshSpokeRepository` fixture whose every direct edge is
-  exactly 1.95x its geographic distance (a systemic ~1.5x inflation over the coarse `*1.3` estimate,
-  matching the #129 diagnosis's cited 1.4-1.7x range) — without calibration this overshoots the
-  target by ~40%, with it the recalibrated request lands ~6% under target, comfortably inside +/-15%.
-- `at most one recalibration pass occurs per generation` — mocks both `CorridorOrienteer.search` and
-  `RouteRefiner.refine` (`mockkObject`) so every tier's real distance stays fixed at 5x whatever
-  coarse plan is requested (never lands in any band, even the widest +/-30%, so all 5 tiers relax and
-  a buggy "recalibrate every tier" implementation would keep rescaling since the fixture's ratio is
-  uniform). Captures every target passed to `CorridorOrienteer.search` and asserts only 2 distinct
-  values appear across the whole run (the original target, and the one rescaled value) — would fail
-  under a missing/broken `calibrationDone` guard.
-- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, no
-  regressions.
-
-### Harness before/after (posted to #132)
-Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20/50/80km matrix against the production graph, before (stashed
-this change, clean post-#131 `main`) and after.
-
-**Result: no visible change** — both runs produced identical output (20km: 22.7km actual, +13.7%,
-`SHRINK_SEPARATION`, ~80s; 50km: 58.2km actual, +16.4%, `WIDEN_BAND`, ~280s; 80km: 88.0km, +10.0%,
-`NONE`, ~81s). A temporary diagnostic log of the measured ratio explains why: on this graph the
-first viable candidate's `actualDistanceM / totalDistanceM` ratio was **1.03 (20km), 1.02 (50km),
-1.05 (80km)** — comfortably inside the +/-15% tolerance, so `calibrateTarget` correctly declines to
-rescale every time. The connector-real-vs-coarse-estimate mismatch this issue targets isn't actually
-present (post-#131) on this graph/distance matrix.
-
-What *is* present: `CorridorOrienteer`'s own coarse `totalDistanceM` for the first 20km candidate was
-already ~40.9km (`42143m actual / 1.0316 ratio`) — i.e., the coarse plan itself overshoots the target
-by ~2x before any real-road refinement happens, most likely from `reach = target/3` placing quadrant
-anchors near the reach boundary, whose quadrilateral perimeter is geometrically much larger than
-`3 * reach`. That's a different bug from what #132 was scoped to fix (a reach/fill-ceiling sizing
-mismatch, not a connector-distance-estimation mismatch) — flagging for a follow-up issue rather than
-expanding #132's scope to cover it. The calibration mechanism itself is verified correct (unit tests
-above) and remains a real safety net for graphs/regions where the targeted mismatch does occur; it
-was simply not the dominant error source in this specific harness matrix.

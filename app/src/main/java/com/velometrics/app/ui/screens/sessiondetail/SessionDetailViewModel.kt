@@ -3,6 +3,7 @@
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
@@ -19,8 +20,12 @@ class SessionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val sessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
-    private val sessionComparator: SessionComparator
+    private val sessionComparator: SessionComparator,
+    globalAverageCache: GlobalAverageCache
 ) : ViewModel() {
+
+    val powerZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.powerZoneAverages
+    val hrZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.hrZoneAverages
 
     private val sessionId: Long = savedStateHandle.get<Long>("sessionId") ?: 0L
 

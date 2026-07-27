@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app
 
 import android.app.Application
+import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
 import com.velometrics.app.data.cache.RepeatedRoutesCache
 import dagger.hilt.android.HiltAndroidApp
@@ -13,4 +14,5 @@ class VelometricsApplication : Application() {
     // tab data is ready before the user navigates there.
     @Inject lateinit var repeatedRoutesCache: RepeatedRoutesCache
     @Inject lateinit var repeatedIntervalsCache: RepeatedIntervalsCache
+    @Inject lateinit var globalAverageCache: GlobalAverageCache
 }

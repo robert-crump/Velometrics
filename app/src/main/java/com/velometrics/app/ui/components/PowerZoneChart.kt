@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.ui.components
+package com.velometrics.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
@@ -8,6 +8,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -32,11 +34,25 @@ private val shortLabels = mapOf(
     "Zone 6" to "Z6"
 )
 
+private const val CHART_HEIGHT_DP = 80
+
+/**
+ * @param averagePercentages all-rides average percentage-of-ride-time per zone label, drawn as a
+ * thin tick mark on each bar. Empty map draws no ticks (e.g. before the cache has any data).
+ */
 @Composable
-fun PowerZoneChart(powerZones: Map<String, Int>) {
+fun PowerZoneChart(
+    powerZones: Map<String, Int>,
+    averagePercentages: Map<String, Float> = emptyMap()
+) {
     val totalSeconds = powerZones.values.sum().coerceAtLeast(1)
     val zones = zoneOrder.filter { powerZones.containsKey(it) }
-    val maxCount = zones.mapNotNull { powerZones[it] }.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val percentages = zones.associateWith { (powerZones[it] ?: 0).toFloat() / totalSeconds * 100f }
+    val maxPct = (percentages.values + averagePercentages.values)
+        .maxOrNull()?.coerceAtLeast(1f) ?: 1f
+
+    val tickColor = MaterialTheme.colorScheme.onSurface
+    val tickOutlineColor = MaterialTheme.colorScheme.surface
 
     Card(
         modifier = Modifier
@@ -58,9 +74,9 @@ fun PowerZoneChart(powerZones: Map<String, Int>) {
                 verticalAlignment = Alignment.Bottom
             ) {
                 zones.forEach { zoneName ->
-                    val count = powerZones[zoneName] ?: 0
-                    val fraction = count.toFloat() / maxCount
-                    val pct = (count.toFloat() / totalSeconds * 100).toInt()
+                    val pct = percentages[zoneName] ?: 0f
+                    val fraction = pct / maxPct
+                    val avgFraction = averagePercentages[zoneName]?.let { it / maxPct }
                     val color = zoneColors[zoneName] ?: Color.Gray
                     val label = shortLabels[zoneName] ?: zoneName
 
@@ -71,7 +87,7 @@ fun PowerZoneChart(powerZones: Map<String, Int>) {
                     ) {
                         if (pct > 0) {
                             Text(
-                                text = "$pct%",
+                                text = "${pct.toInt()}%",
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1
                             )
@@ -81,9 +97,29 @@ fun PowerZoneChart(powerZones: Map<String, Int>) {
                         Canvas(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height((fraction * 80).dp.coerceAtLeast(2.dp))
+                                .height(CHART_HEIGHT_DP.dp)
                         ) {
-                            drawRect(color = color)
+                            val barHeightPx = (size.height * fraction).coerceAtLeast(2.dp.toPx())
+                            drawRect(
+                                color = color,
+                                topLeft = Offset(0f, size.height - barHeightPx),
+                                size = Size(size.width, barHeightPx)
+                            )
+                            if (avgFraction != null) {
+                                val tickY = size.height - size.height * avgFraction
+                                drawLine(
+                                    color = tickOutlineColor,
+                                    start = Offset(0f, tickY),
+                                    end = Offset(size.width, tickY),
+                                    strokeWidth = 5.dp.toPx()
+                                )
+                                drawLine(
+                                    color = tickColor,
+                                    start = Offset(0f, tickY),
+                                    end = Offset(size.width, tickY),
+                                    strokeWidth = 2.dp.toPx()
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(

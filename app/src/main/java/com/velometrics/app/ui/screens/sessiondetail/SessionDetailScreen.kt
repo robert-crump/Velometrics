@@ -50,6 +50,8 @@ fun SessionDetailScreen(
     val intervals by viewModel.intervals.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
+    val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
 
     Scaffold(
         topBar = {
@@ -108,7 +110,10 @@ fun SessionDetailScreen(
                     RideSummaryGrid(session = s, comparison = comparison)
 
                     if (s.hasPower && s.powerZoneDistribution != null) {
-                        PowerZoneChart(powerZones = s.powerZoneDistribution!!)
+                        PowerZoneChart(
+                            powerZones = s.powerZoneDistribution!!,
+                            averagePercentages = powerZoneAverages
+                        )
                     } else if (!s.hasPower) {
                         // Session has no power data — show a placeholder card
                         Card(
@@ -140,7 +145,10 @@ fun SessionDetailScreen(
                     }
 
                     if (s.hrZoneDistribution != null) {
-                        HeartRateZoneChart(hrZones = s.hrZoneDistribution!!)
+                        HeartRateZoneChart(
+                            hrZones = s.hrZoneDistribution!!,
+                            averagePercentages = hrZoneAverages
+                        )
                     }
 
                     if (s.hasPower && s.fatEfficiencyHistogram != null) {

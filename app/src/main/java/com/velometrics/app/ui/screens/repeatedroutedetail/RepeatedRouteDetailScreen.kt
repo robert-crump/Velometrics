@@ -30,10 +30,9 @@ import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.SpeedHistogramChartAvg
+import com.velometrics.app.ui.components.roundedAxisBounds
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
-import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.roundToInt
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -301,8 +300,10 @@ fun RepeatedRouteDetailScreen(
                 // ─── Scatter plots (only when power data exists) ───
                 if (uiState.showPowerPlots) {
                     if (uiState.speedPowerPoints.isNotEmpty()) {
-                        val xMin = floor(uiState.speedPowerPoints.minOf { it.first } / 10f) * 10f
-                        val xMax = ceil(uiState.speedPowerPoints.maxOf { it.first } / 10f) * 10f
+                        val (xMin, xMax) = roundedAxisBounds(
+                            uiState.speedPowerPoints.minOf { it.first },
+                            uiState.speedPowerPoints.maxOf { it.first }
+                        )
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
@@ -325,8 +326,10 @@ fun RepeatedRouteDetailScreen(
                     }
 
                     if (uiState.speedNpPoints.isNotEmpty()) {
-                        val xMin = floor(uiState.speedNpPoints.minOf { it.first } / 10f) * 10f
-                        val xMax = ceil(uiState.speedNpPoints.maxOf { it.first } / 10f) * 10f
+                        val (xMin, xMax) = roundedAxisBounds(
+                            uiState.speedNpPoints.minOf { it.first },
+                            uiState.speedNpPoints.maxOf { it.first }
+                        )
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(

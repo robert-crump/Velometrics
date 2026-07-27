@@ -12,12 +12,23 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
 import kotlin.math.floor
 
-data class ScatterPoint(val x: Float, val y: Float)
+data class ScatterPoint(val x: Float, val y: Float, val color: Color? = null)
+
+/**
+ * Rounds [min]/[max] outward to the nearest [step], e.g. for axis bounds that land on round
+ * tick values instead of the raw data range.
+ */
+fun roundedAxisBounds(min: Float, max: Float, step: Float = 10f): Pair<Float, Float> {
+    val lo = floor(min / step) * step
+    val hi = ceil(max / step) * step
+    return lo to hi
+}
 
 @Composable
 fun ScatterPlotChart(
@@ -27,7 +38,8 @@ fun ScatterPlotChart(
     modifier: Modifier = Modifier,
     xMin: Float? = null,
     xMax: Float? = null,
-    xTickFormat: String = "%.1f"
+    xTickFormat: String = "%.1f",
+    dotRadius: Dp = 6.dp
 ) {
     if (points.isEmpty()) return
 
@@ -146,11 +158,11 @@ fun ScatterPlotChart(
         drawContext.canvas.nativeCanvas.restore()
 
         // Draw dots
-        val dotRadius = 6.dp.toPx()
+        val dotRadiusPx = dotRadius.toPx()
         for (pt in points) {
             drawCircle(
-                color = dotColor,
-                radius = dotRadius,
+                color = pt.color ?: dotColor,
+                radius = dotRadiusPx,
                 center = Offset(mapX(pt.x), mapY(pt.y))
             )
         }

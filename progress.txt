@@ -1,3 +1,76 @@
+## Issue #149 — All-time Stats: point clouds diagram
+Completed: 2026-07-27
+
+### What was done
+
+Full /grill-me design session before implementing (issue was terse: 5 bullet points, no
+elaboration). Resolved: scope (always all-time, ignores the year-navigation selector added in a
+prior session — the point cloud's whole appeal is showing every ride at once), missing-data
+handling (silently exclude rides with null `averagePower` or null `elevationGainM`, no count
+shown), speed formula (`distanceKm / netDurationSec * 3600`, matching
+`RepeatedRouteDetailViewModel`'s existing convention), component reuse (extend the existing
+`ScatterPlotChart`/`ScatterPoint` rather than write a bespoke chart — added an optional per-point
+color and a configurable dot radius, both backward-compatible defaults so
+`RepeatedRouteDetailScreen`'s existing usage is untouched), axis-step logic (extracted
+`RepeatedRouteDetailScreen`'s inline floor/ceil-to-nearest-10 X-axis rounding into a shared
+`roundedAxisBounds` util, now used by both screens — Y axis stays auto-padded, matching the
+existing "Avg Power vs Speed" chart's own behavior, since the issue's "reuse X-/Y-axis step logic"
+turned out to describe that whole existing chart, not a new Y-axis rounding rule), dot size (2dp,
+vs. 6dp default), color scheme (5-step alpha ramp on `colorScheme.primary` rather than 5 hardcoded
+hex swatches like the zone charts use, so it adapts to theme/dynamic color same as
+`PowerCurveSection` on the same screen), a compact scrollable legend row, no tap interaction
+(matches `ScatterPlotChart`'s existing static-only behavior), and no new unit tests (treated as a
+UI-only addition, verified on-device).
+
+**`ui/components/ScatterPlotChart.kt`**
+- `ScatterPoint` gains an optional `color: Color? = null`, falling back to the existing single
+  `dotColor` when absent.
+- New `dotRadius: Dp = 6.dp` parameter on `ScatterPlotChart`.
+- New top-level `roundedAxisBounds(min, max, step = 10f)`, extracted from
+  `RepeatedRouteDetailScreen`'s inline calculation.
+
+**`ui/screens/repeatedroutedetail/RepeatedRouteDetailScreen.kt`**
+- Both "Avg Power vs Speed" and "Normalized Power vs Speed" scatter charts now call
+  `roundedAxisBounds` instead of duplicating the floor/ceil rounding inline. No behavior change
+  (verified on-device: dot size, color, and axis ticks all unchanged).
+
+**`ui/screens/alltimestats/AllTimeStatsViewModel.kt`**
+- New `PowerSpeedPoint(avgPowerW, avgSpeedKmh, elevationBucket)` and
+  `AllTimeStatsUiState.powerSpeedPoints`.
+- `buildPowerSpeedPoints`: filters to sessions with `hasPower`, non-null
+  `averagePower`/`elevationGainM`, and positive `netDurationSec`/`distanceKm`; computes speed the
+  same way as `RepeatedRouteDetailViewModel`, and buckets `elevationGainM / distanceKm * 100` into
+  5 lower-inclusive ranges (0-200, 200-800, 800-1400, 1400-2000, >2000) via `elevationBucketFor`.
+
+**`ui/screens/alltimestats/AllTimeStatsScreen.kt`**
+- New `PowerSpeedPointCloudSection`, inserted after `PowerCurveSection` and before
+  `YearBreakdownSection`, titled "Power vs. Speed". Always shows the Card (matching
+  `PowerCurveSection`'s convention); shows an empty-state message instead of hiding entirely when
+  `powerSpeedPoints` is empty.
+- 5-shade legend (`ElevationBucketLegend`) in a horizontally-scrollable row below the chart, since
+  the 5 range labels don't all fit on narrow screens at once.
+
+### Manual verification (on-device)
+Installed the debug APK and navigated to All-time Stats via Home's overflow menu. Confirmed the
+new "Power vs. Speed" section renders between Power curve and By year, with small (2dp) dots
+clearly smaller than the RepeatedRoutes chart's dots, X-axis step-rounded to the nearest 10
+(matching the underlying data), Y-axis auto-padded, and a legend row that scrolls to reveal the
+">2,000" label cut off at rest (confirmed this is the intended scroll affordance, not a clipping
+bug, by swiping it into view). Verified with two datasets on the same device: an initial 7-ride set
+(3 rides had both power and elevation data, correctly excluding the other 4) and, after the
+maintainer imported more rides mid-session, a ~148-ride set showing a dense, clearly-trending
+cloud. Regression-checked `RepeatedRouteDetailScreen`'s own two scatter charts (which share the
+modified `ScatterPlotChart`/`roundedAxisBounds` code) — both still render with their original
+larger dot size, single color, and correct axis ticks.
+
+### Tests
+No new automated tests (UI-only addition, per plan — verified on-device instead).
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks`
+(matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
+regressions.
+
+---
+
 ## Issue #147 — Power/HR zone and speed distribution: all-rides average reference line
 Completed: 2026-07-27
 
@@ -594,67 +667,3 @@ pre-#134 checkout, captured earlier this session for #131/#132/#133) and after.
 
 Both runs completed (`Success`, not `Failure`) at their existing tiers — acceptance criteria met:
 repeat fraction inside the stem windows unchanged (80km) or lower (50km), route still completes.
-
----
-
-## Issue #133 — Shape-aware candidate selection and trimming via RouteShapeMetrics
-Completed: 2026-07-10
-
-### What was done
-
-Parent #129's diagnosis found the winning candidate was picked by highest coarse reward among
-in-band refined routes, with the refined route's actual shape never factoring in — a lollipop
-could beat an oval on reward alone. This makes `RouteShapeMetrics` a first-class input to both
-candidate selection and the mid-generation trim.
-
-**`domain/service/RouteGenerator.kt`**
-- New `RouteShapeGateConfig(minCompactness = 0.30, maxRepeatFraction = 0.15)`, both configurable,
-  wired into `GeneratorConfig.shapeConfig`.
-- New internal `RefinedCandidate(coarseLoop, refinedRoute, shapeReport)` replaces the previous
-  `Pair<CandidateLoop, RefinedRoute>` used for the in-flight candidate pool. Every refined (and
-  stitched) candidate is now scored with `RouteShapeMetrics.evaluate(finalRoute.edges,
-  nodeCoords)` as soon as it's produced; `nodeCoords` comes from a new `resolveNodeCoords` helper
-  (mirrors the #130 diagnosis harness's own resolver) so compactness's polyline-decode fallback
-  has real coordinates to fall back to.
-- `selectWinner(candidates, targetDistanceM, bandFraction, shapeConfig)`: filters to in-band
-  candidates first, then prefers ones passing the shape gate (ties broken by reward), falling back
-  to the highest `compactness - repeatFraction` among in-band candidates when none pass. Replaces
-  the old `filter { inBand }.maxByOrNull { reward }` one-liner in `generate()`'s `Sufficient`
-  branch.
-- `trimRefined`: sort key extended from `(in-band, reward)` to `(in-band, gate-pass, reward)`, so
-  a relaxed tier's trim can no longer discard the only shapely candidate in favor of two
-  higher-reward lollipops. Marked `internal` (was `private`) so it's unit-testable directly, same
-  as `selectWinner` and the new `passesShapeGate`.
-- Added `shapes=[...]` and `selected ...` `Log.d` lines (compactness/repeat/gate per candidate)
-  purely for harness/manual verification — no behavior change.
-
-### Tests
-Three new `RouteGeneratorTest` cases construct `RefinedCandidate`s directly (via a small
-`shapeReport(compactness, repeatFraction)` + `refinedCandidate(...)` helper) to exercise
-`selectWinner`/`trimRefined` in isolation, matching the issue's acceptance criteria exactly:
-- `selectWinner prefers a gate-passing candidate over a higher-reward gate-failing one` — a
-  reward=100 lollipop (compact 0.05, repeat 0.60) loses to a reward=10 oval (compact 0.50, repeat
-  0.05).
-- `selectWinner falls back to the best-shaped candidate when none pass the gate` — both candidates
-  fail the gate; the one with the better `compactness - repeatFraction` wins despite lower reward.
-- `trimRefined keeps a gate-passing candidate over higher-reward gate-failing ones` — trimming a
-  3-candidate pool (2 high-reward lollipops + 1 low-reward oval) to `maxKeep = 1` keeps the oval.
-- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest`: all pass, 426
-  tests, 0 failures, no regressions.
-
-### Harness run (posted to #133)
-Ran `ROUTE_SHAPE_DIAGNOSIS` on the 20/50/80km matrix against the production graph. Selection was
-verified correct by cross-referencing each run's per-tier `shapes=[...]` log line against its
-`selected ...` line: in all three runs, the tier that finally succeeded had at most one genuinely
-in-band candidate (any second candidate at that tier fell outside the tier's own distance band),
-so the winner was in-band-by-elimination rather than a real gate-pass-vs-reward tradeoff. None of
-the three runs exercised the "gate passes, wins on reward over a higher-reward failing candidate"
-path — there was never more than one in-band candidate to choose between. This mirrors #132's
-finding: `CorridorOrienteer`'s coarse skeleton produces very few genuinely distinct in-band
-candidates per tier on this graph (often 1-2, frequently near-duplicates), so shape-aware
-selection has too small a pool to meaningfully select from yet. Candidate-pool diversity within
-the accepted band is a separate, larger problem than this slice's scope (selection/trimming logic
-over whatever pool exists) — flagging as a follow-up rather than expanding #133's scope. Shape
-numbers themselves (0.02/0.15/0.20 compactness for 20/50/80km) are unchanged from the pre-#133
-baseline, as expected since #133 only changes which candidate wins a tie and there was rarely a
-tie to break on this matrix.

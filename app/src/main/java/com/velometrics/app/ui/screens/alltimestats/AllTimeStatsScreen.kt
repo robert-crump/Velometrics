@@ -1,11 +1,14 @@
 package com.velometrics.app.ui.screens.alltimestats
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -15,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -23,6 +27,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.ui.components.ScatterPlotChart
+import com.velometrics.app.ui.components.ScatterPoint
+import com.velometrics.app.ui.components.roundedAxisBounds
 import com.velometrics.app.util.FormatUtils
 import kotlin.math.abs
 import kotlin.math.ln
@@ -93,6 +100,7 @@ fun AllTimeStatsScreen(
                         hasData = uiState.hasAnyPowerCurveData,
                         onNavigateToSession = onNavigateToSession
                     )
+                    PowerSpeedPointCloudSection(points = uiState.powerSpeedPoints)
                     YearBreakdownSection(yearStats = uiState.yearStats)
                 }
             }
@@ -363,6 +371,83 @@ private fun PowerCurveChart(
                         x,
                         chartHeightPx - 4.dp.toPx(),
                         labelPaint
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val ELEVATION_BUCKET_LABELS = listOf("0-200", "200-800", "800-1,400", "1,400-2,000", ">2,000")
+private val ELEVATION_BUCKET_ALPHAS = listOf(0.35f, 0.5f, 0.65f, 0.8f, 1.0f)
+
+@Composable
+private fun PowerSpeedPointCloudSection(points: List<PowerSpeedPoint>) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Power vs. Speed", style = MaterialTheme.typography.titleMedium)
+            HorizontalDivider()
+            if (points.isEmpty()) {
+                Text(
+                    "Import rides with power and elevation data to see this chart",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            } else {
+                val bucketColors = ELEVATION_BUCKET_ALPHAS.map { MaterialTheme.colorScheme.primary.copy(alpha = it) }
+                val (xMin, xMax) = roundedAxisBounds(
+                    points.minOf { it.avgPowerW },
+                    points.maxOf { it.avgPowerW }
+                )
+                ScatterPlotChart(
+                    points = points.map { pt ->
+                        ScatterPoint(pt.avgPowerW, pt.avgSpeedKmh, bucketColors[pt.elevationBucket])
+                    },
+                    xLabel = "Avg Power (W)",
+                    yLabel = "Avg Speed (km/h)",
+                    xMin = xMin,
+                    xMax = xMax,
+                    xTickFormat = "%.0f",
+                    dotRadius = 2.dp
+                )
+                ElevationBucketLegend(colors = bucketColors)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ElevationBucketLegend(colors: List<Color>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "Elevation gain / 100km",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ELEVATION_BUCKET_LABELS.forEachIndexed { i, label ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(colors[i], CircleShape)
+                    )
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

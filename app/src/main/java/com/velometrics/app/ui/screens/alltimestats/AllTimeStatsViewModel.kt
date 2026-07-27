@@ -42,6 +42,14 @@ data class YearStat(
     val totalNetDurationSec: Int
 )
 
+// elevationBucket indexes the 5 climb-density ranges (0-200, 200-800, 800-1400, 1400-2000,
+// >2000 m/100km), lower-inclusive, so the UI can map it to one of 5 shades of a single color.
+data class PowerSpeedPoint(
+    val avgPowerW: Float,
+    val avgSpeedKmh: Float,
+    val elevationBucket: Int
+)
+
 data class AllTimeStatsUiState(
     val isLoading: Boolean = true,
     val hasAnySessions: Boolean = false,
@@ -49,7 +57,8 @@ data class AllTimeStatsUiState(
     val distanceSplits: List<RecordEntry> = emptyList(),
     val powerCurve: List<PowerCurvePoint> = emptyList(),
     val hasAnyPowerCurveData: Boolean = false,
-    val yearStats: List<YearStat> = emptyList()
+    val yearStats: List<YearStat> = emptyList(),
+    val powerSpeedPoints: List<PowerSpeedPoint> = emptyList()
 )
 
 @HiltViewModel
@@ -96,8 +105,31 @@ class AllTimeStatsViewModel @Inject constructor(
             distanceSplits = distanceSplits,
             powerCurve = powerCurve,
             hasAnyPowerCurveData = powerCurve.any { it.watts != null },
-            yearStats = yearStats
+            yearStats = yearStats,
+            powerSpeedPoints = buildPowerSpeedPoints(sessions)
         )
+    }
+
+    private fun buildPowerSpeedPoints(sessions: List<CyclingSession>): List<PowerSpeedPoint> {
+        return sessions
+            .filter { it.hasPower && it.averagePower != null && it.elevationGainM != null && it.netDurationSec > 0 && it.distanceKm > 0 }
+            .map { s ->
+                val speed = (s.distanceKm / s.netDurationSec * 3600).toFloat()
+                val elevGainPer100km = s.elevationGainM!! / s.distanceKm * 100
+                PowerSpeedPoint(
+                    avgPowerW = s.averagePower!!.toFloat(),
+                    avgSpeedKmh = speed,
+                    elevationBucket = elevationBucketFor(elevGainPer100km)
+                )
+            }
+    }
+
+    private fun elevationBucketFor(elevGainPer100km: Double): Int = when {
+        elevGainPer100km < 200 -> 0
+        elevGainPer100km < 800 -> 1
+        elevGainPer100km < 1400 -> 2
+        elevGainPer100km < 2000 -> 3
+        else -> 4
     }
 
     private fun longestRideEntry(sessions: List<CyclingSession>): RecordEntry {

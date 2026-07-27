@@ -84,11 +84,6 @@ private fun SpeedHistogramChartContent(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom
                     ) {
-                        Text(
-                            text = "${pct.roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
                         Canvas(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -119,6 +114,12 @@ private fun SpeedHistogramChartContent(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = shortLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${pct.roundToInt()}%",
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1
                         )

@@ -81,15 +81,6 @@ fun HeartRateZoneChart(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom
                     ) {
-                        if (pct > 0) {
-                            Text(
-                                text = "${pct.toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
                         Canvas(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -123,6 +114,16 @@ fun HeartRateZoneChart(
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (pct > 0) {
+                            Text(
+                                text = "${pct.toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                     }
                 }
             }

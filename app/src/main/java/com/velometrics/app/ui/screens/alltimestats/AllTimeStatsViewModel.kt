@@ -111,7 +111,7 @@ class AllTimeStatsViewModel @Inject constructor(
     }
 
     private fun buildPowerSpeedPoints(sessions: List<CyclingSession>): List<PowerSpeedPoint> {
-        return sessions
+        val allPoints = sessions
             .filter { it.hasPower && it.averagePower != null && it.elevationGainM != null && it.netDurationSec > 0 && it.distanceKm > 0 }
             .map { s ->
                 val speed = (s.distanceKm / s.netDurationSec * 3600).toFloat()
@@ -122,6 +122,28 @@ class AllTimeStatsViewModel @Inject constructor(
                     elevationBucket = elevationBucketFor(elevGainPer100km)
                 )
             }
+
+        // Keep only representative rides: drop outliers whose power or speed falls
+        // outside the 2.5th-97.5th percentile range of all valid rides.
+        val powerRange = percentileRange(allPoints.map { it.avgPowerW })
+        val speedRange = percentileRange(allPoints.map { it.avgSpeedKmh })
+        return allPoints.filter { it.avgPowerW in powerRange && it.avgSpeedKmh in speedRange }
+    }
+
+    private fun percentileRange(values: List<Float>): ClosedFloatingPointRange<Float> {
+        val sorted = values.sorted()
+        return percentile(sorted, 2.5)..percentile(sorted, 97.5)
+    }
+
+    private fun percentile(sorted: List<Float>, p: Double): Float {
+        if (sorted.isEmpty()) return 0f
+        if (sorted.size == 1) return sorted[0]
+        val rank = p / 100.0 * (sorted.size - 1)
+        val lowerIdx = kotlin.math.floor(rank).toInt()
+        val upperIdx = kotlin.math.ceil(rank).toInt()
+        if (lowerIdx == upperIdx) return sorted[lowerIdx]
+        val frac = (rank - lowerIdx).toFloat()
+        return sorted[lowerIdx] + (sorted[upperIdx] - sorted[lowerIdx]) * frac
     }
 
     private fun elevationBucketFor(elevGainPer100km: Double): Int = when {

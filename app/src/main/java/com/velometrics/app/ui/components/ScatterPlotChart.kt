@@ -30,6 +30,31 @@ fun roundedAxisBounds(min: Float, max: Float, step: Float = 10f): Pair<Float, Fl
     return lo to hi
 }
 
+private val NICE_INTEGER_STEPS = intArrayOf(1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000)
+
+/**
+ * Whole-number tick values spanning [lo, hi], spaced by the smallest "nice" integer step
+ * (1, 2, 5, 10, ...) that keeps the tick count at or below [maxTicks]. Narrow ranges naturally
+ * produce fewer, non-repeating labels instead of always rendering [maxTicks] + 1 of them.
+ */
+fun integerAxisTicks(lo: Float, hi: Float, maxTicks: Int = 4): List<Float> {
+    val range = hi - lo
+    val step = if (range <= 0f) {
+        1
+    } else {
+        NICE_INTEGER_STEPS.firstOrNull { range / it <= maxTicks } ?: NICE_INTEGER_STEPS.last()
+    }
+    val start = ceil(lo / step) * step
+    val ticks = mutableListOf<Float>()
+    var v = start
+    while (v <= hi + step * 1e-4f) {
+        ticks.add(v)
+        v += step
+    }
+    if (ticks.isEmpty()) ticks.add(((lo + hi) / 2f))
+    return ticks
+}
+
 @Composable
 fun ScatterPlotChart(
     points: List<ScatterPoint>,
@@ -38,6 +63,8 @@ fun ScatterPlotChart(
     modifier: Modifier = Modifier,
     xMin: Float? = null,
     xMax: Float? = null,
+    yMin: Float? = null,
+    yMax: Float? = null,
     xTickFormat: String = "%.1f",
     dotRadius: Dp = 6.dp
 ) {
@@ -65,8 +92,8 @@ fun ScatterPlotChart(
         // Data ranges
         val xDataMin = points.minOf { it.x }
         val xDataMax = points.maxOf { it.x }
-        val yMin = points.minOf { it.y }
-        val yMax = points.maxOf { it.y }
+        val yDataMin = points.minOf { it.y }
+        val yDataMax = points.maxOf { it.y }
 
         // Use provided x bounds or fall back to 10%-padded data range
         val xLo: Float
@@ -80,9 +107,17 @@ fun ScatterPlotChart(
             xHi = xDataMax + xPad
         }
 
-        val yPad = if (yMax == yMin) 1f else (yMax - yMin) * 0.1f
-        val yLo = yMin - yPad
-        val yHi = yMax + yPad
+        // Use provided y bounds or fall back to 10%-padded data range
+        val yLo: Float
+        val yHi: Float
+        if (yMin != null && yMax != null) {
+            yLo = yMin
+            yHi = yMax
+        } else {
+            val yPad = if (yDataMax == yDataMin) 1f else (yDataMax - yDataMin) * 0.1f
+            yLo = yDataMin - yPad
+            yHi = yDataMax + yPad
+        }
 
         fun mapX(v: Float) = padLeft + (v - xLo) / (xHi - xLo) * plotW
         fun mapY(v: Float) = padTop + plotH - (v - yLo) / (yHi - yLo) * plotH
@@ -119,9 +154,7 @@ fun ScatterPlotChart(
             )
         }
 
-        val yTicks = 4
-        for (i in 0..yTicks) {
-            val v = yLo + (yHi - yLo) * i / yTicks
+        for (v in integerAxisTicks(yLo, yHi)) {
             val y = mapY(v)
             val label = "%.0f".format(v)
             drawContext.canvas.nativeCanvas.drawText(

@@ -403,6 +403,11 @@ private fun PowerSpeedPointCloudSection(points: List<PowerSpeedPoint>) {
                     points.minOf { it.avgPowerW },
                     points.maxOf { it.avgPowerW }
                 )
+                val (yMin, yMax) = roundedAxisBounds(
+                    points.minOf { it.avgSpeedKmh },
+                    points.maxOf { it.avgSpeedKmh },
+                    step = 1f
+                )
                 ScatterPlotChart(
                     points = points.map { pt ->
                         ScatterPoint(pt.avgPowerW, pt.avgSpeedKmh, bucketColors[pt.elevationBucket])
@@ -411,6 +416,8 @@ private fun PowerSpeedPointCloudSection(points: List<PowerSpeedPoint>) {
                     yLabel = "Avg Speed (km/h)",
                     xMin = xMin,
                     xMax = xMax,
+                    yMin = yMin,
+                    yMax = yMax,
                     xTickFormat = "%.0f",
                     dotRadius = 2.dp
                 )

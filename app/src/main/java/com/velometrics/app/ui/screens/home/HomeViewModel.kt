@@ -13,6 +13,7 @@ import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.di.ApplicationScope
+import com.velometrics.app.domain.service.IntervalClusteringService
 import com.velometrics.app.domain.service.RouteClusteringService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -64,6 +65,7 @@ class HomeViewModel @Inject constructor(
     private val dropboxSyncService: DropboxSyncService,
     private val dropboxAuthRepository: DropboxAuthRepository,
     private val routeClusteringService: RouteClusteringService,
+    private val intervalClusteringService: IntervalClusteringService,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -176,9 +178,14 @@ class HomeViewModel @Inject constructor(
                 _importState.value = ImportUiState.Done(lastResult)
             }
 
-            // Re-cluster on a scope that survives navigation away from the home screen.
-            appScope.launch { routeClusteringService.runClustering() }
+            recluster()
         }
+    }
+
+    /** Re-clusters routes and repeated intervals once per import batch, on a scope that survives navigation away from the home screen. */
+    private fun recluster() {
+        appScope.launch { routeClusteringService.runClustering() }
+        appScope.launch { intervalClusteringService.runClustering() }
     }
 
     fun clearImportState() {
@@ -217,7 +224,7 @@ class HomeViewModel @Inject constructor(
                 when (val result = dropboxSyncService.sync()) {
                     is DropboxSyncResult.Completed -> {
                         if (result.importResults.any { it is ImportResult.Success }) {
-                            appScope.launch { routeClusteringService.runClustering() }
+                            recluster()
                         }
                         if (isUserInitiated || result.importResults.isNotEmpty()) {
                             _dropboxSyncMessage.value = buildSyncMessage(result.importResults)

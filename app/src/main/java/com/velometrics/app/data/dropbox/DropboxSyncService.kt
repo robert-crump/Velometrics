@@ -65,12 +65,14 @@ class DropboxSyncService @Inject constructor(
 
             while (true) {
                 var pageHadError = false
-                for (entry in listing.entries) {
-                    if (entry is FileMetadata && entry.name.endsWith(".fit", ignoreCase = true)) {
-                        val result = downloadAndImport(client, entry)
-                        results.add(result)
-                        if (result is ImportResult.Error) pageHadError = true
-                    }
+                val fitEntries = listing.entries
+                    .filterIsInstance<FileMetadata>()
+                    .filter { it.name.endsWith(".fit", ignoreCase = true) }
+                    .sortedBy { it.name }
+                for (entry in fitEntries) {
+                    val result = downloadAndImport(client, entry)
+                    results.add(result)
+                    if (result is ImportResult.Error) pageHadError = true
                 }
 
                 // Only advance the cursor past a page once every file in it is durably

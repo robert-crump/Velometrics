@@ -29,6 +29,8 @@ private const val CHART_HEIGHT_DP = 80
 
 /**
  * Displays the speed distribution from pre-computed average percentages per bin (0–100 scale).
+ * Used on RepeatedRouteDetailScreen, whose surrounding Column already applies horizontal padding,
+ * so the Card itself stays edge-to-edge within it.
  * @param allRidesAveragePercentages all-rides-ever average percentage per bin, drawn as a thin
  * tick mark on each bar for comparison against this route's own average. Empty map draws no ticks.
  */
@@ -37,11 +39,13 @@ fun SpeedHistogramChartAvg(
     percentages: Map<String, Float>,
     allRidesAveragePercentages: Map<String, Float> = emptyMap()
 ) {
-    SpeedHistogramChartContent(percentages, allRidesAveragePercentages)
+    SpeedHistogramChartContent(percentages, allRidesAveragePercentages, Modifier.fillMaxWidth())
 }
 
 /**
  * Displays a single ride's own speed distribution as percentages per bin (0–100 scale).
+ * Used on SessionDetailScreen, whose cards each own their horizontal/vertical margin (unlike
+ * RepeatedRouteDetailScreen's already-padded container), matching PowerZoneChart/HeartRateZoneChart.
  * @param allRidesAveragePercentages all-rides-ever average percentage per bin, drawn as a thin
  * tick mark on each bar for comparison against this ride's own distribution. Empty map draws no
  * ticks.
@@ -51,13 +55,20 @@ fun SpeedHistogramChart(
     percentages: Map<String, Float>,
     allRidesAveragePercentages: Map<String, Float> = emptyMap()
 ) {
-    SpeedHistogramChartContent(percentages, allRidesAveragePercentages)
+    SpeedHistogramChartContent(
+        percentages,
+        allRidesAveragePercentages,
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    )
 }
 
 @Composable
 private fun SpeedHistogramChartContent(
     percentages: Map<String, Float>,
-    allRidesAveragePercentages: Map<String, Float>
+    allRidesAveragePercentages: Map<String, Float>,
+    cardModifier: Modifier
 ) {
     val bins = CyclingConstants.SPEED_HISTOGRAM_BINS.map { it.first }
     val maxPct = (percentages.values + allRidesAveragePercentages.values)
@@ -67,7 +78,7 @@ private fun SpeedHistogramChartContent(
     val tickOutlineColor = MaterialTheme.colorScheme.surface
 
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = cardModifier
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(

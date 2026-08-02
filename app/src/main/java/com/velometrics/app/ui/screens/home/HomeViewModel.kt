@@ -3,6 +3,7 @@
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
@@ -69,6 +70,10 @@ class HomeViewModel @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "HomeViewModel"
+    }
 
     // Tracks whether the first real DB emission has arrived.
     // Prevents the empty-state placeholder from flashing on startup.
@@ -184,8 +189,20 @@ class HomeViewModel @Inject constructor(
 
     /** Re-clusters routes and repeated intervals once per import batch, on a scope that survives navigation away from the home screen. */
     private fun recluster() {
-        appScope.launch { routeClusteringService.runClustering() }
-        appScope.launch { intervalClusteringService.runClustering() }
+        appScope.launch {
+            try {
+                routeClusteringService.runClustering()
+            } catch (e: Exception) {
+                Log.e(TAG, "Route clustering failed", e)
+            }
+        }
+        appScope.launch {
+            try {
+                intervalClusteringService.runClustering()
+            } catch (e: Exception) {
+                Log.e(TAG, "Interval clustering failed", e)
+            }
+        }
     }
 
     fun clearImportState() {

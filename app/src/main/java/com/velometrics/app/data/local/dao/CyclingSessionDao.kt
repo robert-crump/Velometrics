@@ -60,6 +60,9 @@ interface CyclingSessionDao {
     @Query("SELECT * FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit")
     suspend fun getSessionsBeforeDate(beforeEpochMs: Long, limit: Int): List<CyclingSessionEntity>
 
+    @Query("SELECT * FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC")
+    suspend fun getAllSessionsBeforeDate(beforeEpochMs: Long): List<CyclingSessionEntity>
+
     @Query("SELECT id, gpsTrack FROM cycling_sessions")
     suspend fun getAllIdsAndTracks(): List<SessionIdAndTrack>
 

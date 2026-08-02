@@ -79,6 +79,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         return dao.getSessionsBeforeDate(epochMs, limit).map { it.toDomain() }
     }
 
+    override suspend fun getAllSessionsBeforeDate(epochMs: Long): List<CyclingSession> {
+        return dao.getAllSessionsBeforeDate(epochMs).map { it.toDomain() }
+    }
+
     override suspend fun getAllClusterData(): List<SessionClusterData> {
         return dao.getAllClusterData()
     }

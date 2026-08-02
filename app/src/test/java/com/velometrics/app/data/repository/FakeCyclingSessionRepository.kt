@@ -76,6 +76,10 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
             .sortedByDescending { it.sessionStart }
             .take(limit)
 
+    override suspend fun getAllSessionsBeforeDate(epochMs: Long): List<CyclingSession> =
+        sessions.filter { it.sessionStart.toEpochMilli() < epochMs }
+            .sortedByDescending { it.sessionStart }
+
     override suspend fun getAllClusterData(): List<SessionClusterData> =
         sessions.map { SessionClusterData(it.id, it.gpsTrack, it.distanceKm) }
 

@@ -59,7 +59,7 @@ fun MetricCell(
                     imageVector = icon,
                     contentDescription = null,
                     tint = color,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
             allPreviousTriangle?.let { (icon, color) ->
@@ -68,7 +68,7 @@ fun MetricCell(
                     imageVector = icon,
                     contentDescription = null,
                     tint = color,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

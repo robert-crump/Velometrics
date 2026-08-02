@@ -3,6 +3,7 @@
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
+import com.velometrics.app.domain.model.SessionMetricSample
 import kotlinx.coroutines.flow.Flow
 
 interface CyclingSessionRepository {
@@ -19,8 +20,8 @@ interface CyclingSessionRepository {
     suspend fun getSessionCount(): Int
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
-    suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession>
-    suspend fun getAllSessionsBeforeDate(epochMs: Long): List<CyclingSession>
+    suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>
+    suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample>
     suspend fun getAllClusterData(): List<SessionClusterData>
     suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSession>
 }

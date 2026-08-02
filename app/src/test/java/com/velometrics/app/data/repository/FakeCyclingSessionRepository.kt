@@ -3,6 +3,7 @@
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
+import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -71,14 +72,30 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
     override fun getSessionsByIds(ids: List<Long>): Flow<List<CyclingSession>> =
         flowOf(sessions.filter { it.id in ids })
 
-    override suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession> =
+    override suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample> =
         sessions.filter { it.sessionStart.toEpochMilli() < epochMs }
             .sortedByDescending { it.sessionStart }
             .take(limit)
+            .map { it.toMetricSample() }
 
-    override suspend fun getAllSessionsBeforeDate(epochMs: Long): List<CyclingSession> =
+    override suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample> =
         sessions.filter { it.sessionStart.toEpochMilli() < epochMs }
             .sortedByDescending { it.sessionStart }
+            .map { it.toMetricSample() }
+
+    private fun CyclingSession.toMetricSample() = SessionMetricSample(
+        id = id,
+        netDurationSec = netDurationSec,
+        distanceKm = distanceKm,
+        averagePower = averagePower,
+        normalizedPower = normalizedPower,
+        fatEfficiencyScore = fatEfficiencyScore,
+        avgHeartRate = avgHeartRate,
+        elevationGainM = elevationGainM,
+        fatBurnedGrams = fatBurnedGrams,
+        carbsBurnedGrams = carbsBurnedGrams,
+        hasPower = hasPower
+    )
 
     override suspend fun getAllClusterData(): List<SessionClusterData> =
         sessions.map { SessionClusterData(it.id, it.gpsTrack, it.distanceKm) }

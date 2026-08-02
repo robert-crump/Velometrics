@@ -14,9 +14,12 @@ data class SessionEnergy(
         "%.0fg / %.0fg".format(fatGrams, carbGrams)
 
     companion object {
-        fun from(session: CyclingSession): SessionEnergy? {
-            val fat = session.fatBurnedGrams ?: return null
-            val carb = session.carbsBurnedGrams ?: return null
+        fun from(session: CyclingSession): SessionEnergy? =
+            from(session.fatBurnedGrams, session.carbsBurnedGrams)
+
+        fun from(fatBurnedGrams: Double?, carbsBurnedGrams: Double?): SessionEnergy? {
+            val fat = fatBurnedGrams ?: return null
+            val carb = carbsBurnedGrams ?: return null
             val kcal = fat * CyclingConstants.KCAL_PER_GRAM_FAT +
                        carb * CyclingConstants.KCAL_PER_GRAM_CARB
             return SessionEnergy(

@@ -343,7 +343,7 @@ private fun ComparisonLegend() {
             imageVector = Icons.Filled.ArrowDropUp,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp)
+            modifier = Modifier.size(28.dp)
         )
         Text(
             text = "Last 5",
@@ -355,7 +355,7 @@ private fun ComparisonLegend() {
             imageVector = Icons.Filled.ArrowDropUp,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp)
+            modifier = Modifier.size(28.dp)
         )
         Text(
             text = "All previous",

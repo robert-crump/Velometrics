@@ -19,6 +19,20 @@ data class CyclingSessionSummaryEntity(
     @ColumnInfo(name = "hasPower") val hasPower: Boolean
 )
 
+data class SessionMetricSampleEntity(
+    @ColumnInfo(name = "id") val id: Long,
+    @ColumnInfo(name = "netDurationSec") val netDurationSec: Int,
+    @ColumnInfo(name = "distanceKm") val distanceKm: Double,
+    @ColumnInfo(name = "averagePower") val averagePower: Int?,
+    @ColumnInfo(name = "normalizedPower") val normalizedPower: Int?,
+    @ColumnInfo(name = "fatEfficiencyScore") val fatEfficiencyScore: Int?,
+    @ColumnInfo(name = "avgHeartRate") val avgHeartRate: Int?,
+    @ColumnInfo(name = "elevationGainM") val elevationGainM: Double?,
+    @ColumnInfo(name = "fatBurnedGrams") val fatBurnedGrams: Double?,
+    @ColumnInfo(name = "carbsBurnedGrams") val carbsBurnedGrams: Double?,
+    @ColumnInfo(name = "hasPower") val hasPower: Boolean
+)
+
 @Dao
 interface CyclingSessionDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -57,11 +71,19 @@ interface CyclingSessionDao {
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC LIMIT :limit")
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSessionEntity>
 
-    @Query("SELECT * FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit")
-    suspend fun getSessionsBeforeDate(beforeEpochMs: Long, limit: Int): List<CyclingSessionEntity>
+    @Query(
+        """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, hasPower
+           FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
+    )
+    suspend fun getSessionMetricSamplesBeforeDate(beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
 
-    @Query("SELECT * FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC")
-    suspend fun getAllSessionsBeforeDate(beforeEpochMs: Long): List<CyclingSessionEntity>
+    @Query(
+        """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, hasPower
+           FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
+    )
+    suspend fun getAllSessionMetricSamplesBeforeDate(beforeEpochMs: Long): List<SessionMetricSampleEntity>
 
     @Query("SELECT id, gpsTrack FROM cycling_sessions")
     suspend fun getAllIdsAndTracks(): List<SessionIdAndTrack>

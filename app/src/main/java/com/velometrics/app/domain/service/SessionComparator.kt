@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.SessionEnergy
+import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import javax.inject.Inject
 
@@ -16,7 +17,6 @@ data class SessionComparison(
     val medianAvgPowerAllPrevious: Int?,
     val medianNormalizedPowerLast5: Int?,
     val medianNormalizedPowerAllPrevious: Int?,
-    val medianIntervalTimeSec: Int?,
     val medianFatEfficiencyLast5: Double?,
     val medianFatEfficiencyAllPrevious: Double?,
     val medianCardiacEfficiencyLast5: Double?,
@@ -56,10 +56,10 @@ class SessionComparator @Inject constructor(
         val beforeEpochMs = currentSession.sessionStart.toEpochMilli()
 
         val last5 = cyclingSessionRepository
-            .getSessionsBeforeDate(beforeEpochMs, 5)
+            .getSessionMetricSamplesBeforeDate(beforeEpochMs, 5)
             .filter { it.id != currentSession.id }
         val allPrevious = cyclingSessionRepository
-            .getAllSessionsBeforeDate(beforeEpochMs)
+            .getAllSessionMetricSamplesBeforeDate(beforeEpochMs)
             .filter { it.id != currentSession.id }
 
         val last5Medians = computeMedians(last5)
@@ -76,7 +76,6 @@ class SessionComparator @Inject constructor(
             medianAvgPowerAllPrevious = allPreviousMedians.avgPower,
             medianNormalizedPowerLast5 = last5Medians.normalizedPower,
             medianNormalizedPowerAllPrevious = allPreviousMedians.normalizedPower,
-            medianIntervalTimeSec = median(last5.map { it.intervalTotalTimeSec.toDouble() })?.toInt(),
             medianFatEfficiencyLast5 = last5Medians.fatEfficiency,
             medianFatEfficiencyAllPrevious = allPreviousMedians.fatEfficiency,
             medianCardiacEfficiencyLast5 = last5Medians.cardiacEfficiency,
@@ -92,28 +91,28 @@ class SessionComparator @Inject constructor(
         )
     }
 
-    private fun computeMedians(sessions: List<CyclingSession>): PoolMedians {
-        val durations = sessions.map { it.netDurationSec.toDouble() }
-        val distances = sessions.map { it.distanceKm }
-        val speeds = sessions.map {
+    private fun computeMedians(samples: List<SessionMetricSample>): PoolMedians {
+        val durations = samples.map { it.netDurationSec.toDouble() }
+        val distances = samples.map { it.distanceKm }
+        val speeds = samples.map {
             if (it.netDurationSec > 0) it.distanceKm / it.netDurationSec * 3600 else 0.0
         }
 
-        val powerSessions = sessions.filter { it.hasPower }
-        val avgPowers = powerSessions.mapNotNull { it.averagePower?.toDouble() }
-        val normPowers = powerSessions.mapNotNull { it.normalizedPower?.toDouble() }
-        val fatEffScores = powerSessions.mapNotNull { it.fatEfficiencyScore?.toDouble() }
-        val cardiacEfficiencies = powerSessions.mapNotNull { session ->
-            val hr = session.avgHeartRate
-            val power = session.averagePower
+        val powerSamples = samples.filter { it.hasPower }
+        val avgPowers = powerSamples.mapNotNull { it.averagePower?.toDouble() }
+        val normPowers = powerSamples.mapNotNull { it.normalizedPower?.toDouble() }
+        val fatEffScores = powerSamples.mapNotNull { it.fatEfficiencyScore?.toDouble() }
+        val cardiacEfficiencies = powerSamples.mapNotNull { sample ->
+            val hr = sample.avgHeartRate
+            val power = sample.averagePower
             if (hr != null && hr != 0 && power != null) power.toDouble() / hr else null
         }
 
-        val kcals = sessions.mapNotNull { SessionEnergy.from(it)?.totalKcal?.toDouble() }
-        val elevGains = sessions.mapNotNull { it.elevationGainM }
-        val elevGainsPer100km = sessions.mapNotNull { session ->
-            val gain = session.elevationGainM
-            if (gain != null && session.distanceKm > 0) gain / session.distanceKm * 100 else null
+        val kcals = samples.mapNotNull { SessionEnergy.from(it.fatBurnedGrams, it.carbsBurnedGrams)?.totalKcal?.toDouble() }
+        val elevGains = samples.mapNotNull { it.elevationGainM }
+        val elevGainsPer100km = samples.mapNotNull { sample ->
+            val gain = sample.elevationGainM
+            if (gain != null && sample.distanceKm > 0) gain / sample.distanceKm * 100 else null
         }
 
         return PoolMedians(

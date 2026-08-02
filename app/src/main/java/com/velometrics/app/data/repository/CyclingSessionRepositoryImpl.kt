@@ -4,6 +4,7 @@ import com.velometrics.app.data.local.dao.CyclingSessionDao
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
+import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.util.toDomain
 import com.velometrics.app.util.toEntity
@@ -75,12 +76,12 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         return dao.getRecentSessionsList(limit).map { it.toDomain() }
     }
 
-    override suspend fun getSessionsBeforeDate(epochMs: Long, limit: Int): List<CyclingSession> {
-        return dao.getSessionsBeforeDate(epochMs, limit).map { it.toDomain() }
+    override suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample> {
+        return dao.getSessionMetricSamplesBeforeDate(epochMs, limit).map { it.toDomain() }
     }
 
-    override suspend fun getAllSessionsBeforeDate(epochMs: Long): List<CyclingSession> {
-        return dao.getAllSessionsBeforeDate(epochMs).map { it.toDomain() }
+    override suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample> {
+        return dao.getAllSessionMetricSamplesBeforeDate(epochMs).map { it.toDomain() }
     }
 
     override suspend fun getAllClusterData(): List<SessionClusterData> {

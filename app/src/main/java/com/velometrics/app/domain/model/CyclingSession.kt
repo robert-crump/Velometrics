@@ -30,5 +30,10 @@ data class CyclingSession(
     val sprintHistogram: Map<String, Int>? = null,
     val avgHeartRate: Int? = null,
     val elevationGainM: Double? = null,
-    val hrZoneDistribution: Map<String, Int>? = null
+    val hrZoneDistribution: Map<String, Int>? = null,
+    // Bucket index (as String) -> % of first-half baseline efficiency factor. A bucket with more
+    // than half its samples excluded (power < 25% FTP) is dropped entirely, i.e. absent from this
+    // map — the chart renders that as a gap, not a zero.
+    val cardiacDriftBuckets: Map<String, Double>? = null,
+    val cardiacDriftPercent: Double? = null
 )

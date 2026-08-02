@@ -1,3 +1,105 @@
+## Issue #154 — Cardiac efficiency: Diagramm (Cardiac Drift chart)
+Completed: 2026-08-02
+
+### What was done
+
+Only `ready-for-agent` issue in the queue. The issue itself was two open questions (bucket size,
+low-power handling); the maintainer had already resolved the full design via a `/grill-me` session
+posted as a comment before this session started, so this was implementation against that finalized
+plan rather than a fresh design pass.
+
+One genuine ambiguity remained in the plan text: "following the Fat Efficiency pattern — no schema
+change, no persisted raw time series." Fat Efficiency's own pattern *does* persist its output via new
+nullable columns (a real migration), and nothing else in the schema could hold per-bucket drift data
+for the chart to read back on a later visit to Session Detail. Asked the maintainer directly rather
+than guessing: confirmed "no schema change" was shorthand for "no new table, no raw per-sample
+series" (contrasted against a rejected alternative of persisting the full per-second stream), not
+"literally zero new columns" — so this adds two new nullable columns exactly like
+`fatEfficiencyHistogram`/`fatEfficiencyScore` did.
+
+**`util/Constants.kt`**
+- `CARDIAC_DRIFT_BUCKET_SEC` (600), `CARDIAC_DRIFT_MIN_RIDE_SEC` (3600), the 25%-FTP exclusion
+  fraction, and the 50% bucket-drop fraction.
+
+**`domain/model/CardiacDriftBand.kt`** (new)
+- `GOOD`/`NORMAL`/`SIGNIFICANT` enum with `fromPercent(decouplingPercent)`, boundaries at 5%/10%
+  matching the plan's classic-Coggan bands.
+
+**`data/fitimport/SessionMetricsCalculator.kt`**
+- New `computeCardiacDrift`: splits the ride into fixed 600-second buckets (a trailing partial
+  bucket is absorbed into the last full bucket via `coerceIn(0, bucketCount - 1)` on the bucket
+  index, rather than kept as its own short bucket); per bucket, samples with raw power below 25% FTP
+  are excluded from that bucket's power/HR averages (deliberately using raw `dp.power`, not the
+  effective/substituted power used for fat-burn calculations elsewhere in this file — using the
+  substituted value would defeat the exclusion, since coasting/descending streaks get backfilled
+  with a plausible non-zero wattage there); a bucket is dropped (absent from the result map) if more
+  than half its samples were excluded this way. Baseline = avg EF (power/HR) over first-half buckets
+  (by bucket index, `bucketCount / 2`); decoupling % = decline from that baseline to the second-half
+  average. Returns null outright if `totalDurationSec < 3600` (the 60-minute/6-bucket gate lives
+  here, not in the UI) or if either half ends up with zero surviving buckets. Only invoked when
+  `hasPower && avgHeartRate != null`, matching the existing gating convention for `fatEfficiencyScore`
+  etc.
+
+**`domain/model/CyclingSession.kt`, `data/local/entity/CyclingSessionEntity.kt`, `util/EntityMappers.kt`**
+- New `cardiacDriftBuckets: Map<String, Double>?` (bucket index as String key -> % of first-half
+  baseline EF; a dropped bucket is simply absent, not a zero) and `cardiacDriftPercent: Double?`.
+  JSON (de)serialization follows the exact `hrZoneDistribution`/`fatEfficiencyHistogram` pattern, with
+  a separate `Map<String, Double>` `TypeToken` alongside the existing `Map<String, Int>` one (the other
+  histograms are all integer counts; this one needs fractional precision).
+
+**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`**
+- DB version 12 -> 13. `MIGRATION_12_13`: two plain `ALTER TABLE ADD COLUMN` statements, no data
+  transform needed (purely additive, both nullable) — same shape as `MIGRATION_8_9`/`MIGRATION_9_10`,
+  which also didn't get a dedicated migration test for the same reason (nothing to get wrong beyond
+  what Room's own schema validation already catches).
+
+**`ui/components/CardiacDriftChart.kt`** (new)
+- Line chart (a deliberate departure from this screen's existing bar-chart idiom, per the plan) — one
+  Canvas per session, plotting each surviving bucket's % of baseline with a dashed 100% reference
+  line. Consecutive present buckets are connected; a dropped bucket (missing from the map) breaks the
+  line rather than being interpolated across or drawn as zero, implemented by only drawing a segment
+  between `i` and `i+1` when both are non-null. Header shows the decoupling % and a
+  Good/Normal/"Significant drift" label colored by `CardiacDriftBand` (green/orange/red, same visual
+  language as `FatEfficiencyHistogram`'s bin colors, reordered since here green means *low* drift).
+  X-axis labels are minute marks, stride-limited to ~6 labels so long rides with many buckets don't
+  crowd the axis.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
+- New card inserted directly after `HeartRateZoneChart`, gated on
+  `s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null` — since the calculator already
+  folds every other gate (ride length, power+HR presence, both-halves-have-data) into whether it
+  returns null, this single non-null check is sufficient and there's no separate UI-side gating logic
+  to keep in sync. No `ViewModel` changes needed; both fields ride along on the existing `session`
+  `StateFlow` the same way `fatEfficiencyHistogram` does.
+
+### Known gap
+Like the `BestEffort`/power-curve data from #143/#145, `cardiacDriftBuckets`/`cardiacDriftPercent`
+are computed only at import time from the raw per-record stream, which `FitImportService` discards
+afterward — none of the existing 148 already-imported rides will show this card unless re-imported.
+No backfill; accepted gap, consistent with the established precedent for this exact class of problem.
+
+### Manual verification (on-device)
+Installed the debug APK over the real 148-ride production database and launched it: confirmed via
+`adb logcat` that the app started cleanly with no crash and no `FATAL`/`AndroidRuntime` entries,
+i.e. `MIGRATION_12_13` applied successfully against real data. Could not go further — the device's
+lock screen requires biometric/PIN entry that isn't available to drive non-interactively, so the
+actual chart rendering (which needs a fresh post-migration import of a real >=60-minute ride with
+both power and HR) was not visually confirmed this session. Verified by code review and the unit
+test suite instead.
+
+### Tests
+5 new `SessionMetricsCalculatorTest` cases: below the 60-minute gate returns null; missing power or
+missing HR each return null independently; a constant-EF ride reads every bucket at exactly 100% of
+baseline with 0% decoupling; a synthetic ride with a real second-half power drop (250W->150W at
+constant HR) produces the hand-calculated 40% decoupling and matching per-bucket percentages; a
+bucket with 6 of 10 samples below the 25%-FTP threshold is dropped entirely (absent from the map)
+rather than averaged over just the 4 survivors. `compileDebugKotlin` (confirms the v13 Room schema/
+migration resolves and exports `13.json`), `compileDebugUnitTestKotlin`, full `testDebugUnitTest
+--rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass
+(12/12 in `SessionMetricsCalculatorTest`), no regressions.
+
+---
+
 ## Issue #151 — Ride detail: Speed distribution card is wider than the other cards
 Completed: 2026-07-29
 
@@ -601,62 +703,4 @@ separator above 1000m, null on zero/negative distance.
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest` (`--rerun-tasks`,
 matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
 regressions.
-
----
-
-## Issue #135 — 20km maintainer sign-off (post-#138): rejected, follow-up issues #141/#142 filed
-Completed: 2026-07-15 (session outcome; #135 and #129 remain open)
-
-### What was done
-
-With #138 (coarse-skeleton reach=target/3 overshoot) landed and closed, re-ran the 20km leg of
-#135's matrix (20km x {NONE,NORTH,EAST,SOUTH,WEST}, production graph) — the exact slice #135 was
-blocked on. All 5 combos now succeed at tier `NONE` (previously 3/4 hard-failed), and `d20km_south`
-(0.26 compactness) clears the calibrated `minCompactness=0.26` shape gate for the first time at
-this distance, with `d20km_east` (0.25) close behind.
-
-Rendered all 5 locally for maintainer visual review (`render_routes.py`, scratchpad-only, not
-committed) — iterated the renderer per the maintainer's requests from an initial minimal-SVG
-version (thicker strokes, then a 1km-grid/distance-ring offline backdrop) to a final version using
-Leaflet + live OpenStreetMap tiles. Note: fetching real map tiles sends the route's bounding box
-(a ~20km-wide area centered on the exact home address) to tile.openstreetmap.org over the network —
-a deliberate, explicitly-confirmed exception to the standing rule of never letting anything that
-embeds the home address leave the machine (previously enforced by keeping renders fully offline).
-Confirmed with the maintainer before switching to live tiles.
-
-**Maintainer verdict: none of the 5 read as a rideable oval**, including the gate-passing
-`d20km_south`. Feedback, verbatim substance:
-- Too many inner loops; track repeatedly moves toward the loop's center before heading back
-  outward, even on the gate-passing combo. Convex-hull-based compactness doesn't catch this — hull
-  area doesn't meaningfully shrink from an interior excursion as long as the outer extreme points
-  are unchanged.
-- `d20km_east`'s route sits mainly *west* of home, not east — direction labeling doesn't match
-  actual geometry at this radius.
-- `d20km_west` spends significant distance through Aachen's city center (heavy traffic) despite
-  #125's hazard/stop-weighted junction costs.
-
-Posted the full finding to #135:
-https://github.com/robert-crump/Velometrics/issues/135#issuecomment-4977742372
-
-**Scope decision (maintainer, HITL):** the shape defect (interior excursions, not caught by
-compactness) and the road-choice defects (direction mislabeling, city-center routing) are different
-kinds of problems — kept as two separate new issues rather than one, so neither's acceptance
-criteria gets blurred (matches #129's own warning about scope-mixing after #107/#111/#113-#119):
-- #141 — 20km reward-bearing corridors cut toward the loop interior, not caught by convex-hull
-  compactness. Suggested starting point: check whether `LoopHull`'s `hullFactor` band clamp
-  (`clamp(0.15 * meanRingRadiusM, 500, 2000)`) leaves too little relative margin at 20km-loop scale
-  before adding a new interior-excursion metric; also whether intra-corridor reward-segment
-  selection is unconstrained by hull bias today (only connector A* and the reward-detour pass use
-  `hullFactor`).
-- #142 — 20km direction-constrained routes: heading mislabeled and routed through Aachen city
-  center. Suggested starting point: verify `DirectionConstraint` heading-cone filtering against
-  actual generated waypoint bearings (not just anchor placement) at 20km; check whether #125's
-  per-junction hazard costs aggregate correctly against cumulative urban-core exposure or need a
-  distinct area-density avoidance signal.
-
-### Net effect
-#135's "sign-off at all three distances" acceptance criterion still isn't met — #138 fixed the
-hard-failure/overshoot problem but not the underlying 20km shape/quality problem. #135 and #129
-remain open, now blocked on #141 and #142 rather than #138. No code changes this session (pure
-diagnosis + HITL sign-off); nothing to compile/test.
 

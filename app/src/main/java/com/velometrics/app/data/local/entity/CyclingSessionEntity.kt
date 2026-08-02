@@ -36,5 +36,7 @@ data class CyclingSessionEntity(
     val sprintHistogram: String? = null,         // JSON map
     val avgHeartRate: Int? = null,
     val elevationGainM: Double? = null,
-    val hrZoneDistribution: String? = null  // JSON map
+    val hrZoneDistribution: String? = null,  // JSON map
+    val cardiacDriftBuckets: String? = null, // JSON map: bucket index -> % of baseline
+    val cardiacDriftPercent: Double? = null
 )

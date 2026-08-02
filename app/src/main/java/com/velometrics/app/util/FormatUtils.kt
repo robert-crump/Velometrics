@@ -62,6 +62,8 @@ object FormatUtils {
 
     fun formatCardiacEfficiency(wattsPerBpm: Double): String = "%.2f W/bpm".format(Locale.US, wattsPerBpm)
 
+    fun formatCardiacDriftPercent(percent: Double): String = "%.1f%%".format(Locale.US, percent)
+
     fun formatDate(instant: Instant): String = dateFormatter.format(instant)
 
     fun formatComparison(

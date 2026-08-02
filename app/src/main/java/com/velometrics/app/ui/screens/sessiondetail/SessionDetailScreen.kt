@@ -158,6 +158,13 @@ fun SessionDetailScreen(
                         )
                     }
 
+                    if (s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null) {
+                        CardiacDriftChart(
+                            buckets = s.cardiacDriftBuckets!!,
+                            decouplingPercent = s.cardiacDriftPercent!!
+                        )
+                    }
+
                     if (s.hasPower && s.fatEfficiencyHistogram != null) {
                         FatEfficiencyHistogram(histogram = s.fatEfficiencyHistogram!!)
                     }

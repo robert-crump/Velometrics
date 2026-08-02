@@ -31,11 +31,13 @@ fun CorridorEntity.toDomain(): Corridor {
 // CyclingSession mappers
 fun CyclingSessionEntity.toDomain(): CyclingSession {
     val mapType = object : TypeToken<Map<String, Int>>() {}.type
+    val doubleMapType = object : TypeToken<Map<String, Double>>() {}.type
     val powerZoneDist: Map<String, Int>? = powerZoneDistribution?.let { gson.fromJson(it, mapType) }
     val speedHist: Map<String, Int> = gson.fromJson(speedHistogram, mapType)
     val fatEffHist: Map<String, Int>? = fatEfficiencyHistogram?.let { gson.fromJson(it, mapType) }
     val sprintHist: Map<String, Int>? = sprintHistogram?.let { gson.fromJson(it, mapType) }
     val hrZoneDist: Map<String, Int>? = hrZoneDistribution?.let { gson.fromJson(it, mapType) }
+    val cardiacDrift: Map<String, Double>? = cardiacDriftBuckets?.let { gson.fromJson(it, doubleMapType) }
 
     return CyclingSession(
         id = id,
@@ -65,7 +67,9 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         sprintHistogram = sprintHist,
         avgHeartRate = avgHeartRate,
         elevationGainM = elevationGainM,
-        hrZoneDistribution = hrZoneDist
+        hrZoneDistribution = hrZoneDist,
+        cardiacDriftBuckets = cardiacDrift,
+        cardiacDriftPercent = cardiacDriftPercent
     )
 }
 
@@ -98,7 +102,9 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         sprintHistogram = sprintHistogram?.let { gson.toJson(it) },
         avgHeartRate = avgHeartRate,
         elevationGainM = elevationGainM,
-        hrZoneDistribution = hrZoneDistribution?.let { gson.toJson(it) }
+        hrZoneDistribution = hrZoneDistribution?.let { gson.toJson(it) },
+        cardiacDriftBuckets = cardiacDriftBuckets?.let { gson.toJson(it) },
+        cardiacDriftPercent = cardiacDriftPercent
     )
 }
 

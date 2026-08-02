@@ -35,6 +35,12 @@ object CyclingConstants {
     const val POWER_DATA_COVERAGE_THRESHOLD = 0.10  // fraction of points needing power to count as power ride
     const val ELEVATION_GAIN_THRESHOLD_M = 3.0       // hysteresis threshold for cumulative elevation gain
 
+    // Cardiac drift (#154): trailing-bucket efficiency-factor (avg power / avg HR) decoupling
+    const val CARDIAC_DRIFT_BUCKET_SEC = 600           // ~10-minute buckets
+    const val CARDIAC_DRIFT_MIN_RIDE_SEC = 3600         // gate: ride must be >= 60 min (6 buckets)
+    const val CARDIAC_DRIFT_POWER_EXCLUSION_FTP_FRACTION = 0.25  // exclude samples below 25% FTP from bucket averages
+    const val CARDIAC_DRIFT_BUCKET_DROP_FRACTION = 0.5  // drop a bucket if more than half its samples are excluded
+
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117
     const val HOME_LON = 6.07261

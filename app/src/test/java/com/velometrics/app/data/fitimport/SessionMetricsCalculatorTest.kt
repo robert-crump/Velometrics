@@ -148,4 +148,97 @@ class SessionMetricsCalculatorTest {
 
         assertEquals(45.0, session.elevationGainM!!, 0.001)
     }
+
+    private fun rangePoints(startSec: Int, endSecExclusive: Int, stepSec: Int, power: Int, heartRate: Int): List<Datapoint> =
+        (startSec until endSecExclusive step stepSec).map { datapoint(it, heartRate = heartRate, power = power) }
+
+    @Test
+    fun `cardiacDrift is null when ride is shorter than the 60-minute gate`() {
+        val datapoints = rangePoints(0, 1800, 60, power = 200, heartRate = 140) +
+            listOf(datapoint(1800, heartRate = 140, power = 200))
+
+        val session = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = true, timerEvents = emptyList(), rawRecordCount = datapoints.size, originalPowerCount = datapoints.size
+        )
+
+        assertNull(session.cardiacDriftBuckets)
+        assertNull(session.cardiacDriftPercent)
+    }
+
+    @Test
+    fun `cardiacDrift is null when power or HR data is missing`() {
+        val datapoints = rangePoints(0, 3600, 60, power = 200, heartRate = 140) +
+            listOf(datapoint(3600, heartRate = 140, power = 200))
+
+        val noPowerSession = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = false, timerEvents = emptyList(), rawRecordCount = datapoints.size, originalPowerCount = 0
+        )
+        assertNull(noPowerSession.cardiacDriftBuckets)
+
+        val noHrDatapoints = (0 until 3600 step 60).map { datapoint(it, power = 200) } +
+            listOf(datapoint(3600, power = 200))
+        val noHrSession = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = noHrDatapoints,
+            hasPower = true, timerEvents = emptyList(), rawRecordCount = noHrDatapoints.size, originalPowerCount = noHrDatapoints.size
+        )
+        assertNull(noHrSession.cardiacDriftBuckets)
+    }
+
+    @Test
+    fun `cardiacDrift buckets read 100 percent of baseline and decoupling is zero when EF is constant`() {
+        val datapoints = rangePoints(0, 3600, 60, power = 200, heartRate = 140) +
+            listOf(datapoint(3600, heartRate = 140, power = 200))
+
+        val session = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = true, timerEvents = emptyList(), rawRecordCount = datapoints.size, originalPowerCount = datapoints.size
+        )
+
+        assertEquals(0.0, session.cardiacDriftPercent!!, 0.01)
+        val buckets = session.cardiacDriftBuckets!!
+        assertEquals(6, buckets.size)
+        buckets.values.forEach { assertEquals(100.0, it, 0.5) }
+    }
+
+    @Test
+    fun `cardiacDrift decoupling reflects a real second-half efficiency decline`() {
+        // First half (0-1800s): 250W @ 140bpm -> EF 1.7857. Second half: 150W @ 140bpm -> EF 1.0714.
+        // 150/250 = 0.6, so second half reads 60% of baseline and decoupling is exactly 40%.
+        val datapoints = rangePoints(0, 1800, 60, power = 250, heartRate = 140) +
+            rangePoints(1800, 3600, 60, power = 150, heartRate = 140) +
+            listOf(datapoint(3600, heartRate = 140, power = 150))
+
+        val session = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = true, timerEvents = emptyList(), rawRecordCount = datapoints.size, originalPowerCount = datapoints.size
+        )
+
+        assertEquals(40.0, session.cardiacDriftPercent!!, 0.5)
+        val buckets = session.cardiacDriftBuckets!!
+        assertEquals(100.0, buckets["0"]!!, 0.5)
+        assertEquals(60.0, buckets["5"]!!, 0.5)
+    }
+
+    @Test
+    fun `cardiacDrift drops a bucket where more than half its samples are excluded as low-power`() {
+        // Bucket 0: 6 coasting samples (0W, below 25% of the 300W default FTP) + 4 real samples ->
+        // 60% excluded, so the whole bucket is dropped rather than averaged over just the 4 survivors.
+        val bucket0 = rangePoints(0, 360, 60, power = 0, heartRate = 140) +
+            rangePoints(360, 600, 60, power = 200, heartRate = 140)
+        val remainingBuckets = rangePoints(600, 3600, 60, power = 200, heartRate = 140) +
+            listOf(datapoint(3600, heartRate = 140, power = 200))
+        val datapoints = bucket0 + remainingBuckets
+
+        val session = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = true, timerEvents = emptyList(), rawRecordCount = datapoints.size, originalPowerCount = datapoints.size
+        )
+
+        val buckets = session.cardiacDriftBuckets!!
+        assertEquals(5, buckets.size)
+        assertFalse(buckets.containsKey("0"))
+        assertEquals(0.0, session.cardiacDriftPercent!!, 0.01)
+    }
 }

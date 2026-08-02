@@ -85,6 +85,12 @@ class SessionMetricsCalculator @Inject constructor() {
         // 14. Heart rate zones
         val hrZoneDistribution = if (avgHeartRate != null) computeHrZones(datapoints, maxHr) else null
 
+        // 15. Cardiac drift (Coggan aerobic decoupling): needs both power and HR data, and is
+        // itself gated on ride length (returns null below CARDIAC_DRIFT_MIN_RIDE_SEC).
+        val cardiacDrift = if (hasPower && avgHeartRate != null) {
+            computeCardiacDrift(datapoints, sessionStart, totalDurationSec, ftp)
+        } else null
+
         return CyclingSession(
             fileName = fileName,
             fileSha1 = fileSha1,
@@ -110,7 +116,9 @@ class SessionMetricsCalculator @Inject constructor() {
             fatEfficiencyScore = fatEfficiencyScore,
             avgHeartRate = avgHeartRate,
             elevationGainM = elevationGainM,
-            hrZoneDistribution = hrZoneDistribution
+            hrZoneDistribution = hrZoneDistribution,
+            cardiacDriftBuckets = cardiacDrift?.buckets,
+            cardiacDriftPercent = cardiacDrift?.decouplingPercent
         )
     }
 
@@ -376,6 +384,85 @@ class SessionMetricsCalculator @Inject constructor() {
             }
         }
         return histogram
+    }
+
+    private data class CardiacDriftResult(
+        val buckets: Map<String, Double>,
+        val decouplingPercent: Double
+    )
+
+    /**
+     * Splits the ride into fixed [CyclingConstants.CARDIAC_DRIFT_BUCKET_SEC]-second buckets (a
+     * trailing partial bucket is absorbed into the last full one, not kept as its own short
+     * bucket), computes an efficiency factor (avg power / avg HR) per bucket, and compares the
+     * first-half average EF (baseline) against the second-half average EF (classic Coggan
+     * decoupling split). Returns null if the ride is too short to gate the diagram, or if either
+     * half ends up with no usable buckets.
+     *
+     * Per bucket, samples with power below 25% FTP are excluded from that bucket's power/HR
+     * averages (coasting/descending isn't low efficiency, it's not exercising); a bucket is
+     * dropped entirely (absent from the result map, rendered as a gap) if more than half its
+     * samples are excluded this way.
+     */
+    private fun computeCardiacDrift(
+        datapoints: List<Datapoint>,
+        sessionStart: Instant,
+        totalDurationSec: Int,
+        ftp: Int
+    ): CardiacDriftResult? {
+        if (totalDurationSec < CyclingConstants.CARDIAC_DRIFT_MIN_RIDE_SEC) return null
+
+        val bucketSizeSec = CyclingConstants.CARDIAC_DRIFT_BUCKET_SEC
+        val bucketCount = (totalDurationSec / bucketSizeSec).coerceAtLeast(1)
+        val powerThreshold = ftp * CyclingConstants.CARDIAC_DRIFT_POWER_EXCLUSION_FTP_FRACTION
+
+        val bucketPowers = Array(bucketCount) { mutableListOf<Int>() }
+        val bucketHeartRates = Array(bucketCount) { mutableListOf<Int>() }
+        val bucketExcludedCounts = IntArray(bucketCount)
+
+        for (dp in datapoints) {
+            val hr = dp.heartRate ?: continue
+            if (hr <= 0) continue
+            val power = dp.power ?: 0
+            val elapsedSec = Duration.between(sessionStart, dp.timestamp).seconds
+            val bucketIndex = (elapsedSec / bucketSizeSec).toInt().coerceIn(0, bucketCount - 1)
+
+            if (power < powerThreshold) {
+                bucketExcludedCounts[bucketIndex]++
+            } else {
+                bucketPowers[bucketIndex].add(power)
+                bucketHeartRates[bucketIndex].add(hr)
+            }
+        }
+
+        val bucketEf = arrayOfNulls<Double>(bucketCount)
+        for (i in 0 until bucketCount) {
+            val includedCount = bucketPowers[i].size
+            val totalSamples = includedCount + bucketExcludedCounts[i]
+            if (totalSamples == 0) continue
+            val excludedFraction = bucketExcludedCounts[i].toDouble() / totalSamples
+            if (includedCount == 0 || excludedFraction > CyclingConstants.CARDIAC_DRIFT_BUCKET_DROP_FRACTION) continue
+
+            val avgPower = bucketPowers[i].average()
+            val avgHr = bucketHeartRates[i].average()
+            if (avgHr <= 0.0) continue
+            bucketEf[i] = avgPower / avgHr
+        }
+
+        val halfIndex = bucketCount / 2
+        val firstHalfEf = (0 until halfIndex).mapNotNull { bucketEf[it] }
+        val secondHalfEf = (halfIndex until bucketCount).mapNotNull { bucketEf[it] }
+        if (firstHalfEf.isEmpty() || secondHalfEf.isEmpty()) return null
+
+        val baseline = firstHalfEf.average()
+        if (baseline <= 0.0) return null
+
+        val decouplingPercent = (baseline - secondHalfEf.average()) / baseline * 100.0
+        val buckets = (0 until bucketCount)
+            .mapNotNull { i -> bucketEf[i]?.let { i.toString() to (it / baseline * 100.0) } }
+            .toMap()
+
+        return CardiacDriftResult(buckets, decouplingPercent)
     }
 
     private fun downsampleAndSerialize(datapoints: List<Datapoint>): String? {

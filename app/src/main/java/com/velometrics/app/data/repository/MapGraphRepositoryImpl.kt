@@ -59,9 +59,6 @@ class MapGraphRepositoryImpl @Inject constructor(
     override fun getAllPois(): Flow<List<Poi>> =
         poiDao.getAll().map { list -> list.mapNotNull { it.toDomain() } }
 
-    override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi> =
-        poiDao.getInBoundingBox(minLat, maxLat, minLon, maxLon).mapNotNull { it.toDomain() }
-
     override suspend fun getMetadata(): GraphMetadata? = metadataDao.getMetadata()?.toDomain()
 
     override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<FlowSegment> =

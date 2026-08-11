@@ -42,7 +42,6 @@ class MapMatcherTest {
             override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filter { it.isTraversed })
             override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filterNot { it.isTraversed })
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
-            override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) = emptyList<Poi>()
             override suspend fun getMetadata(): GraphMetadata? = null
             override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<FlowSegment>()
         }

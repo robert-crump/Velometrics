@@ -152,15 +152,6 @@ object CyclingConstants {
     // never dropped purely due to heading noise.
     const val INTERVAL_SNAP_BEARING_MAX_DIFF_DEG = 45.0
 
-    // .gpx route analysis (ScoreGpxTrack, #15): chunk size for matching long routes against the
-    // road graph piece by piece, so sections outside the graph's coverage area don't blank the
-    // whole result.
-    const val GPX_ANALYSIS_MATCH_CHUNK_M = 5_000.0
-
-    // Surrogate edge lookup: finding the nearest parallel traversed edge for uncovered edges
-    const val GPX_SURROGATE_MAX_DISTANCE_M = 20.0
-    const val GPX_SURROGATE_MAX_BEARING_DIFF_DEG = 45.0
-
     // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
     const val INTERVAL_LENGTH_TOLERANCE_M = 100.0
     const val INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8
@@ -176,9 +167,6 @@ object CyclingConstants {
     const val NAV_USER_MARKER_COLOR = "#2196F3"
     const val NAV_USER_MARKER_RADIUS = 10f
     const val USER_HEADING_ARROW_ICON_SIZE = 0.9f
-    // Reused by the "POIs along .gpx" segment highlight (unrelated to the former Fast Way Home
-    // route search) — name kept for now to avoid an unrelated rename in a removal pass.
-    const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

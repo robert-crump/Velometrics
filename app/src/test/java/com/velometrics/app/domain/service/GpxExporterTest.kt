@@ -1,6 +1,5 @@
 ﻿package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.gpx.GpxParser
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.util.PolylineDecoder
 import org.junit.Assert.*
@@ -9,6 +8,17 @@ import org.junit.Test
 class GpxExporterTest {
 
     private val exporter = GpxExporter()
+
+    /**
+     * Extracts `<trkpt lat="..." lon="..."/>` coordinates directly via regex, rather than via
+     * `GpxParser` (removed with the .gpx-analysis flow, #152) — keeps this test self-contained
+     * to [GpxExporter]'s own output instead of depending on a parser outside the system under
+     * test.
+     */
+    private fun extractTrkPts(gpx: String): List<Pair<Double, Double>> =
+        Regex("""<trkpt lat="([^"]+)" lon="([^"]+)"/>""").findAll(gpx)
+            .map { it.groupValues[1].toDouble() to it.groupValues[2].toDouble() }
+            .toList()
 
     private fun makeEdge(geometryEncoded: String = "_p~iF~ps|U_ulLnnqC_mqNvxq`@") = MapEdge(
         fromNode = 1L,
@@ -88,12 +98,12 @@ class GpxExporterTest {
         val gpx = exporter.toGpxString(edges, routeName)
 
         val expectedPoints = PolylineDecoder.decode(edges[0].geometryEncoded)
-        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
+        val trkPts = extractTrkPts(gpx)
 
-        assertEquals("Point count should match decoded geometry", expectedPoints.size, track.points.size)
+        assertEquals("Point count should match decoded geometry", expectedPoints.size, trkPts.size)
         for (i in expectedPoints.indices) {
-            assertEquals(expectedPoints[i].latitude, track.points[i].latitude, 1e-5)
-            assertEquals(expectedPoints[i].longitude, track.points[i].longitude, 1e-5)
+            assertEquals(expectedPoints[i].latitude, trkPts[i].first, 1e-5)
+            assertEquals(expectedPoints[i].longitude, trkPts[i].second, 1e-5)
         }
     }
 
@@ -102,12 +112,12 @@ class GpxExporterTest {
         val coords = listOf(listOf(51.5, -0.1), listOf(51.51, -0.11))
         val gpx = exporter.toGpxStringFromTrack(coords, "Repeated Route")
 
-        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
-        assertEquals(2, track.points.size)
-        assertEquals(51.5, track.points[0].latitude, 1e-9)
-        assertEquals(-0.1, track.points[0].longitude, 1e-9)
-        assertEquals(51.51, track.points[1].latitude, 1e-9)
-        assertEquals(-0.11, track.points[1].longitude, 1e-9)
+        val trkPts = extractTrkPts(gpx)
+        assertEquals(2, trkPts.size)
+        assertEquals(51.5, trkPts[0].first, 1e-9)
+        assertEquals(-0.1, trkPts[0].second, 1e-9)
+        assertEquals(51.51, trkPts[1].first, 1e-9)
+        assertEquals(-0.11, trkPts[1].second, 1e-9)
     }
 
     @Test
@@ -115,8 +125,8 @@ class GpxExporterTest {
         val coords = listOf(listOf(51.5, -0.1), listOf(51.51))
         val gpx = exporter.toGpxStringFromTrack(coords, "Repeated Route")
 
-        val track = GpxParser.parse(gpx.byteInputStream()).getOrThrow()
-        assertEquals(1, track.points.size)
+        val trkPts = extractTrkPts(gpx)
+        assertEquals(1, trkPts.size)
     }
 
     @Test

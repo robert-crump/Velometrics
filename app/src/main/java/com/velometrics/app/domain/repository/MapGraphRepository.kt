@@ -17,7 +17,6 @@ interface MapGraphRepository {
     fun getTraversedEdges(): Flow<List<MapEdge>>
     fun getUntraversedEdges(): Flow<List<MapEdge>>
     fun getAllPois(): Flow<List<Poi>>
-    suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<Poi>
     suspend fun getMetadata(): GraphMetadata?
     suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<FlowSegment>
 }

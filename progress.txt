@@ -1,3 +1,88 @@
+## Issue #152 — Remove route-rating code from Velometrics (post Route IQ v1)
+Completed: 2026-08-11
+
+### What was done
+
+Execute-ready PRD (execution gate — Route IQ v1 shipped with equivalent functionality — already
+marked met in the issue text) with a precisely scoped file/call-site list built from two prior
+`/grill-me` passes, so this session was mostly disciplined execution against that list plus one
+more fresh call-site verification pass (per the issue's own closing note: re-verify at execution
+time, don't just trust a PRD written days/weeks earlier — issue #155, executed just before this
+one in the same session, had already found stale facts in adjacent PRDs the same way).
+
+**Deleted outright** (production): `data/gpx/GpxParser.kt`, `domain/model/GpxTrack.kt`,
+`domain/model/GpxPoiItem.kt`, `util/GpxAnalysisUtils.kt`, `ui/shared/GpxSharedViewModel.kt`,
+`ui/intent/GpxIntentViewModel.kt`, `docs/ideas/score-gpx-track.md` — all confirmed exclusive to
+the "load an external .gpx and analyze it" flow, matching the PRD's list.
+
+**Surgically trimmed**, per the PRD:
+- `MapMatcher.kt`: removed `matchTrackChunked`/`splitIntoChunks`/`ChunkedMatchResult` (only
+  caller was `GpxSharedViewModel`); kept `loadRegion`/`matchTrack`/etc., still used by
+  `IntervalClusteringService`. Removed the now-orphaned `GPX_ANALYSIS_MATCH_CHUNK_M`/
+  `GPX_SURROGATE_MAX_DISTANCE_M`/`GPX_SURROGATE_MAX_BEARING_DIFF_DEG` constants after the method,
+  per the PRD's explicit ordering note.
+- `MainActivity.kt`: removed `extractGpxUri`, both call sites, the `gpxIntentViewModel` property,
+  and (beyond the PRD's literal two-call-site description, but a direct consequence of
+  `GpxIntentViewModel` being deleted entirely) the `pendingGpxUri`-driven navigate-to-MapView
+  `LaunchedEffect` — nothing else in `MainActivity` touched.
+- `AndroidManifest.xml`: removed both `.gpx` `ACTION_VIEW`/`ACTION_SEND` intent-filter blocks;
+  `MAIN`/`LAUNCHER` filter untouched.
+- `MapViewScreen.kt`: this was the biggest surface — essentially all `.gpx`-load/analysis UI
+  turned out to be wired through the two deleted ViewModels, not just the two composables the PRD
+  named explicitly (`ElevationProfileSection`/`PoiDensitySection`). Removed: the
+  `gpxSharedViewModel`/`gpxIntentViewModel` params; all `.gpx` state collection; the GPX-track/
+  segment-highlight/finish-line-marker/POI-camera-fit map-sync `LaunchedEffect`s; the "POIs along
+  .gpx"/"List"/"Analysis" chips and their `deactivateGpxPoiMode()` wiring (now dropped from the
+  category-chip `onClick`s too); the `.gpx` Layers-panel toggle and its `OpenDocument` launcher;
+  the "POIs along .gpx" list overlay, `GpxAnalysisOverlay` dialog (plus its 4 section composables
+  and preview), and the remove-`.gpx`-confirm dialog; `GpxPoisSheetContent`/`GpxPoiRow`/
+  `OpenClosedBadge` (the last one only used by the row being removed). Left every unrelated
+  composable (past-ride tracks, interval overlay, category POI layer, flow segments, Layers-panel
+  Intervals/Flow toggles, scale bar, locate FAB) untouched.
+- `ui/components/BottomNavBar.kt`: removed the `GpxSharedViewModel` dependency and the
+  close-overlay-instead-of-navigate branch; tab taps always navigate now.
+
+**Found dead as a direct consequence, not in the PRD's literal list** (same "grep every call site,
+don't fold in unrelated pre-existing dead code, but do remove what your own change just orphaned"
+discipline #155 used the session before this one):
+- `Constants.kt`'s `FAST_WAY_HOME_TRACK_COLOR` — its own comment already documented its only use
+  as the "POIs along .gpx" orange segment highlight; that highlight's `LaunchedEffect` is gone, so
+  removed the constant too (the PRD's constants list didn't include it — it wasn't dead when the
+  PRD was written, since #155 hadn't yet removed the last other `FAST_WAY_HOME_*` constants using
+  that naming scheme, but it's zero-caller now).
+- `FormatUtils.formatGpxPoiDistance` — only caller was the now-deleted `GpxPoiRow`.
+- `MapGraphRepository.getPoisInBoundingBox` (+ `MapGraphRepositoryImpl`'s override +
+  `PoiDao.getInBoundingBox`) — only real caller was `GpxSharedViewModel.fetchPoisForTrack`;
+  removed from the interface, impl, DAO, and the two fake test doubles
+  (`MapMatcherTest`/`MapViewViewModelTest`) that had to implement the interface.
+- Confirmed `PolylineDecoder` import in `MapViewScreen.kt` was already dead *before* this change
+  (verified via `git show HEAD:...`) — left it alone, same "don't fold in a pre-existing unrelated
+  finding" call #155 made for `RewardComposer.composeEdgeReward`.
+
+**Explicitly kept, re-confirmed fresh**: `domain/service/GpxExporter.kt` in full — real caller is
+`RepeatedRouteDetailViewModel`'s export flow (the PRD's other claimed caller,
+`FastWayHomeViewModel`/`PlanARideViewModel`, no longer exists post-#155, but that doesn't change
+the keep decision since `RepeatedRouteDetailViewModel` alone is suffient reason).
+`TrackIndex`/`TrackProjection`/`TrackGeometryUtils`/`RTreeSpatialIndex` all kept — shared with
+`MapMatcher`/`IntervalClusteringService`, not `.gpx`-exclusive despite living next to `.gpx` code.
+
+### Tests
+Deleted `GpxParserTest.kt`, `GpxAnalysisUtilsTest.kt`, `FindSurrogatesTest.kt` (each exclusively
+tested a deleted file/function, per the issue's testing-decisions section). `GpxExporterTest.kt`
+(kept, tests the kept `GpxExporter`) used `GpxParser` internally as a round-trip verification tool
+for 3 of its cases — rewrote those to extract `<trkpt lat=".." lon=".."/>` via regex directly
+instead, which also makes the test self-contained to `GpxExporter`'s own output rather than
+depending on a parser outside the system under test. Stripped the now-nonexistent
+`getPoisInBoundingBox` override from both fake `MapGraphRepository` test doubles.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass clean (228 tests, 0 failures/errors — down from 281 pre-#155, expected given the deleted
+route-creation and now `.gpx`-analysis test files). No on-device verification this session
+(mechanical removal, `.gpx` sharing is inherently untestable without another app to share from in
+this environment; Map tab's remaining past-ride/interval/POI rendering paths are unchanged code,
+covered by the passing `MapViewViewModelTest`).
+
+---
+
 ## Issue #155 — Remove on-device route-creation code (post Route Builder migration)
 Completed: 2026-08-11
 
@@ -681,76 +766,3 @@ coverage called out in the issue, no production code changes.
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
 the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no regressions.
 
----
-
-## Issue #145 — All-time Stats: build the screen UI + navigation (#143 follow-up)
-Completed: 2026-07-26
-
-### What was done
-
-Follow-up to #143 (data layer already on `main`) and picked over its sibling #146 (test coverage)
-as higher-impact: the data layer was already shipped but completely inaccessible without this UI,
-so this unlocks the whole feature rather than just hardening code nobody can reach yet. Built the
-screen and navigation exactly per the design worked out with the maintainer in #143's grill-me
-session.
-
-**`ui/navigation/Screen.kt`**
-- New `Screen.AllTimeStats("all_time_stats", ...)`.
-
-**`ui/navigation/VelometricsNavHost.kt`**
-- Wired `Screen.AllTimeStats.route` to a new `AllTimeStatsScreen` composable, with
-  `onNavigateToSession` routing to the existing `Screen.SessionDetail`. `HomeScreen` gained an
-  `onNavigateToAllTimeStats` callback wired to the new route.
-
-**`ui/screens/home/HomeScreen.kt`**
-- New overflow menu (`DropdownMenu` behind a `MoreVert` `IconButton`) on Home's `TopAppBar`, same
-  pattern as `RepeatedRoutesScreen`'s sort filter menu — single "All-time stats" entry.
-
-**`ui/screens/alltimestats/AllTimeStatsScreen.kt`** (new)
-- Top-to-bottom: all-time-best trio, distance-split records, power curve, per-year breakdown — all
-  consuming the existing `AllTimeStatsViewModel` with no ViewModel changes needed.
-- Best-trio/distance-split records rendered as `RecordRow`s: value+date when present, an explicit
-  `emptyMessage` (not a hidden section) when null; row is `clickable` only when `sessionId != null`,
-  navigating to `SessionDetailScreen`.
-- Power curve: custom `Canvas` line chart (hand-rolled, matching `HomeScreen`'s existing
-  `MonthlyLineChart` pattern rather than a charting library), log-scale x-axis
-  (`xFor(i)` maps `ln(durationSec)` linearly into chart width, since durations span 1s-30min and a
-  linear axis would crush the short-duration end into a few pixels). Highlighted point defaults to
-  the smallest-duration bucket that actually has data (first entry of `availableIndices`, not index
-  0 of the fixed 9-bucket list, since 1s/3s/etc. can be individually null) and updates on drag via
-  the same `awaitEachGesture`/`detectDragGestures`-style pointer input as `MonthlyLineChart`, snapping
-  to the nearest available (non-null) point by x-distance. Gated on `hasAnyPowerCurveData`; shows
-  "Import a ride with power data to see your power curve" otherwise (covers GPX-only users, per the
-  issue — GPX imports never carry power).
-- Per-year breakdown: initially a 4-column row (Rides/Distance/Elev. gain/Duration) matching the
-  issue's stat list, but on-device testing showed "km"/"m" suffixes wrapping onto their own line at
-  4-per-row width — reflowed to a 2×2 grid (Rides+Distance, then Elev. gain+Duration) which fixed it
-  cleanly at the tested screen width.
-- Overall empty state (`!hasAnySessions`): single centered "No rides recorded yet" message instead
-  of rendering four empty sections.
-
-### Manual verification (on-device, real production data — 148 rides)
-Built and installed the debug APK on a connected device (not just Robolectric) per this project's
-UI-testing convention. Confirmed: overflow menu shows "All-time stats"; navigating in shows real
-all-time-best data (400.5 km longest ride, 3196 m biggest climb, 14h 7m longest duration, all with
-correct dates); distance-split and power-curve sections correctly show their empty-state copy (none
-of the 148 pre-#143 rides have best-effort data — the known, by-design gap since `FitImportService`
-discards the raw per-record stream after import); tapping the "Longest ride" record navigates to
-`SessionDetailScreen` and shows the matching 400.5 km / 5 July 2025 ride; per-year breakdown shows
-2023-2026 correctly sorted most-recent-first with the fixed 2×2 grid. Did not verify the power
-curve's with-data rendering/drag-to-highlight path live, since doing so needs a ride re-imported
-after #143 landed and no sample `.fit` file exists in this repo or environment — verified that path
-by code review only, consistent with the issue's own note that this is an accepted, known gap.
-
-One environment note for future sessions: running `./gradlew assembleDebug` concurrently with a
-still-running background `testDebugUnitTest` on Windows corrupts the packaged APK (Windows file
-locking makes `transformDebugClassesWithAsm` silently fail to fully replace class outputs, producing
-a `ClassNotFoundException` on `VelometricsApplication` at launch) — serialize Gradle invocations
-against the same build directory rather than running them in parallel.
-
-### Tests
-No new tests added (this issue's own scope explicitly excludes UI/Compose tests, deferring to
-manual on-device verification; unit test coverage for the underlying `BestEffortCalculator`/
-`AllTimeStatsViewModel` logic is #146, not this issue). `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching the known Gradle
-env-var/test-filter stale-cache quirk from #135): all pass, no regressions.

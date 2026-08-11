@@ -3,9 +3,6 @@
 import android.Manifest
 import android.content.Context
 import android.graphics.PointF
-import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -13,8 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,32 +18,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.R
-import com.velometrics.app.domain.model.GpxPoiItem
-import com.velometrics.app.domain.model.GpxTrack
 import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.PoiWithDistances
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapScaleBar
 import com.velometrics.app.ui.components.MapIntervalRenderer
@@ -58,21 +41,10 @@ import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.PoiIcons
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
-import com.velometrics.app.ui.intent.GpxIntentViewModel
-import com.velometrics.app.ui.shared.DiscoveryScoreResult
-import com.velometrics.app.ui.shared.GpxSharedViewModel
-import com.velometrics.app.ui.shared.RouteCoverage
-import com.velometrics.app.ui.shared.SpeedPowerEstimateResult
 import com.velometrics.app.util.FormatUtils
-import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
-import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
-import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
-import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
-import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
-import com.velometrics.app.util.GpxAnalysisUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
@@ -80,18 +52,13 @@ import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.PolylineDecoder
 import com.velometrics.app.util.ScaleBarInfo
 import com.velometrics.app.util.ScaleBarUtils
-import kotlin.math.ceil
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
-import java.text.NumberFormat
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -102,9 +69,6 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
-
-private const val GPX_TRACK_LAYER_ID = "gpx-shared-track"
-private const val GPX_SEGMENT_HIGHLIGHT_ID = "gpx-segment-highlight"
 
 // Number of recent fixes kept for the accuracy-weighted moving average that smooths the
 // on-screen marker. Rendering only — POI-distance/Fast-Way-Home calculations use the
@@ -117,8 +81,6 @@ private data class LocationSample(val lat: Double, val lon: Double, val accuracy
 @Composable
 fun MapViewScreen(
     viewModel: MapViewViewModel = hiltViewModel(),
-    gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalActivity.current as ComponentActivity),
-    gpxIntentViewModel: GpxIntentViewModel = hiltViewModel(LocalActivity.current as ComponentActivity)
 ) {
     val sessions by viewModel.sessions.collectAsState()
     val visibleSessionIds by viewModel.visibleSessionIds.collectAsState()
@@ -153,85 +115,18 @@ fun MapViewScreen(
         if (granted) viewModel.startLocationUpdates()
     }
 
-    val gpxTrack by gpxSharedViewModel.gpxTrack.collectAsState()
-    val gpxFileName by gpxSharedViewModel.gpxFileName.collectAsState()
-    val showGpxPoisOverlay by gpxSharedViewModel.showGpxPoisOverlay.collectAsState()
-    val gpxDiscoveryScore by gpxSharedViewModel.discoveryScore.collectAsState()
-    val gpxSpeedPowerEstimate by gpxSharedViewModel.speedPowerEstimate.collectAsState()
-    val gpxPois by gpxSharedViewModel.gpxPois.collectAsState()
-    val isLoadingPois by gpxSharedViewModel.isLoadingPois.collectAsState()
-    val gpxPoiItems by gpxSharedViewModel.gpxPoiItems.collectAsState()
-    val locationAvailable by gpxSharedViewModel.locationAvailable.collectAsState()
-    val selectedPoiItem by gpxSharedViewModel.selectedPoiItem.collectAsState()
-    val gpxSegmentPoints by gpxSharedViewModel.gpxSegmentPoints.collectAsState()
-    val pendingGpxUri by gpxIntentViewModel.pendingGpxUri.collectAsState()
-
     LaunchedEffect(Unit) {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    LaunchedEffect(currentLocation) {
-        gpxSharedViewModel.updateUserLocation(currentLocation)
-    }
-
     val context = LocalContext.current
 
-    // Load a GPX file opened from another app (ACTION_VIEW / ACTION_SEND)
-    LaunchedEffect(pendingGpxUri) {
-        val uri = pendingGpxUri ?: return@LaunchedEffect
-        gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
-        gpxIntentViewModel.consumePendingUri()
-    }
-
-    var showRemoveGpxConfirmDialog by remember { mutableStateOf(false) }
-    var showGpxAnalysisOverlay by remember { mutableStateOf(false) }
-    var gpxToggleActive by remember { mutableStateOf(false) }
-    var gpxPoiMode by remember { mutableStateOf(false) }
     var showLayersPanel by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-    val gpxLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            coroutineScope.launch {
-                val success = gpxSharedViewModel.loadGpxFromUri(uri, context.contentResolver)
-                if (success) {
-                    showLayersPanel = false
-                } else {
-                    gpxToggleActive = false
-                    Toast.makeText(context, "Failed to load GPX file", Toast.LENGTH_SHORT).show()
-                }
-            }
-        } else {
-            gpxToggleActive = false
-        }
-    }
-
-    // Reset gpx-related UI state when the track is cleared
-    LaunchedEffect(gpxTrack) {
-        if (gpxTrack != null) {
-            gpxToggleActive = true
-        } else {
-            gpxSharedViewModel.setGpxPoisOverlayVisible(false)
-            gpxPoiMode = false
-            showGpxAnalysisOverlay = false
-        }
-    }
-
-    // Turns off "POIs along .gpx" mode and clears its map state (markers, route segment,
-    // and the POI list overlay), e.g. when a category chip is selected instead.
-    fun deactivateGpxPoiMode() {
-        gpxPoiMode = false
-        gpxSharedViewModel.setGpxPoisOverlayVisible(false)
-        gpxSharedViewModel.selectPoi(null)
-    }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var scaleBarInfo by remember { mutableStateOf<ScaleBarInfo?>(null) }
     val density = LocalDensity.current.density
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var gpxTrackRendered by remember { mutableStateOf(false) }
-    var gpxSegmentRendered by remember { mutableStateOf(false) }
 
     // Follow mode: camera recenters on every new fix while true. Disabled only by a
     // user-initiated pan/zoom gesture (detected via camera-move-reason), not by the app's
@@ -351,79 +246,12 @@ fun MapViewScreen(
         }
     }
 
-    // GPX shared track sync
-    LaunchedEffect(gpxTrack, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        if (gpxTrackRendered) {
-            try { MapTrackRenderer.removeTrack(ms.second, GPX_TRACK_LAYER_ID) } catch (_: Exception) {}
-            gpxTrackRendered = false
-        }
-        val track = gpxTrack ?: return@LaunchedEffect
-        if (track.points.size < 2) return@LaunchedEffect
-        MapTrackRenderer.addTrack(ms.second, GPX_TRACK_LAYER_ID, track.points, NAV_TRACK_COLOR, NAV_TRACK_WIDTH)
-        gpxTrackRendered = true
-        val bounds = LatLngBounds.Builder().apply { track.points.forEach { include(it) } }.build()
-        ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 500)
-    }
-
-    // Orange segment highlight sync
-    LaunchedEffect(gpxSegmentPoints, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        if (gpxSegmentRendered) {
-            try { MapTrackRenderer.removeTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID) } catch (_: Exception) {}
-            gpxSegmentRendered = false
-        }
-        if (gpxSegmentPoints.size >= 2) {
-            MapTrackRenderer.addTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID, gpxSegmentPoints, FAST_WAY_HOME_TRACK_COLOR, NAV_TRACK_WIDTH)
-            gpxSegmentRendered = true
-        }
-    }
-
-    // Finish-line marker for selected GPX POI — rendered at the highest layer
-    LaunchedEffect(selectedPoiItem, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        try { ms.second.removeLayer("poi-finish-layer") } catch (_: Exception) {}
-        try { ms.second.removeSource("poi-finish-source") } catch (_: Exception) {}
-        val item = selectedPoiItem ?: return@LaunchedEffect
-        val point = Point.fromLngLat(item.poiWD.poi.lon, item.poiWD.poi.lat)
-        val feature = Feature.fromGeometry(point)
-        val source = GeoJsonSource("poi-finish-source", feature)
-        ms.second.addSource(source)
-        val layer = SymbolLayer("poi-finish-layer", "poi-finish-source").withProperties(
-            PropertyFactory.textField("🏁"),
-            PropertyFactory.textSize(32f),
-            PropertyFactory.textAnchor("bottom"),
-            PropertyFactory.textAllowOverlap(true),
-            PropertyFactory.textIgnorePlacement(true)
-        )
-        ms.second.addLayer(layer)
-    }
-
-    // Camera fit when a POI is selected — includes the user's location, the POI, and the
-    // .gpx segment between them so the whole route to the POI is visible.
-    LaunchedEffect(selectedPoiItem, gpxSegmentPoints, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        val item = selectedPoiItem ?: return@LaunchedEffect
-        val refLoc = currentLocation ?: gpxTrack?.points?.firstOrNull() ?: return@LaunchedEffect
-        val poiLoc = LatLng(item.poiWD.poi.lat, item.poiWD.poi.lon)
-        val bounds = LatLngBounds.Builder().apply {
-            include(refLoc)
-            include(poiLoc)
-            gpxSegmentPoints.forEach { include(it) }
-        }.build()
-        ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 800)
-    }
-
-    // POI layer sync — gpx-POI mode (only POIs along the loaded .gpx track) takes
-    // precedence over the regular category-chip-filtered POI layer.
-    LaunchedEffect(showPoiLayer, visiblePois, gpxPoiMode, gpxPois, mapAndStyle) {
+    // POI layer sync
+    LaunchedEffect(showPoiLayer, visiblePois, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapPoiRenderer.removePois(ms.second)
-        when {
-            gpxPoiMode -> if (gpxPois.isNotEmpty()) {
-                MapPoiRenderer.addPois(context, ms.second, gpxPois.map { it.poi })
-            }
-            showPoiLayer && visiblePois.isNotEmpty() -> MapPoiRenderer.addPois(context, ms.second, visiblePois)
+        if (showPoiLayer && visiblePois.isNotEmpty()) {
+            MapPoiRenderer.addPois(context, ms.second, visiblePois)
         }
     }
 
@@ -546,10 +374,7 @@ fun MapViewScreen(
                 item {
                     FilterChip(
                         selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
-                        onClick = {
-                            deactivateGpxPoiMode()
-                            viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
-                        },
+                        onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
                         label = { Text(MapViewViewModel.ALL_POIS_CHIP) },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -560,10 +385,7 @@ fun MapViewScreen(
                 items(availablePoiCategories) { category ->
                     FilterChip(
                         selected = activePoiChip == category,
-                        onClick = {
-                            deactivateGpxPoiMode()
-                            viewModel.selectPoiChip(category)
-                        },
+                        onClick = { viewModel.selectPoiChip(category) },
                         label = { Text(FormatUtils.categoryDisplayName(category)) },
                         leadingIcon = {
                             Icon(
@@ -580,59 +402,11 @@ fun MapViewScreen(
                 }
             }
 
-            // GPX POI chip (left) and Layers FAB (right) — top-aligned in a shared row so
-            // the FAB stays vertically aligned with the chip when it's shown
+            // Layers FAB — top-aligned, right-of-row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                horizontalArrangement = Arrangement.End
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    if (gpxTrack != null) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
-                        ) {
-                            FilterChip(
-                                selected = gpxPoiMode,
-                                onClick = {
-                                    if (gpxPoiMode) {
-                                        deactivateGpxPoiMode()
-                                    } else {
-                                        gpxPoiMode = true
-                                        viewModel.clearPoiChip()
-                                    }
-                                },
-                                label = { Text("POIs along .gpx") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                )
-                            )
-                            if (gpxPoiMode) {
-                                FilterChip(
-                                    selected = false,
-                                    onClick = { gpxSharedViewModel.setGpxPoisOverlayVisible(true) },
-                                    enabled = !isLoadingPois,
-                                    label = { Text("List") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    )
-                                )
-                            }
-                            FilterChip(
-                                selected = false,
-                                onClick = { showGpxAnalysisOverlay = true },
-                                label = { Text("Analysis") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                )
-                            )
-                        }
-                    }
-                }
                 SmallFloatingActionButton(
                     onClick = { showLayersPanel = true },
                     modifier = Modifier.padding(end = 16.dp)
@@ -641,27 +415,13 @@ fun MapViewScreen(
                 }
             }
 
-            // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
+            // POI popup card — sits below the chip rows
             selectedPoi?.let { poiWD ->
                 PoiPopupCard(
                     poiWithDistances = poiWD,
                     onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
-            }
-        }
-
-        // "POIs along .gpx" loading indicator — centered on the map while POIs are fetched
-        if (gpxPoiMode && isLoadingPois) {
-            Card(modifier = Modifier.align(Alignment.Center)) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator()
-                    Text("Loading POIs")
-                }
             }
         }
 
@@ -777,121 +537,11 @@ fun MapViewScreen(
                             )
                         }
 
-                        // .gpx toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(".gpx", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = gpxToggleActive,
-                                onCheckedChange = { checked ->
-                                    if (checked) {
-                                        gpxToggleActive = true
-                                        gpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "*/*"))
-                                    } else {
-                                        showRemoveGpxConfirmDialog = true
-                                    }
-                                }
-                            )
-                        }
-
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }
         }
-
-        // "POIs along .gpx" list overlay — scrim + centered card, leaving the map visible
-        // around the edges (24dp padding on all sides).
-        if (showGpxPoisOverlay) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.32f))
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) { gpxSharedViewModel.setGpxPoisOverlayVisible(false) }
-            ) {
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp)
-                        .fillMaxSize()
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) {}
-                ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = GpxAnalysisUtils.truncateFileName(gpxFileName ?: "GPX track"),
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1
-                            )
-                            IconButton(onClick = { gpxSharedViewModel.setGpxPoisOverlayVisible(false) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close POI list")
-                            }
-                        }
-                        GpxPoisSheetContent(
-                            poiItems = gpxPoiItems,
-                            isLoading = isLoadingPois,
-                            locationAvailable = locationAvailable,
-                            onPoiSelected = { item ->
-                                gpxSharedViewModel.selectPoi(item)
-                                gpxSharedViewModel.setGpxPoisOverlayVisible(false)
-                            },
-                            context = context,
-                            modifier = Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    if (showGpxAnalysisOverlay) {
-        GpxAnalysisOverlay(
-            fileName = gpxFileName,
-            gpxTrack = gpxTrack,
-            gpxPois = gpxPois,
-            discoveryScore = gpxDiscoveryScore,
-            speedPowerEstimate = gpxSpeedPowerEstimate,
-            onClose = { showGpxAnalysisOverlay = false }
-        )
-    }
-
-    if (showRemoveGpxConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showRemoveGpxConfirmDialog = false
-            },
-            title = { Text("Remove .gpx track?") },
-            text = { Text("This will remove the loaded .gpx track and its POIs from the map.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRemoveGpxConfirmDialog = false
-                    gpxToggleActive = false
-                    gpxSharedViewModel.clearGpx()
-                }) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showRemoveGpxConfirmDialog = false
-                }) { Text("Cancel") }
-            }
-        )
     }
 
     // Grouped prototype detail bottom sheet
@@ -904,339 +554,6 @@ fun MapViewScreen(
         )
     }
 
-}
-
-@Preview
-@Composable
-private fun GpxAnalysisOverlayPreview() {
-    GpxAnalysisOverlay(
-        fileName = null,
-        gpxTrack = null,
-        gpxPois = emptyList(),
-        discoveryScore = null,
-        speedPowerEstimate = null,
-        onClose = {}
-    )
-}
-
-/**
- * Full-screen overlay hosting the .gpx track analysis sections (discovery score, elevation
- * profile, etc., added by follow-up issues).
- */
-@Composable
-private fun GpxAnalysisOverlay(
-    fileName: String?,
-    gpxTrack: GpxTrack?,
-    gpxPois: List<PoiWithDistances>,
-    discoveryScore: DiscoveryScoreResult?,
-    speedPowerEstimate: SpeedPowerEstimateResult?,
-    onClose: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = GpxAnalysisUtils.truncateFileName(fileName ?: "GPX track"),
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1
-                    )
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Close .gpx analysis")
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (gpxTrack != null) {
-                        DiscoveryScoreSection(discoveryScore = discoveryScore)
-                        SpeedPowerEstimateSection(speedPowerEstimate = speedPowerEstimate)
-                        ElevationProfileSection(gpxTrack = gpxTrack)
-                        PoiDensitySection(gpxTrack = gpxTrack, gpxPois = gpxPois)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** "Based on 18 km of 25 km route (72%) — 7 km outside graph coverage" */
-private fun routeCoverageNote(coverage: RouteCoverage): String {
-    val matchedKm = (coverage.matchedDistanceM / 1000.0).roundToInt()
-    val totalKm = (coverage.totalDistanceM / 1000.0).roundToInt()
-    val outsideKm = totalKm - matchedKm
-    return "Based on $matchedKm km of $totalKm km route (${coverage.percent}%) — $outsideKm km outside graph coverage"
-}
-
-@Composable
-private fun DiscoveryScoreSection(discoveryScore: DiscoveryScoreResult?) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "Discovery score", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            when (discoveryScore) {
-                null -> Text(
-                    text = "Analyzing route...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is DiscoveryScoreResult.Unavailable -> Text(
-                    text = "Couldn't analyze this route",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is DiscoveryScoreResult.OutsideCoverage -> Text(
-                    text = "Route is entirely outside the graph's coverage area",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is DiscoveryScoreResult.Score -> {
-                    Text(
-                        text = "Discovery Score: ${discoveryScore.value}/100",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val description = "The percentage of this route's roads you haven't ridden before."
-                    val text = if (discoveryScore.routeCoverage.isFull) {
-                        description
-                    } else {
-                        "$description ${routeCoverageNote(discoveryScore.routeCoverage)}"
-                    }
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpeedPowerEstimateSection(speedPowerEstimate: SpeedPowerEstimateResult?) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "Speed & power estimate", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            when (speedPowerEstimate) {
-                null -> Text(
-                    text = "Analyzing route...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is SpeedPowerEstimateResult.Unavailable -> Text(
-                    text = "Couldn't analyze this route",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is SpeedPowerEstimateResult.OutsideCoverage -> Text(
-                    text = "Route is entirely outside the graph's coverage area",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is SpeedPowerEstimateResult.NoRideHistory -> Text(
-                    text = "No ride history on this route",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                is SpeedPowerEstimateResult.Estimate -> {
-                    val coverageText = if (speedPowerEstimate.totalCoveragePercent > speedPowerEstimate.coveragePercent) {
-                        "${speedPowerEstimate.totalCoveragePercent}% data coverage (${speedPowerEstimate.coveragePercent}% direct, rest from nearby parallel roads)"
-                    } else {
-                        "${speedPowerEstimate.coveragePercent}% data coverage"
-                    }
-                    Text(
-                        text = "Avg ${speedPowerEstimate.avgSpeedKmh} km/h, ${speedPowerEstimate.avgPowerW}W - based on $coverageText",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ElevationProfileSection(gpxTrack: GpxTrack) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "Elevation profile", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val elevations = gpxTrack.elevations
-            val profile = remember(gpxTrack) {
-                elevations?.let { GpxAnalysisUtils.elevationProfile(gpxTrack.points, it) }
-            }
-
-            if (profile == null || profile.size < 2) {
-                Text(
-                    text = "No elevation data in this file",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                val smoothed = remember(profile) {
-                    GpxAnalysisUtils.smoothElevations(profile.map { it.second })
-                }
-                val (gainM, lossM) = remember(smoothed) { GpxAnalysisUtils.elevationGainLoss(smoothed) }
-                val gainPer100km = remember(gainM, profile) {
-                    GpxAnalysisUtils.elevationGainPer100km(gainM, profile.last().first)
-                }
-                val minEle = smoothed.min()
-                val maxEle = smoothed.max()
-                val axisStep = GpxAnalysisUtils.elevationAxisStep(minEle, maxEle)
-                val axisMin = floor(minEle / axisStep) * axisStep
-                val axisMax = (ceil(maxEle / axisStep) * axisStep).let { if (it <= axisMin) axisMin + axisStep else it }
-                val axisRange = axisMax - axisMin
-                val maxDistance = profile.last().first.coerceAtLeast(1.0)
-                val lineColor = MaterialTheme.colorScheme.primary
-                val referenceLineColor = MaterialTheme.colorScheme.onSurfaceVariant
-                val axisTickCount = (axisRange / axisStep).roundToInt() + 1
-                val axisLabels = remember(axisMin, axisMax, axisStep) {
-                    (0 until axisTickCount).map { i -> (axisMax - axisStep * i).roundToInt() }
-                }
-                val numberFormat = remember { NumberFormat.getIntegerInstance() }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(end = 4.dp),
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        axisLabels.forEach { label ->
-                            Text(
-                                text = numberFormat.format(label),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Canvas(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                    ) {
-                        axisLabels.forEach { label ->
-                            val y = size.height - ((label - axisMin) / axisRange).toFloat() * size.height
-                            drawLine(
-                                color = referenceLineColor.copy(alpha = 0.3f),
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = 1.dp.toPx()
-                            )
-                        }
-                        val path = Path()
-                        smoothed.forEachIndexed { index, elevation ->
-                            val x = (profile[index].first / maxDistance).toFloat() * size.width
-                            val y = size.height - ((elevation - axisMin) / axisRange).toFloat() * size.height
-                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-                        drawPath(path = path, color = lineColor, style = Stroke(width = 2.dp.toPx()))
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Up: ${numberFormat.format(gainM)}m, Down: ${numberFormat.format(lossM)}m, " +
-                        "Per 100km: ${numberFormat.format(gainPer100km)}m",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-    }
-}
-
-/** 0 POIs = red, 1-5 = orange, >5 = green, regardless of bucket size. */
-private fun poiBucketColor(count: Int): Color = when {
-    count == 0 -> Color(0xFFE53935)
-    count <= 5 -> Color(0xFFFF9800)
-    else -> Color(0xFF4CAF50)
-}
-
-@Composable
-private fun PoiDensitySection(gpxTrack: GpxTrack, gpxPois: List<PoiWithDistances>) {
-    val totalDistanceM = remember(gpxTrack) { GpxAnalysisUtils.totalTrackDistanceM(gpxTrack.points) }
-    val bucketSizeM = remember(totalDistanceM) { GpxAnalysisUtils.poiDensityBucketSizeM(totalDistanceM) }
-    val bucketSizeKm = (bucketSizeM / 1000.0).roundToInt()
-    val counts = remember(gpxPois, totalDistanceM, bucketSizeM) {
-        GpxAnalysisUtils.poiCountsPerBucket(gpxPois, totalDistanceM, bucketSizeM)
-    }
-    val maxCount = (counts.maxOrNull() ?: 0).coerceAtLeast(1)
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "POI density (${bucketSizeKm}km bins)", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                counts.forEachIndexed { index, count ->
-                    val fraction = count.toFloat() / maxCount.toFloat()
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom
-                    ) {
-                        Text(
-                            text = count.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                        Canvas(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height((fraction * 80).dp.coerceAtLeast(2.dp))
-                        ) {
-                            drawRect(color = poiBucketColor(count))
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${(index + 1) * bucketSizeKm}",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Distance along track (km)",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1317,185 +634,6 @@ private fun PrototypeGroupSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
-    }
-}
-
-@Composable
-private fun GpxPoisSheetContent(
-    poiItems: List<GpxPoiItem>,
-    isLoading: Boolean,
-    locationAvailable: Boolean,
-    onPoiSelected: (GpxPoiItem) -> Unit,
-    context: android.content.Context,
-    modifier: Modifier = Modifier
-) {
-    var includePassed by remember { mutableStateOf(false) }
-    var lookBackKm by remember { mutableStateOf<Int?>(5) }
-
-    val aheadItems = remember(poiItems) { poiItems.filter { it.isAhead }.sortedBy { it.distanceM } }
-    val behindItems = remember(poiItems, lookBackKm) {
-        poiItems.filter { !it.isAhead }
-            .filter { lookBackKm == null || it.distanceM <= lookBackKm!! * 1000 }
-            .sortedBy { it.distanceM }
-    }
-
-    Column(modifier = modifier.padding(horizontal = 16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Include POIs you have passed",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f)
-            )
-            Switch(
-                checked = includePassed,
-                onCheckedChange = { includePassed = it }
-            )
-        }
-        if (includePassed) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Look-back distance:",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val lookBackOptions: List<Pair<String, Int?>> = listOf(
-                    "5 km" to 5,
-                    "10 km" to 10,
-                    "25 km" to 25,
-                    "All" to null
-                )
-                lookBackOptions.forEach { (label, value) ->
-                    FilterChip(
-                        selected = lookBackKm == value,
-                        onClick = { lookBackKm = value },
-                        label = { Text(label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        )
-                    )
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        when {
-            isLoading -> Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-            else -> Column {
-                if (!locationAvailable) {
-                    Text(
-                        text = "Your location could not be determined. Distances are measured from the GPX starting point.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-                if (aheadItems.isEmpty()) {
-                    Text(
-                        text = "No POIs found along this track",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 32.dp)
-                    )
-                } else {
-                    aheadItems.forEach { item ->
-                        GpxPoiRow(item = item, isBehind = false, context = context, onClick = { onPoiSelected(item) })
-                    }
-                }
-                if (includePassed) {
-                    behindItems.forEach { item ->
-                        GpxPoiRow(item = item, isBehind = true, context = context, onClick = { onPoiSelected(item) })
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-
-@Composable
-private fun GpxPoiRow(
-    item: GpxPoiItem,
-    isBehind: Boolean,
-    context: android.content.Context,
-    onClick: () -> Unit = {}
-) {
-    val poiWD = item.poiWD
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = poiWD.poi.name.ifEmpty { "Unnamed" },
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                OpenClosedBadge(poiWD.poi.openingHours)
-            }
-            Text(
-                text = "${FormatUtils.formatGpxPoiDistance(item.distanceM)} | ${FormatUtils.categoryDisplayName(poiWD.poi.category)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = poiWD.poi.openingHours ?: "No opening hours available.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (isBehind) {
-                Text(
-                    text = "Behind you",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        IconButton(onClick = { openPoiInGoogleMaps(context, poiWD) }) {
-            Icon(
-                imageVector = Icons.Default.OpenInNew,
-                contentDescription = "Open in Google Maps",
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-    HorizontalDivider()
-}
-
-@Composable
-private fun OpenClosedBadge(openingHours: String?) {
-    if (openingHours == null) return
-    val isOpen = OpeningHoursUtils.isOpenNow(openingHours) ?: return
-    val badgeColor = if (isOpen) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
-    val label = if (isOpen) "Open" else "Closed"
-    Surface(
-        color = badgeColor.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(4.dp)
-    ) {
-        Text(
-            text = label,
-            color = badgeColor,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
     }
 }
 

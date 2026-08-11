@@ -1,6 +1,5 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.MapEdge
 import org.junit.Assert.*
 import org.junit.Test
@@ -106,30 +105,6 @@ class RewardComposerTest {
         assertEquals(reward.flow + reward.explore, reward.total, 1e-9)
     }
 
-    // --- Corridor reward ordering ---
-
-    @Test
-    fun `high-reward corridor outranks low-reward corridor`() {
-        val high = corridor(pedalReward = 10.0, gravityReward = 5.0)
-        val low = corridor(pedalReward = 2.0, gravityReward = 1.0)
-
-        val highReward = RewardComposer.composeCorridorReward(high)
-        val lowReward = RewardComposer.composeCorridorReward(low)
-
-        assertTrue(highReward.total > lowReward.total)
-    }
-
-    @Test
-    fun `corridor pedal and gravity reward contribute equally`() {
-        val pedalOnly = corridor(pedalReward = 8.0, gravityReward = 0.0)
-        val gravityOnly = corridor(pedalReward = 0.0, gravityReward = 8.0)
-
-        val pedalResult = RewardComposer.composeCorridorReward(pedalOnly)
-        val gravityResult = RewardComposer.composeCorridorReward(gravityOnly)
-
-        assertEquals(pedalResult.total, gravityResult.total, 1e-9)
-    }
-
     // --- Helpers ---
 
     private fun edge(
@@ -168,23 +143,5 @@ class RewardComposerTest {
         predictedPedalFlowProbability = predictedPedalFlowProbability,
         predictedGravityFlowProbability = predictedGravityFlowProbability,
         flowConfidence = flowConfidence,
-    )
-
-    private fun corridor(
-        pedalReward: Double = 0.0,
-        gravityReward: Double = 0.0,
-    ) = Corridor(
-        id = 1L,
-        entryNode = 10L,
-        exitNode = 20L,
-        lengthM = 1000.0,
-        pedalReward = pedalReward,
-        gravityReward = gravityReward,
-        exitHazardScore = 0.0,
-        centroidLat = 50.78,
-        centroidLon = 6.08,
-        edgeList = emptyList(),
-        popularity = 0,
-        groupId = 1L,
     )
 }

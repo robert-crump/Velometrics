@@ -1,6 +1,5 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.domain.model.Corridor
 import com.velometrics.app.domain.model.MapEdge
 
 data class RewardWeights(
@@ -56,20 +55,6 @@ object RewardComposer {
         return ComposedReward(
             flow = weights.flow * flowTerm,
             explore = weights.explore * exploreTerm,
-            total = total,
-        )
-    }
-
-    fun composeCorridorReward(
-        corridor: Corridor,
-        weights: RewardWeights = DEFAULT_WEIGHTS,
-    ): ComposedReward {
-        val flowTerm = corridor.pedalReward + corridor.gravityReward
-        val total = weights.flow * flowTerm
-
-        return ComposedReward(
-            flow = weights.flow * flowTerm,
-            explore = 0.0,
             total = total,
         )
     }

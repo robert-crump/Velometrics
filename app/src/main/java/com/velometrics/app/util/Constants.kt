@@ -139,8 +139,6 @@ object CyclingConstants {
     // Legacy alias kept for any callers not yet migrated
     val OSM_RASTER_STYLE_JSON = CARTO_DARK_STYLE_URL
 
-    const val ROUTE_START_RADIUS_M = 50.0
-
     // Map-matching (snapping GPS tracks to road-graph edge sequences)
     const val INTERVAL_EDGE_SNAP_RADIUS_M = 20.0
     const val INTERVAL_MATCH_MAX_REPAIR_DEPTH = 6
@@ -178,25 +176,9 @@ object CyclingConstants {
     const val NAV_USER_MARKER_COLOR = "#2196F3"
     const val NAV_USER_MARKER_RADIUS = 10f
     const val USER_HEADING_ARROW_ICON_SIZE = 0.9f
+    // Reused by the "POIs along .gpx" segment highlight (unrelated to the former Fast Way Home
+    // route search) — name kept for now to avoid an unrelated rename in a removal pass.
     const val FAST_WAY_HOME_TRACK_COLOR = "#FF6F00"
-    const val FAST_WAY_HOME_TRACK_WIDTH = 5f
-    const val FAST_WAY_HOME_BBOX_MARGIN_M = 2000.0
-    const val FAST_WAY_HOME_GPS_ACCURACY_THRESHOLD_M = 20f
-    const val FAST_WAY_HOME_GPS_WAIT_TIMEOUT_MS = 5_000L
-
-    // Plan-a-ride route generation
-    const val PLAN_A_RIDE_DEFAULT_DISTANCE_KM = 50.0
-    const val PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT = 1.0
-    // Pending HITL calibration — ride the full-explore extreme and adjust until it feels adventurous-but-not-reckless.
-    const val PLAN_A_RIDE_MAX_EXPLORE_WEIGHT = 5.0
-    const val PLAN_A_RIDE_TRACK_WIDTH = 5f
-    val PLAN_A_RIDE_TRACK_COLORS = listOf(
-        "#4CAF50", // Green — route
-        "#FF9800", // Orange — second
-        "#9C27B0", // Purple — third
-    )
-    const val PLAN_A_RIDE_CORRIDOR_COLOR = "#FFB300" // Amber — flow corridor highlight
-    const val PLAN_A_RIDE_DISCOVERY_COLOR = "#9C27B0" // Purple — un-ridden discovery edges
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

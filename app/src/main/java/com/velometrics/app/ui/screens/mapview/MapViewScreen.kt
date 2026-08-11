@@ -21,8 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.automirrored.filled.DirectionsBike
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.OpenInNew
@@ -69,16 +67,6 @@ import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.OpeningHoursUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_COLOR
-import com.velometrics.app.util.CyclingConstants.FAST_WAY_HOME_TRACK_WIDTH
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_CORRIDOR_COLOR
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DISCOVERY_COLOR
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_COLORS
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_TRACK_WIDTH
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_DISTANCE_KM
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT
-import com.velometrics.app.util.CyclingConstants.PLAN_A_RIDE_MAX_EXPLORE_WEIGHT
-import com.velometrics.app.domain.service.RankedCandidate
-import com.velometrics.app.domain.service.RideDirection
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_COLOR
 import com.velometrics.app.util.CyclingConstants.NAV_TRACK_WIDTH
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
@@ -129,8 +117,6 @@ private data class LocationSample(val lat: Double, val lon: Double, val accuracy
 @Composable
 fun MapViewScreen(
     viewModel: MapViewViewModel = hiltViewModel(),
-    fastWayHomeViewModel: FastWayHomeViewModel = hiltViewModel(),
-    planARideViewModel: PlanARideViewModel = hiltViewModel(),
     gpxSharedViewModel: GpxSharedViewModel = hiltViewModel(LocalActivity.current as ComponentActivity),
     gpxIntentViewModel: GpxIntentViewModel = hiltViewModel(LocalActivity.current as ComponentActivity)
 ) {
@@ -161,20 +147,6 @@ fun MapViewScreen(
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
     val showLocatingIndicator by viewModel.showLocatingIndicator.collectAsState()
 
-    // Fast Way Home state
-    val fastWayHomeResult by fastWayHomeViewModel.fastWayHomeResult.collectAsState()
-    val fastWayHomeMessage by fastWayHomeViewModel.fastWayHomeMessage.collectAsState()
-    val isFindingFastWayHome by fastWayHomeViewModel.isFindingFastWayHome.collectAsState()
-    val fastWayHomeLocation by fastWayHomeViewModel.homeLocation.collectAsState()
-    val showFastWayHomeCard = isFindingFastWayHome || fastWayHomeResult != null || fastWayHomeMessage != null
-
-    // Plan a ride state
-    val planCandidate by planARideViewModel.candidate.collectAsState()
-    val isGeneratingPlan by planARideViewModel.isGenerating.collectAsState()
-    val planMessage by planARideViewModel.message.collectAsState()
-    val showPlanARideCard = isGeneratingPlan || planCandidate != null || planMessage != null
-    var showPlanDistanceDialog by remember { mutableStateOf(false) }
-
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -203,14 +175,6 @@ fun MapViewScreen(
     }
 
     val context = LocalContext.current
-
-    LaunchedEffect(planARideViewModel) {
-        planARideViewModel.shareIntent.collect { context.startActivity(it) }
-    }
-
-    LaunchedEffect(fastWayHomeViewModel) {
-        fastWayHomeViewModel.shareIntent.collect { context.startActivity(it) }
-    }
 
     // Load a GPX file opened from another app (ACTION_VIEW / ACTION_SEND)
     LaunchedEffect(pendingGpxUri) {
@@ -268,8 +232,6 @@ fun MapViewScreen(
     var renderedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gpxTrackRendered by remember { mutableStateOf(false) }
     var gpxSegmentRendered by remember { mutableStateOf(false) }
-    var fastWayHomeRendered by remember { mutableStateOf(false) }
-    var planARideRenderedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     // Follow mode: camera recenters on every new fix while true. Disabled only by a
     // user-initiated pan/zoom gesture (detected via camera-move-reason), not by the app's
@@ -415,74 +377,6 @@ fun MapViewScreen(
             MapTrackRenderer.addTrack(ms.second, GPX_SEGMENT_HIGHLIGHT_ID, gpxSegmentPoints, FAST_WAY_HOME_TRACK_COLOR, NAV_TRACK_WIDTH)
             gpxSegmentRendered = true
         }
-    }
-
-    // Fast Way Home overlay sync (route line + home marker)
-    LaunchedEffect(fastWayHomeResult, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        if (fastWayHomeRendered) {
-            try { MapTrackRenderer.removeTrack(ms.second, FAST_WAY_HOME_TRACK_ID) } catch (_: Exception) {}
-            removeHomeMarker(ms.second)
-            fastWayHomeRendered = false
-        }
-        val result = fastWayHomeResult ?: return@LaunchedEffect
-        val points = result.path.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
-        if (points.size < 2) return@LaunchedEffect
-        MapTrackRenderer.addTrack(
-            ms.second, FAST_WAY_HOME_TRACK_ID, points,
-            FAST_WAY_HOME_TRACK_COLOR, FAST_WAY_HOME_TRACK_WIDTH
-        )
-        fastWayHomeLocation?.let { renderHomeMarker(ms.second, it) }
-        fastWayHomeRendered = true
-        val bounds = LatLngBounds.Builder().apply {
-            points.forEach { include(it) }
-            fastWayHomeLocation?.let { include(it) }
-        }.build()
-        ms.first.easeCamera(
-            CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600
-        )
-    }
-
-    // Plan-a-ride track sync
-    LaunchedEffect(planCandidate, mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        for (id in planARideRenderedIds) {
-            try { MapTrackRenderer.removeTrack(ms.second, id) } catch (_: Exception) {}
-        }
-        planARideRenderedIds = emptySet()
-
-        val candidate = planCandidate ?: return@LaunchedEffect
-        val newIds = mutableSetOf<String>()
-
-        // Full route in green
-        val routePoints = candidate.refinedRoute.edges.flatMap { PolylineDecoder.decode(it.geometryEncoded) }
-        if (routePoints.size >= 2) {
-            val routeId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}route"
-            MapTrackRenderer.addTrack(ms.second, routeId, routePoints, PLAN_A_RIDE_TRACK_COLORS[0], PLAN_A_RIDE_TRACK_WIDTH)
-            newIds.add(routeId)
-            val bounds = LatLngBounds.Builder().apply { routePoints.forEach { include(it) } }.build()
-            ms.first.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, TRACK_FIT_PADDING), 600)
-        }
-
-        // Flow corridor segments overlaid in amber (each segment drawn independently)
-        val corridorSegments = candidate.corridorEdges.map { PolylineDecoder.decode(it.geometryEncoded) }
-        if (corridorSegments.any { it.size >= 2 }) {
-            val corridorId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}corridors"
-            MapTrackRenderer.addMultiLineTrack(ms.second, corridorId, corridorSegments, PLAN_A_RIDE_CORRIDOR_COLOR, PLAN_A_RIDE_TRACK_WIDTH)
-            newIds.add(corridorId)
-        }
-
-        // Un-ridden discovery edges overlaid in purple (on top of route and corridor layers)
-        val discoverySegments = candidate.refinedRoute.edges
-            .filter { !it.isTraversed }
-            .map { PolylineDecoder.decode(it.geometryEncoded) }
-        if (discoverySegments.any { it.size >= 2 }) {
-            val discoveryId = "${PLAN_A_RIDE_TRACK_ID_PREFIX}discovery"
-            MapTrackRenderer.addMultiLineTrack(ms.second, discoveryId, discoverySegments, PLAN_A_RIDE_DISCOVERY_COLOR, PLAN_A_RIDE_TRACK_WIDTH)
-            newIds.add(discoveryId)
-        }
-
-        planARideRenderedIds = newIds
     }
 
     // Finish-line marker for selected GPX POI — rendered at the highest layer
@@ -747,39 +641,13 @@ fun MapViewScreen(
                 }
             }
 
-            // Fast Way Home result card — sits below the chip rows
-            if (showFastWayHomeCard) {
-                FastWayHomeCard(
-                    result = fastWayHomeResult,
-                    message = fastWayHomeMessage,
-                    isLoading = isFindingFastWayHome,
-                    onExportGpx = { fastWayHomeViewModel.exportGpx() },
-                    onDismiss = { fastWayHomeViewModel.clearFastWayHome() },
+            // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
+            selectedPoi?.let { poiWD ->
+                PoiPopupCard(
+                    poiWithDistances = poiWD,
+                    onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
-            }
-
-            // Plan a ride result card
-            if (showPlanARideCard) {
-                PlanARideCard(
-                    candidate = planCandidate,
-                    message = planMessage,
-                    isLoading = isGeneratingPlan,
-                    onExportGpx = { planARideViewModel.exportGpx() },
-                    onDismiss = { planARideViewModel.clearPlan() },
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-
-            // POI popup card — sits below the chip rows (and the GPX POI button, if shown)
-            if (!showFastWayHomeCard && !showPlanARideCard) {
-                selectedPoi?.let { poiWD ->
-                    PoiPopupCard(
-                        poiWithDistances = poiWD,
-                        onOpenInMaps = { openPoiInGoogleMaps(context, poiWD) },
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
             }
         }
 
@@ -809,7 +677,7 @@ fun MapViewScreen(
             )
         }
 
-        // Stacked FABs - bottom right: fast-way-home above locate-me
+        // Stacked FABs - bottom right
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -828,18 +696,6 @@ fun MapViewScreen(
                         )
                     }
                 )
-            }
-            SmallFloatingActionButton(
-                onClick = { showPlanDistanceDialog = true }
-            ) {
-                Icon(Icons.AutoMirrored.Filled.DirectionsBike, contentDescription = "Plan a ride")
-            }
-            SmallFloatingActionButton(
-                onClick = {
-                    fastWayHomeViewModel.findFastWayHome(viewModel.currentLocation, viewModel.locationAccuracy)
-                }
-            ) {
-                Icon(Icons.Default.Home, contentDescription = "Find fast way home")
             }
             FloatingActionButton(
                 onClick = {
@@ -1013,85 +869,6 @@ fun MapViewScreen(
             discoveryScore = gpxDiscoveryScore,
             speedPowerEstimate = gpxSpeedPowerEstimate,
             onClose = { showGpxAnalysisOverlay = false }
-        )
-    }
-
-    if (showPlanDistanceDialog) {
-        var distanceText by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_DISTANCE_KM.toInt().toString()) }
-        var selectedDirection by remember { mutableStateOf<RideDirection?>(null) }
-        var exploreWeight by remember { mutableStateOf(PLAN_A_RIDE_DEFAULT_EXPLORE_WEIGHT.toFloat()) }
-        AlertDialog(
-            onDismissRequest = { showPlanDistanceDialog = false },
-            title = { Text("Plan a ride") },
-            text = {
-                Column {
-                    Text("Target distance (km):")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = distanceText,
-                        onValueChange = { distanceText = it.filter { c -> c.isDigit() } },
-                        singleLine = true,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Direction:")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    val directions = RideDirection.entries
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        directions.take(2).forEach { dir ->
-                            FilterChip(
-                                selected = selectedDirection == dir,
-                                onClick = {
-                                    selectedDirection = if (selectedDirection == dir) null else dir
-                                },
-                                label = { Text(dir.label) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        directions.drop(2).forEach { dir ->
-                            FilterChip(
-                                selected = selectedDirection == dir,
-                                onClick = {
-                                    selectedDirection = if (selectedDirection == dir) null else dir
-                                },
-                                label = { Text(dir.label) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Familiar", style = MaterialTheme.typography.bodySmall)
-                        Text("Explore", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Slider(
-                        value = exploreWeight,
-                        onValueChange = { exploreWeight = it },
-                        valueRange = 0f..PLAN_A_RIDE_MAX_EXPLORE_WEIGHT.toFloat(),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showPlanDistanceDialog = false
-                    val km = distanceText.toDoubleOrNull() ?: PLAN_A_RIDE_DEFAULT_DISTANCE_KM
-                    planARideViewModel.planARide(km, selectedDirection, exploreWeight.toDouble())
-                }) { Text("Generate") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPlanDistanceDialog = false }) { Text("Cancel") }
-            },
         )
     }
 

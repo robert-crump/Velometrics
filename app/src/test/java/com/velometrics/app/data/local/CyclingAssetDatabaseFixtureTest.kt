@@ -25,6 +25,11 @@ import org.robolectric.annotation.SQLiteMode
  * [Config.application] swaps out the real (Hilt) [com.velometrics.app.VelometricsApplication] for a
  * plain [Application] so this test can build a [Room] database directly, without pulling in the
  * whole Hilt dependency graph.
+ *
+ * NOTE (#155): `MapTurnEntity`/`CorridorEntity`/`CorridorConnectorEntity` were dropped from
+ * [CyclingAssetDatabase]'s entity list and its version bumped 6 -> 7, ahead of the `velometrics.db`
+ * asset swap (#156). Verified this checked-in fixture still opens clean (no destructive-fallback
+ * wipe) against the narrowed 4-entity schema, so no fixture regeneration was needed for this change.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
@@ -64,13 +69,9 @@ class CyclingAssetDatabaseFixtureTest {
                 metadata.schemaVersion == CyclingAssetDatabase.EXPECTED_SCHEMA_VERSION
             )
 
-            val turns = db.mapTurnDao()
+            val edges = db.mapEdgeDao()
                 .getNear(metadata.bboxSouth, metadata.bboxNorth, metadata.bboxWest, metadata.bboxEast)
-            assertTrue("map_turns must be readable via the junction_node bbox join", turns.isNotEmpty())
-
-            val routingEdges = db.mapEdgeDao()
-                .getRoutingEdgesNear(metadata.bboxSouth, metadata.bboxNorth, metadata.bboxWest, metadata.bboxEast)
-            assertTrue("the edge routing query must succeed and return rows", routingEdges.isNotEmpty())
+            assertTrue("map_edges must be readable via the bbox join", edges.isNotEmpty())
         } finally {
             db.close()
         }

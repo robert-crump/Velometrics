@@ -18,9 +18,8 @@ import kotlin.math.roundToInt
  * Algorithm: greedy nearest-edge snapping via [RTreeSpatialIndex], then anchor-by-GPS-order
  * pruning — only runs of consecutive snaps with at least
  * [CyclingConstants.INTERVAL_MATCH_MIN_ANCHOR_POINTS] points are kept as ordered anchors — and
- * repair of gaps between consecutive anchors via bounded local adjacency-graph search (the same
- * edge-indexing/successor-map pattern as [FastWayHomeService]). Gaps too large to repair reject
- * the whole track.
+ * repair of gaps between consecutive anchors via bounded local adjacency-graph search. Gaps too
+ * large to repair reject the whole track.
  */
 /**
  * Result of [MapMatcher.matchTrackChunked]: the edges matched across all chunks (deduped), plus

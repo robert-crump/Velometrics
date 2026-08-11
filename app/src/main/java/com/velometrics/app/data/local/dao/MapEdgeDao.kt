@@ -6,13 +6,6 @@ import androidx.room.Query
 import com.velometrics.app.data.local.entity.MapEdgeEntity
 import kotlinx.coroutines.flow.Flow
 
-data class RoutingEdgeRow(
-    @ColumnInfo(name = "from_node") val fromNode: Long,
-    @ColumnInfo(name = "to_node") val toNode: Long,
-    @ColumnInfo(name = "length_m") val lengthM: Double,
-    @ColumnInfo(name = "reward") val reward: Double,
-)
-
 data class FlowSegmentRow(
     @ColumnInfo(name = "geometry_encoded") val geometryEncoded: String,
     @ColumnInfo(name = "pedal_flow_count") val pedalFlowCount: Int,
@@ -43,26 +36,6 @@ interface MapEdgeDao {
         """
     )
     suspend fun getNear(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<MapEdgeEntity>
-
-    @Query(
-        """
-        SELECT DISTINCT e.from_node, e.to_node, e.length_m,
-            (IFNULL(CAST(json_extract(e.metadata, '${'$'}.pedal_flow_count') AS INTEGER), 0)
-             + IFNULL(CAST(json_extract(e.metadata, '${'$'}.gravity_flow_count') AS INTEGER), 0)
-             + CASE WHEN e.is_traversed = 0
-                 THEN 0.3 * (IFNULL(e.predicted_gravity_flow_probability, 0.0)
-                           + IFNULL(e.predicted_pedal_flow_probability, 0.0))
-                           * IFNULL(e.flow_confidence, 0.0)
-                 ELSE 0.0
-               END) AS reward
-        FROM map_edges e
-        INNER JOIN map_nodes nf ON e.from_node = nf.id
-        INNER JOIN map_nodes nt ON e.to_node = nt.id
-        WHERE (nf.lat BETWEEN :minLat AND :maxLat AND nf.lon BETWEEN :minLon AND :maxLon)
-           OR (nt.lat BETWEEN :minLat AND :maxLat AND nt.lon BETWEEN :minLon AND :maxLon)
-        """
-    )
-    suspend fun getRoutingEdgesNear(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<RoutingEdgeRow>
 
     @Query(
         """

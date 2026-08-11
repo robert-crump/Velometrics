@@ -1,7 +1,5 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.domain.model.Corridor
-import com.velometrics.app.domain.model.CorridorConnector
 import com.velometrics.app.domain.model.FlowSegment
 import com.velometrics.app.domain.model.GraphMetadata
 import com.velometrics.app.domain.model.MapEdge
@@ -41,18 +39,11 @@ class MapMatcherTest {
             override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = edges
             override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = nodes
             override suspend fun getNodesByIds(vararg ids: Long) = nodes.filter { it.id in ids }
-            override suspend fun getRoutingEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
-                edges.map { com.velometrics.app.domain.repository.RoutingEdge(it.fromNode, it.toNode, it.lengthM) }
-            override suspend fun getTurnsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) =
-                emptyList<com.velometrics.app.domain.model.MapTurn>()
             override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filter { it.isTraversed })
             override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(edges.filterNot { it.isTraversed })
             override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
             override suspend fun getPoisInBoundingBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) = emptyList<Poi>()
             override suspend fun getMetadata(): GraphMetadata? = null
-            override suspend fun getAllCorridors() = emptyList<Corridor>()
-            override suspend fun getAllCorridorConnectors() = emptyList<CorridorConnector>()
-            override suspend fun getConnectorsForCorridor(corridorId: Long) = emptyList<CorridorConnector>()
             override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<FlowSegment>()
         }
 

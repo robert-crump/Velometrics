@@ -256,14 +256,8 @@ object DatabaseModule {
     fun provideMapEdgeDao(db: CyclingAssetDatabase): MapEdgeDao = db.mapEdgeDao()
 
     @Provides
-    fun provideMapTurnDao(db: CyclingAssetDatabase): MapTurnDao = db.mapTurnDao()
-
-    @Provides
     fun providePoiDao(db: CyclingAssetDatabase): PoiDao = db.poiDao()
 
     @Provides
     fun provideMapMetadataDao(db: CyclingAssetDatabase): MapMetadataDao = db.mapMetadataDao()
-
-    @Provides
-    fun provideCorridorDao(db: CyclingAssetDatabase): CorridorDao = db.corridorDao()
 }

@@ -16,20 +16,20 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.SQLiteMode
 
 /**
- * Opens the checked-in fixture `cycling_graph_fixture.db` (Ride-Graph #68 export) through the full
- * [CyclingAssetDatabase] Room stack on the JVM via Robolectric, mirroring the production builder
- * (createFromAsset + fallbackToDestructiveMigration + the schema_version onOpen callback). This is
- * the fixture contract test from issue #124: it fails loudly (destructive-fallback wipe, or a
- * thrown schema mismatch) instead of silently passing on an empty database.
+ * Opens the checked-in fixture `velometrics_fixture.db` (Ride-Graph#99 export split) through the
+ * full [CyclingAssetDatabase] Room stack on the JVM via Robolectric, mirroring the production
+ * builder (createFromAsset + fallbackToDestructiveMigration + the schema_version onOpen callback).
+ * This is the fixture contract test from issue #124: it fails loudly (destructive-fallback wipe, or
+ * a thrown schema mismatch) instead of silently passing on an empty database.
  *
  * [Config.application] swaps out the real (Hilt) [com.velometrics.app.VelometricsApplication] for a
  * plain [Application] so this test can build a [Room] database directly, without pulling in the
  * whole Hilt dependency graph.
  *
- * NOTE (#155): `MapTurnEntity`/`CorridorEntity`/`CorridorConnectorEntity` were dropped from
- * [CyclingAssetDatabase]'s entity list and its version bumped 6 -> 7, ahead of the `velometrics.db`
- * asset swap (#156). Verified this checked-in fixture still opens clean (no destructive-fallback
- * wipe) against the narrowed 4-entity schema, so no fixture regeneration was needed for this change.
+ * NOTE (#156): bundled asset swapped from `cycling_graph.db`/`cycling_graph_fixture.db` (the full
+ * Ride-Graph export) to the trimmed `velometrics.db`/`velometrics_fixture.db` pair scoped to this
+ * app's actual tables (`map_nodes`, `map_edges`, `pois`, `metadata` — no `map_turns`/`corridors`,
+ * which #155 had already dropped from [CyclingAssetDatabase]'s entity list ahead of this swap).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
@@ -54,9 +54,9 @@ class CyclingAssetDatabaseFixtureTest {
 
     @Test
     fun `fixture asset opens through Room without a destructive-fallback wipe`() = runBlocking {
-        val dbName = freshDbName("fixture_cycling_graph_unit_test.db")
+        val dbName = freshDbName("fixture_velometrics_unit_test.db")
         val db = Room.databaseBuilder(context, CyclingAssetDatabase::class.java, dbName)
-            .createFromAsset("cycling_graph_fixture.db")
+            .createFromAsset("velometrics_fixture.db")
             .addCallback(CyclingAssetDatabase.schemaVersionCallback())
             .fallbackToDestructiveMigration()
             .build()

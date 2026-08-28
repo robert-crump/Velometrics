@@ -39,7 +39,7 @@ An Android app for tracking, analyzing, and visualizing cycling sessions. Import
 
 4. Run on a device or emulator (API 34+).
 
-> **Note:** The app bundles `cycling_graph.db` (~58 MB) as an asset for offline map routing and route planning. Cloning will include this file.
+> **Note:** The app bundles `velometrics.db` (~84 MB) as an asset for offline map routing and route planning. Cloning will include this file.
 
 ## Built With
 

@@ -1,3 +1,65 @@
+## Issue #156 — Swap bundled graph asset from cycling_graph.db to velometrics.db
+Completed: 2026-08-28
+
+### What was done
+
+Both blockers were already cleared: Ride-Graph#99's export split had shipped
+`velometrics.db`/`velometrics_fixture.db` (maintainer copied both into `app/src/main/assets/`
+before this session started), and #155 had already dropped `MapTurnEntity`/`CorridorEntity` and
+their DAOs from `CyclingAssetDatabase` (version bumped 6 -> 7) ahead of this swap. Verified the new
+assets' actual schema via `sqlite3` (through Python, no CLI tool in this environment) before
+touching code: `velometrics.db`/`velometrics_fixture.db` both have exactly the 4 tables
+(`map_nodes`, `map_edges`, `pois`, `metadata`) matching the already-narrowed Room entity list
+column-for-column, `metadata.schema_version = 1` (matches `EXPECTED_SCHEMA_VERSION`), and non-empty
+row counts in both the full asset (218,857 nodes / 526,408 edges / 24,705 POIs) and the fixture (4
+nodes / 3 edges / 2 POIs / 1 metadata row) — so no entity/DAO changes were needed, this was a pure
+asset-name swap plus fixing a latent breakage it exposed.
+
+**`di/DatabaseModule.kt`**: `provideCyclingAssetDatabase` now builds `"velometrics.db"` /
+`.createFromAsset("velometrics.db")` instead of `cycling_graph.db`.
+
+**`data/local/CyclingAssetDatabase.kt`**: the `schemaVersionCallback()` mismatch error message now
+names `velometrics.db` instead of the old asset filename.
+
+**Found broken as a direct consequence of #155, not caught by that session's `testDebugUnitTest`
+run**: `app/src/androidTest/.../CyclingAssetDatabaseFixtureTest.kt` still called `db.mapTurnDao()`
+— a method `CyclingAssetDatabase` no longer has since #155's entity-list narrowing. This instrumented
+test source set isn't compiled by `compileDebugUnitTestKotlin`/`testDebugUnitTest` (only
+`compileDebugAndroidTestKotlin`, which needs a connected device to actually *run*), so #155's clean
+228/228 unit-test-suite claim never exercised it — it would have failed to compile on the next real
+`connectedDebugAndroidTest` run or CI androidTest job. Rewrote it to mirror the JVM fixture test's
+post-#155 shape: dropped the `mapTurnsAreReadableNearBoundingBox` test entirely, kept the
+no-destructive-wipe test, pointed both at `velometrics_fixture.db`.
+
+**`app/src/test/.../CyclingAssetDatabaseFixtureTest.kt`**: swapped `createFromAsset` and doc-comment
+references from `cycling_graph_fixture.db` to `velometrics_fixture.db`; updated the class doc to
+record this swap instead of the #155 narrowing note (which is now historical, superseded).
+
+**Asset files**: deleted `app/src/main/assets/cycling_graph.db` (222MB, was `.gitignore`d/untracked
+— the "kept locally only" large-binary convention) and `git rm`'d the tracked
+`cycling_graph_fixture.db` (68KB), replaced by the already-present `velometrics.db`/
+`velometrics_fixture.db` pair. `.gitignore`'s large-binary-asset entry repointed from
+`cycling_graph.db` to `velometrics.db`; `velometrics_fixture.db` is small enough to stay checked
+in, same as its predecessor. `README.md`'s bundled-asset note updated (filename + ~84MB size, up
+from ~58MB — the new asset ships full-column `map_edges`, not trimmed, per the scoping decision
+recorded in the issue).
+
+**`IntervalClusteringService`/POI map layer/"POI coverage" panel** (the issue's other acceptance
+criteria): confirmed unmodified — none of them reference the asset filename or entity list
+directly, only the DAOs, which are unchanged. Not separately re-tested beyond the full suite below
+since no code in their call paths changed.
+
+### Tests
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and (this session's actual point, since #155
+missed it) `compileDebugAndroidTestKotlin` all pass clean — confirms the androidTest fix. Full
+`testDebugUnitTest`: 228/228 pass, including both `CyclingAssetDatabaseFixtureTest` cases running
+against the real checked-in `velometrics_fixture.db` (not a mock/stub) — no destructive-fallback
+wipe, schema_version check passes. `assembleDebug` succeeds, confirming the ~84MB asset packages
+into the APK without issue. No on-device install/run this session (mechanical asset-path swap,
+already covered by the fixture test opening the real asset through the full Room stack).
+
+---
+
 ## Issue #152 — Remove route-rating code from Velometrics (post Route IQ v1)
 Completed: 2026-08-11
 
@@ -707,62 +769,3 @@ stand-in for "no data" was actually counted as a real (degenerate 0%) contributi
 both fixture sessions real speed data. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full
 `testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk
 from #135): all pass, no regressions.
-
----
-
-## Issue #146 — All-time Stats: test coverage for BestEffortCalculator + AllTimeStatsViewModel (#143 follow-up)
-Completed: 2026-07-26
-
-### What was done
-
-Only `ready-for-agent` issue in the queue. Follow-up to #143/#145: the data layer and screen UI
-both shipped without unit coverage (scope was cut short each session) — this lands the test
-coverage called out in the issue, no production code changes.
-
-**`domain/service/BestEffortCalculatorTest.kt`** (new)
-- Direct tests against the `internal` `bestTimeForDistance`/`bestAvgPowerForDuration` two-pointer
-  functions using hand-built `DoubleArray` fixtures (no need to round-trip through `Datapoint`/
-  haversine for these): exact match at a sample boundary, interpolated mid-segment match, ride
-  shorter than target (null), target reachable only right at the very end of the ride (only the
-  whole-ride window clears it), and a case with multiple candidate windows where a later fast burst
-  beats an earlier slow window (regression guard on the two-pointer's window-tracking, since a naive
-  implementation could get stuck returning the first window found rather than the fastest).
-- `bestAvgPowerForDuration`: constant power returns that same wattage regardless of window position,
-  a short high-power burst inside a longer low-power ride is correctly found (400W burst beats the
-  surrounding 100W), ride shorter than duration returns null, duration exactly matching ride length
-  resolves via the single whole-ride window.
-- `compute`: power fields are all null when `hasPower = false` even when some `Datapoint.power`
-  values are non-null (simulates a GPS-only ride with stray power readings); fewer than 2 datapoints
-  returns an all-null `BestEffortValues()`.
-- Cross-check test: a synthetic straight-line-north ride (pure meridian, so haversine distance is
-  exactly `EARTH_RADIUS_M * dLatRadians` — no floating approximation) at a constant 10 m/s and
-  constant 200W, 5 steps of 5000m/500s. Hand-calculated expectation: total distance is exactly
-  25000m (the whole ride, so `split25kSec` == total elapsed time 2500s, `split50kSec`/`split100kSec`
-  null since the ride never reaches them), and every power-curve bucket up to 1800s reads exactly
-  200W since power is constant throughout. Exercises the full `compute()` wiring (datapoints ->
-  cumulative distance/energy -> both algorithms), not just the array-level logic.
-
-**`ui/screens/alltimestats/AllTimeStatsViewModelTest.kt`** (new)
-- `yearStats` buckets sessions by calendar year via `ZoneId.systemDefault()` (mid-year instants used
-  in fixtures to avoid timezone-boundary flakiness) and sorts years descending; per-year sums
-  (`rideCount`/`totalDistanceKm`/`totalElevationGainM`/`totalNetDurationSec`) verified against a
-  mixed multi-year session list.
-- `longestRideEntry`/`longestDurationEntry` pick the correct session out of a mixed list.
-- `biggestClimbEntry` ignores a session with `elevationGainM == null` even though it has the
-  greatest distance of the three — proves null is excluded rather than treated as a climb of 0.
-- `splitEntry`/`powerCurvePoint` pick the minimum time / maximum watts respectively across multiple
-  `BestEffortRecord`s and carry through the winning record's `sessionId`/date.
-- Empty-session-list and empty-best-efforts-list cases produce the expected all-null/empty
-  `AllTimeStatsUiState` without throwing.
-- New `FakeBestEffortRepository` test double (matching the existing `FakeCyclingSessionRepository`
-  pattern) since none existed yet. `uiState` is collected via `vm.uiState.first { !it.isLoading }`
-  rather than manually launching a collector job — simpler than the alternatives since
-  `FakeCyclingSessionRepository.getAllSessions()` is a completed `flowOf(...)`, so the
-  `WhileSubscribed(5000)`-backed `StateFlow` settles on its first real emission as soon as anything
-  subscribes.
-
-### Tests
-21 new test cases (12 `BestEffortCalculatorTest`, 9 `AllTimeStatsViewModelTest`), all passing.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
-the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no regressions.
-

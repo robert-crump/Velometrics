@@ -45,7 +45,7 @@ abstract class CyclingAssetDatabase : RoomDatabase() {
                     if (cursor.moveToFirst()) {
                         val actual = cursor.getInt(0)
                         check(actual == EXPECTED_SCHEMA_VERSION) {
-                            "cycling_graph.db metadata.schema_version=$actual does not match the " +
+                            "velometrics.db metadata.schema_version=$actual does not match the " +
                                 "app's expected schema_version=$EXPECTED_SCHEMA_VERSION. The graph " +
                                 "asset and this app build are out of sync — re-export the asset or " +
                                 "update EXPECTED_SCHEMA_VERSION."

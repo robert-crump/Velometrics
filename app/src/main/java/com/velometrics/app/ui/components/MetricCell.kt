@@ -22,24 +22,20 @@ private val ColorBetter = Color(0xFF4CAF50)
 private val ColorWorse = Color(0xFF592B0A)
 
 /**
- * A label/value pair, optionally with up to two trend triangles comparing [current] against
- * [medianLast5] (vs. last 5 rides) and [medianAllPrevious] (vs. all previous rides). Used by the
- * Ride and Repeated Interval detail screens.
+ * A label/value pair, optionally with a trend triangle comparing [current] against [reference]
+ * (whichever comparison pool the caller has already selected — e.g. last 5 rides or all previous
+ * rides). Used by the Ride and Repeated Interval detail screens.
  */
 @Composable
 fun MetricCell(
     label: String,
     value: String,
     current: Double? = null,
-    medianLast5: Double? = null,
-    medianAllPrevious: Double? = null,
+    reference: Double? = null,
     higherIsBetter: Boolean = true
 ) {
-    val last5Triangle = remember(current, medianLast5, higherIsBetter) {
-        getTriangle(current, medianLast5, higherIsBetter)
-    }
-    val allPreviousTriangle = remember(current, medianAllPrevious, higherIsBetter) {
-        getTriangle(current, medianAllPrevious, higherIsBetter)
+    val triangle = remember(current, reference, higherIsBetter) {
+        getTriangle(current, reference, higherIsBetter)
     }
 
     Column {
@@ -53,17 +49,8 @@ fun MetricCell(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium
             )
-            last5Triangle?.let { (icon, color) ->
+            triangle?.let { (icon, color) ->
                 Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            allPreviousTriangle?.let { (icon, color) ->
-                Spacer(modifier = Modifier.width(2.dp))
                 Icon(
                     imageVector = icon,
                     contentDescription = null,

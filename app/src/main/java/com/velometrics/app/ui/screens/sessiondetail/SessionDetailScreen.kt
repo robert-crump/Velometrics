@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -336,37 +335,32 @@ private fun IntervalMapLegend(intervals: List<IntervalSession>, modifier: Modifi
 }
 
 
+/** Which comparison pool the Session Detail triangles are currently measured against. */
+private enum class ComparisonMode(val label: String) {
+    LAST_5("vs. last 5"),
+    ALL_PREVIOUS("vs. all")
+}
+
 @Composable
-private fun ComparisonLegend() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = Icons.Filled.ArrowDropUp,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp)
-        )
-        Text(
-            text = "Last 5",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Icon(
-            imageVector = Icons.Filled.ArrowDropUp,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp)
-        )
-        Text(
-            text = "All previous",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (ComparisonMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ComparisonMode.entries.forEach { option ->
+            FilterChip(
+                selected = mode == option,
+                onClick = { onModeChange(option) },
+                label = { Text(option.label) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                )
+            )
+        }
     }
 }
 
 @Composable
 private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?) {
+    var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 
@@ -404,9 +398,12 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                 )
             )
-            ComparisonLegend()
+            ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
         }
         Spacer(modifier = Modifier.height(12.dp))
+
+        fun <T> pooled(last5: T, allPrevious: T): T =
+            if (comparisonMode == ComparisonMode.LAST_5) last5 else allPrevious
 
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
@@ -414,8 +411,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Distance",
                     value = FormatUtils.formatDistance(session.distanceKm),
                     current = session.distanceKm,
-                    medianLast5 = comparison?.medianDistanceKmLast5,
-                    medianAllPrevious = comparison?.medianDistanceKmAllPrevious,
+                    reference = pooled(comparison?.medianDistanceKmLast5, comparison?.medianDistanceKmAllPrevious),
                     higherIsBetter = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -423,8 +419,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Net time",
                     value = FormatUtils.formatDuration(session.netDurationSec),
                     current = session.netDurationSec.toDouble(),
-                    medianLast5 = comparison?.medianNetDurationSecLast5?.toDouble(),
-                    medianAllPrevious = comparison?.medianNetDurationSecAllPrevious?.toDouble(),
+                    reference = pooled(
+                        comparison?.medianNetDurationSecLast5?.toDouble(),
+                        comparison?.medianNetDurationSecAllPrevious?.toDouble()
+                    ),
                     higherIsBetter = true  // longer net duration is better
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -433,8 +431,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     value = if (session.hasPower && session.averagePower != null)
                         FormatUtils.formatPower(session.averagePower) else "—",
                     current = session.averagePower?.toDouble(),
-                    medianLast5 = comparison?.medianAvgPowerLast5?.toDouble(),
-                    medianAllPrevious = comparison?.medianAvgPowerAllPrevious?.toDouble(),
+                    reference = pooled(
+                        comparison?.medianAvgPowerLast5?.toDouble(),
+                        comparison?.medianAvgPowerAllPrevious?.toDouble()
+                    ),
                     higherIsBetter = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -442,8 +442,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Calories",
                     value = session.energy?.formatTotalKcal() ?: "—",
                     current = totalKcal,
-                    medianLast5 = comparison?.medianTotalKcalLast5,
-                    medianAllPrevious = comparison?.medianTotalKcalAllPrevious,
+                    reference = pooled(comparison?.medianTotalKcalLast5, comparison?.medianTotalKcalAllPrevious),
                     higherIsBetter = false
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -451,9 +450,11 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Elevation gain",
                     value = session.elevationGainM?.let { FormatUtils.formatElevationGain(it) } ?: "—",
                     current = session.elevationGainM,
-                    medianLast5 = comparison?.medianElevationGainMLast5,
-                    medianAllPrevious = comparison?.medianElevationGainMAllPrevious,
-                    higherIsBetter = false
+                    reference = pooled(
+                        comparison?.medianElevationGainMLast5,
+                        comparison?.medianElevationGainMAllPrevious
+                    ),
+                    higherIsBetter = true  // more climbing is an achievement, not a cost
                 )
                 val elevGainPer100kmLabel = session.elevationGainM?.let {
                     FormatUtils.formatElevationGainPer100km(it, session.distanceKm)
@@ -464,9 +465,11 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                         label = "Elev. gain / 100km",
                         value = elevGainPer100kmLabel,
                         current = elevGainPer100km,
-                        medianLast5 = comparison?.medianElevGainPer100kmLast5,
-                        medianAllPrevious = comparison?.medianElevGainPer100kmAllPrevious,
-                        higherIsBetter = false
+                        reference = pooled(
+                            comparison?.medianElevGainPer100kmLast5,
+                            comparison?.medianElevGainPer100kmAllPrevious
+                        ),
+                        higherIsBetter = true  // consistent with raw Elevation gain, above
                     )
                 }
             }
@@ -477,8 +480,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Fat Eff.",
                     value = if (fatEffScore != null) "$fatEffScore" else "—",
                     current = fatEffScore?.toDouble(),
-                    medianLast5 = comparison?.medianFatEfficiencyLast5,
-                    medianAllPrevious = comparison?.medianFatEfficiencyAllPrevious,
+                    reference = pooled(
+                        comparison?.medianFatEfficiencyLast5,
+                        comparison?.medianFatEfficiencyAllPrevious
+                    ),
                     higherIsBetter = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -486,8 +491,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Avg Speed",
                     value = FormatUtils.formatSpeed(avgSpeed),
                     current = avgSpeed,
-                    medianLast5 = comparison?.medianAvgSpeedKmhLast5,
-                    medianAllPrevious = comparison?.medianAvgSpeedKmhAllPrevious,
+                    reference = pooled(
+                        comparison?.medianAvgSpeedKmhLast5,
+                        comparison?.medianAvgSpeedKmhAllPrevious
+                    ),
                     higherIsBetter = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -496,8 +503,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     value = if (session.hasPower && session.normalizedPower != null)
                         FormatUtils.formatPower(session.normalizedPower) else "—",
                     current = session.normalizedPower?.toDouble(),
-                    medianLast5 = comparison?.medianNormalizedPowerLast5?.toDouble(),
-                    medianAllPrevious = comparison?.medianNormalizedPowerAllPrevious?.toDouble(),
+                    reference = pooled(
+                        comparison?.medianNormalizedPowerLast5?.toDouble(),
+                        comparison?.medianNormalizedPowerAllPrevious?.toDouble()
+                    ),
                     higherIsBetter = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -510,8 +519,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     label = "Cardiac Eff.",
                     value = cardiacEfficiency?.let { FormatUtils.formatCardiacEfficiency(it) } ?: "—",
                     current = cardiacEfficiency,
-                    medianLast5 = comparison?.medianCardiacEfficiencyLast5,
-                    medianAllPrevious = comparison?.medianCardiacEfficiencyAllPrevious,
+                    reference = pooled(
+                        comparison?.medianCardiacEfficiencyLast5,
+                        comparison?.medianCardiacEfficiencyAllPrevious
+                    ),
                     higherIsBetter = true
                 )
             }

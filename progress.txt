@@ -1,3 +1,54 @@
+## Issue #157 — Session Detail: toggle for last-5/all-previous comparison triangles; flip elevation-gain polarity
+Completed: 2026-08-28
+
+### What was done
+
+Full `/grill-me` design session before implementing (user's request was terse: "more climbing meters
+are better," plus a toggle replacing the two-triangle display). Resolved: elevation-gain polarity
+flips both `Elevation gain` and `Elev. gain / 100km` from `higherIsBetter = false` to `true`,
+reversing #153's original "treat climbing like a fatigue cost, same as Calories" decision — accepted
+explicitly as a real tradeoff (can no longer distinguish "climbed more because I pushed harder on my
+usual route" from "climbed more because I chose a hillier route," achievement framing wins anyway);
+no noise deadband added, stays an absolute `current > reference` comparison like every other metric;
+toggle is a single global control for the whole screen (not per-metric), `FilterChip` row (matching
+`MapViewScreen`'s POI-category chip pattern) with two static-label chips — "vs. last 5" / "vs. all" —
+placed where `ComparisonLegend` used to sit, which is removed entirely; "last 5" keeps its existing
+meaning (5 sessions immediately preceding the viewed one, unchanged `SessionComparator` query); chip
+labels never show live counts, even with fewer than 5 (or 0) prior sessions; toggle selection is
+local `remember` UI state, not persisted — always resets to "vs. last 5" on screen open; an
+insufficient-data mode leaves its chip selectable and just renders metrics without a triangle, same
+as the existing per-metric null-median handling. Confirmed via grep that no other screen
+(`AllTimeStatsScreen`, `RepeatedRouteDetailViewModel`) encodes elevation-gain polarity or duplicates
+this triangle logic, so the change is isolated to `MetricCell`/`SessionDetailScreen`.
+
+**`ui/components/MetricCell.kt`**
+- Collapsed the dual `medianLast5`/`medianAllPrevious` parameters (and the two triangles they each
+  rendered) into a single `reference: Double?`, rendering at most one triangle. `getTriangle`'s
+  direction/color logic is unchanged. `RepeatedIntervalDetailScreen`'s existing `MetricCell` calls
+  never passed either median parameter, so they're unaffected by the signature change.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
+- New private `ComparisonMode` enum (`LAST_5`/`ALL_PREVIOUS`) and `ComparisonModeToggle` composable
+  (two `FilterChip`s). `ComparisonLegend` deleted along with its now-unused `ArrowDropUp` import.
+- `RideSummaryGrid` holds the toggle's `remember { mutableStateOf(ComparisonMode.LAST_5) }` state and
+  a local `pooled(last5, allPrevious)` helper that all 10 comparable `MetricCell` calls use to pick
+  which of `SessionComparison`'s paired median fields to pass as `reference`, based on the active
+  mode. `Elevation gain`/`Elev. gain / 100km` calls flip to `higherIsBetter = true`; every other
+  metric's polarity is unchanged. `SessionComparator` itself is untouched — both pools were already
+  computed per #153, this is purely UI-side selection.
+
+### Tests
+No new automated tests (pure UI restructuring — parameter collapse, toggle-driven selection, two
+polarity-flag flips — no new branching logic beyond what `getTriangle` already covers, matching #151's
+precedent for Compose-only Modifier/parameter-plumbing changes). `compileDebugKotlin`,
+`compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest --rerun-tasks` (matching the
+known Gradle env-var/test-filter stale-cache quirk from #135): all pass (228/228), no regressions. No
+on-device verification this session (Compose-only visual change; the maintainer resolved every open
+question — polarity, toggle scope, persistence, default, legend removal, empty-data handling, label
+staticness — during the `/grill-me` session rather than leaving anything to visually confirm).
+
+---
+
 ## Issue #156 — Swap bundled graph asset from cycling_graph.db to velometrics.db
 Completed: 2026-08-28
 
@@ -680,92 +731,3 @@ No new automated tests (UI-only addition, per plan — verified on-device instea
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks`
 (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
 regressions.
-
----
-
-## Issue #147 — Power/HR zone and speed distribution: all-rides average reference line
-Completed: 2026-07-27
-
-### What was done
-
-Full /grill-me design session before implementing (issue was open-ended: "I want to calculate an
-overall average over all rides... displayed in the diagrams as a thin horizontal line"). Resolved:
-scope (global average shown on session-level Power/HR zone charts, plus a second reference line on
-the RepeatedRoute speed histogram alongside its existing per-route average), equal-weight
-normalization (average of each ride's own percentage-of-time per zone/bin, not raw seconds — a
-20-minute and a 5-hour ride count equally, matching the existing per-route speed histogram average
-pattern), accepted the FTP/max-HR-drift limitation (zone boundaries are baked in per-ride at import
-time and raw streams aren't retained, so the average is computed over stored zone data as-is),
-missing-data handling (a ride without power or HR data is skipped only for that specific average),
-and the tick-mark visual (independent per-bar tick, not one continuous line, since each zone/bin
-has its own average value).
-
-Mid-session, the interview surfaced a better-fitting caching approach than the one first agreed:
-this codebase already has `RepeatedRoutesCache`/`RepeatedIntervalsCache` (`data/cache/`), an
-app-scoped hot `StateFlow` pattern that auto-refreshes whenever the underlying Room `Flow` emits.
-Switched the plan from a DataStore-persisted cache with manual recompute-after-import/delete calls
-(which would have needed a circular-dependency workaround) to the same reactive in-memory pattern
-instead.
-
-**`domain/service/GlobalAverageCalculator.kt`** (new)
-- `computePowerZoneAverages`/`computeHrZoneAverages`/`computeSpeedHistogramAverages`: each ride's
-  distribution is normalized to percentage-of-that-ride's-time per label first, then percentages
-  are averaged equally across rides (equal weight regardless of ride length). Rides missing a given
-  distribution (`powerZoneDistribution`/`hrZoneDistribution` null) are excluded from that specific
-  average via `mapNotNull`, but `speedHistogram` is never null so every ride always contributes to
-  that one.
-
-**`data/cache/GlobalAverageCache.kt`** (new)
-- Same shape as `RepeatedRoutesCache`: hoists `CyclingSessionRepository.getAllSessions()` into an
-  app-scoped `StateFlow`, with the three averages as derived `StateFlow`s via
-  `GlobalAverageCalculator`. Auto-refreshes on any DB change (import, delete) with no manual
-  invalidation wiring — sidesteps a circular-DI issue a DataStore-backed approach would have hit (a
-  repository depending on `CyclingSessionRepository` for reads, while
-  `CyclingSessionRepositoryImpl.deleteSession` would need to call back into it).
-- Registered eagerly in `VelometricsApplication` (same `@Inject lateinit var` pattern as the other
-  two caches) so `SharingStarted.Eagerly` collection starts at process launch.
-
-**`ui/components/PowerZoneChart.kt`, `HeartRateZoneChart.kt`, `SpeedHistogramChart.kt`**
-- New `averagePercentages`/`allRidesAveragePercentages` parameter (default `emptyMap()`, backward
-  compatible). Each bar's `Canvas` changed from a variable-height canvas (the old trick of sizing
-  the Canvas itself to the bar's height) to a fixed-height canvas that manually draws a
-  bottom-aligned bar rect plus an independent tick mark per bar — needed because a single average
-  value can exceed what a specific ride/route's own chart would otherwise scale to. The shared
-  per-chart max (`maxPct`) is computed across both the bar values and the average values so a tick
-  is never clipped off the top. Tick is drawn as two overlaid `drawLine`s (a wider
-  `colorScheme.surface` outline behind a narrower `colorScheme.onSurface` line) so it reads over any
-  zone/bin bar color in either theme. Preserved the original 2dp minimum-visible-bar-height floor
-  that the fixed-height restructuring would otherwise have dropped.
-
-**`ui/screens/sessiondetail/SessionDetailViewModel.kt`/`Screen.kt`**
-- New `powerZoneAverages`/`hrZoneAverages` `StateFlow`s sourced directly from `GlobalAverageCache`,
-  collected and passed into the two zone chart composables.
-
-**`ui/screens/repeatedroutedetail/RepeatedRouteDetailViewModel.kt`/`Screen.kt`**
-- `uiState` now built via `combine(repository.getRouteById(routeId),
-  globalAverageCache.speedHistogramAverages)` instead of a single `.map`; new
-  `allRidesSpeedHistogram` field passed through to `SpeedHistogramChartAvg`.
-
-Filed #150 as a related follow-up (maintainer requested during the design session): apply the same
-`GlobalAverageCache`-style reactive caching to `AllTimeStatsViewModel`'s existing aggregates, which
-currently recompute on every screen load — `ready-for-agent`, depends on this issue's pattern.
-
-### Manual verification (on-device, real production data — 148 rides)
-Built and installed the debug APK on a connected device. Confirmed on a real ride's detail screen:
-Power Zones and Heart Rate Zones charts both show a contrasting tick mark on every bar (including
-zones where this ride shows a small or zero percentage but the all-rides average is higher — e.g.
-HR Zone 1/4/5 at 0% still show a tick above the bar, proving the shared-max scaling works).
-Confirmed on a 9-session RepeatedRoute's detail screen: Speed Distribution shows ticks on every
-bin, including near-empty bins, alongside the route's own pre-existing average bars.
-
-### Tests
-New `GlobalAverageCalculatorTest`: equal-weight-per-ride-length normalization (a 10-minute and
-10-hour ride's zone percentages are averaged, not duration-weighted), per-metric skip-on-missing-data
-(a ride without power data doesn't dilute the HR or speed averages, and vice versa), empty-input and
-no-matching-data edge cases, and a zone present in only some rides is still averaged against the
-full ride count (not just the rides that reached it). One iteration needed on the "skip per-metric"
-test: `speedHistogram` is never null on a real session, so a fixture using `emptyMap()` as a
-stand-in for "no data" was actually counted as a real (degenerate 0%) contribution — fixed by giving
-both fixture sessions real speed data. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full
-`testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk
-from #135): all pass, no regressions.

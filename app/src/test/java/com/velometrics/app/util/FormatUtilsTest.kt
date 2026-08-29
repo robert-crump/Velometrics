@@ -51,6 +51,21 @@ class FormatUtilsTest {
     }
 
     @Test
+    fun `formatWithThousandsSeparator below one thousand has no separator`() {
+        assertEquals("245", FormatUtils.formatWithThousandsSeparator(245))
+    }
+
+    @Test
+    fun `formatWithThousandsSeparator uses period grouping`() {
+        assertEquals("1.234", FormatUtils.formatWithThousandsSeparator(1234))
+    }
+
+    @Test
+    fun `formatWithThousandsSeparator groups multiple thousands`() {
+        assertEquals("12.345.678", FormatUtils.formatWithThousandsSeparator(12345678))
+    }
+
+    @Test
     fun `formatComparison with median shows diff and percentage`() {
         val result = FormatUtils.formatComparison(245, 233, "W", true)
         assertEquals("245 W (+12 | +5%)", result)

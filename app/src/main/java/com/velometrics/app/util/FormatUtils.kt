@@ -46,6 +46,11 @@ object FormatUtils {
 
     fun formatPower(watts: Int): String = "$watts W"
 
+    // Period-grouped thousands separator (e.g. "1.234"), distinct from the comma-grouped
+    // separator used by formatDistanceRounded/formatElevationGainRounded/etc.
+    fun formatWithThousandsSeparator(value: Int): String =
+        value.toString().reversed().chunked(3).joinToString(".").reversed()
+
     fun formatElevationGain(meters: Double): String = "%.0f m".format(Locale.US, meters)
 
     // Rounded to the nearest whole metre with a thousands separator (e.g. "1,234 m").

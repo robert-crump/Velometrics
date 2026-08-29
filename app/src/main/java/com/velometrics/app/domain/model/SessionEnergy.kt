@@ -1,6 +1,7 @@
 ﻿package com.velometrics.app.domain.model
 
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.FormatUtils
 import kotlin.math.roundToInt
 
 data class SessionEnergy(
@@ -8,7 +9,7 @@ data class SessionEnergy(
     val fatGrams: Double,
     val carbGrams: Double
 ) {
-    fun formatTotalKcal(): String = "${withThousandsSeparator(totalKcal)} kcal"
+    fun formatTotalKcal(): String = "${FormatUtils.formatWithThousandsSeparator(totalKcal)} kcal"
 
     fun formatFatCarbGrams(): String =
         "%.0fg / %.0fg".format(fatGrams, carbGrams)
@@ -28,9 +29,6 @@ data class SessionEnergy(
                 carbGrams = carb
             )
         }
-
-        private fun withThousandsSeparator(n: Int): String =
-            n.toString().reversed().chunked(3).joinToString(".").reversed()
     }
 }
 

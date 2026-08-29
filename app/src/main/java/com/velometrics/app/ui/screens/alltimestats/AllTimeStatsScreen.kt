@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +32,7 @@ import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.PowerSpeedPoint
 import com.velometrics.app.domain.model.RecordEntry
 import com.velometrics.app.domain.model.YearStat
+import com.velometrics.app.ui.components.MetricCell
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.roundedAxisBounds
@@ -328,12 +330,7 @@ private fun PowerCurveChart(
                         strokeWidth = 1.dp.toPx()
                     )
                     labelPaint.textAlign = android.graphics.Paint.Align.RIGHT
-                    labelPaint.color = android.graphics.Color.argb(
-                        (0.5f * 255).toInt(),
-                        (onSurface.red * 255).toInt(),
-                        (onSurface.green * 255).toInt(),
-                        (onSurface.blue * 255).toInt()
-                    )
+                    labelPaint.color = onSurface.copy(alpha = 0.5f).toArgb()
                     drawContext.canvas.nativeCanvas.drawText(
                         "$tick",
                         leftPaddingPx - 4.dp.toPx(),
@@ -362,14 +359,8 @@ private fun PowerCurveChart(
                             center = Offset(x, yFor(watts))
                         )
                     }
-                    val textAlpha = if (i == selectedIndex) 255 else (0.5f * 255).toInt()
                     labelPaint.textAlign = android.graphics.Paint.Align.CENTER
-                    labelPaint.color = android.graphics.Color.argb(
-                        textAlpha,
-                        (onSurface.red * 255).toInt(),
-                        (onSurface.green * 255).toInt(),
-                        (onSurface.blue * 255).toInt()
-                    )
+                    labelPaint.color = onSurface.copy(alpha = if (i == selectedIndex) 1f else 0.5f).toArgb()
                     drawContext.canvas.nativeCanvas.drawText(
                         point.label,
                         x,
@@ -516,46 +507,35 @@ private fun YearBreakdownSection(yearStats: List<YearStat>) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    YearStatCell(
-                        "Rides",
-                        "${year.rideCount}",
-                        Modifier.weight(1f)
-                    )
-                    YearStatCell(
-                        "Distance",
-                        FormatUtils.formatDistanceRounded(year.totalDistanceKm),
-                        Modifier.weight(1f)
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        MetricCell(label = "Rides", value = "${year.rideCount}")
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        MetricCell(
+                            label = "Distance",
+                            value = FormatUtils.formatDistanceRounded(year.totalDistanceKm)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    YearStatCell(
-                        "Elev. gain",
-                        FormatUtils.formatElevationGainRounded(year.totalElevationGainM),
-                        Modifier.weight(1f)
-                    )
-                    YearStatCell(
-                        "Duration",
-                        FormatUtils.formatDuration(year.totalNetDurationSec),
-                        Modifier.weight(1f)
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        MetricCell(
+                            label = "Elev. gain",
+                            value = FormatUtils.formatElevationGainRounded(year.totalElevationGainM)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        MetricCell(
+                            label = "Duration",
+                            value = FormatUtils.formatDuration(year.totalNetDurationSec)
+                        )
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun YearStatCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }

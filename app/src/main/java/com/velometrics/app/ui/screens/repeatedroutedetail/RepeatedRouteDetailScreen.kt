@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapTrackRenderer
+import com.velometrics.app.ui.components.MetricCell
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.SpeedHistogramChartAvg
@@ -179,45 +180,49 @@ fun RepeatedRouteDetailScreen(
                 // ─── Statistics: 2×3 grid, no card, same style as session detail ───
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        MetricStatCell(
-                            label = "Times",
-                            value = "${route.sessions.size}",
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg duration",
-                            value = FormatUtils.formatDuration(uiState.avgNetDurationSec),
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg distance",
-                            value = FormatUtils.formatDistance(uiState.avgDistanceKm),
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(label = "Times", value = "${route.sessions.size}")
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Avg duration",
+                                value = FormatUtils.formatDuration(uiState.avgNetDurationSec)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Avg distance",
+                                value = FormatUtils.formatDistance(uiState.avgDistanceKm)
+                            )
+                        }
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        MetricStatCell(
-                            label = "Elev. gain / 100km",
-                            value = uiState.elevGainPer100km ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg speed",
-                            value = FormatUtils.formatSpeed(uiState.avgSpeedKmh),
-                            modifier = Modifier.weight(1f)
-                        )
-                        MetricStatCell(
-                            label = "Avg power",
-                            value = uiState.avgPowerW?.let { FormatUtils.formatPower(it) } ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Elev. gain / 100km",
+                                value = uiState.elevGainPer100km ?: "--"
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Avg speed",
+                                value = FormatUtils.formatSpeed(uiState.avgSpeedKmh)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Avg power",
+                                value = uiState.avgPowerW?.let { FormatUtils.formatPower(it) } ?: "--"
+                            )
+                        }
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        MetricStatCell(
-                            label = "Avg NP",
-                            value = uiState.avgNormalizedPowerW?.let { FormatUtils.formatPower(it) } ?: "--",
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            MetricCell(
+                                label = "Avg NP",
+                                value = uiState.avgNormalizedPowerW?.let { FormatUtils.formatPower(it) } ?: "--"
+                            )
+                        }
                         Spacer(modifier = Modifier.weight(1f))
                         Spacer(modifier = Modifier.weight(1f))
                     }
@@ -405,16 +410,4 @@ private fun RoutePreviewMap(
             }
         }
     )
-}
-
-@Composable
-private fun MetricStatCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(value, style = MaterialTheme.typography.bodyMedium)
-    }
 }

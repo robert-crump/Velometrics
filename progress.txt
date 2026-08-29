@@ -1,3 +1,58 @@
+## Issue #163 — Simplify: trivial UI mechanical fixes
+Completed: 2026-08-29
+
+### What was done
+
+Three small, purely mechanical clean-ups, fully scoped in the issue body with exact target
+signatures/behaviors named — no exploration subagent needed, went straight to reading every named
+file before editing.
+
+**Manual ARGB construction → `Color.copy(alpha = ...).toArgb()`** — replaced all 5 sites (matching
+the pattern already used correctly in `ScatterPlotChart.kt`):
+- `CardiacDriftChart.kt`: the minute-label paint's fixed 0.6 alpha.
+- `HomeScreen.kt` (`MonthlyLineChart`): the y-axis label paint's fixed 0.5 alpha, and the per-point
+  month-label paint whose alpha toggled between full (255) and half (0.5) by selection state —
+  collapsed the `val textAlpha = if (isSelected) 255 else (0.5f*255).toInt()` local into an inline
+  `onSurface.copy(alpha = if (isSelected) 1f else 0.5f)`.
+- `AllTimeStatsScreen.kt` (`PowerCurveChart`): the same two shapes (fixed 0.5 alpha tick labels;
+  full/half alpha per-point labels by selection).
+All 5 needed a new `androidx.compose.ui.graphics.toArgb` import (each file already imported
+`Color` for other uses, but not `toArgb`).
+
+**`FormatUtils.formatWithThousandsSeparator(value: Int): String`** — added the period-grouped
+helper (`"1.234"`, not `"1,234"` — a different, pre-existing separator style used elsewhere by
+`formatDistanceRounded`/etc., which the issue explicitly said not to switch to). Replaced its two
+hand-rolled duplicates: `SessionEnergy.withThousandsSeparator` (private companion fun, deleted,
+`formatTotalKcal()` now calls `FormatUtils.formatWithThousandsSeparator` directly) and
+`HomeScreen.kt`'s inline `km.toString().reversed().chunked(3).joinToString(".").reversed()` in the
+monthly "Total km" stat cell.
+
+**Deleted `YearStatCell` (`AllTimeStatsScreen.kt`) and `MetricStatCell`
+(`RepeatedRouteDetailScreen.kt`)** — both byte-for-byte duplicates of `ui/components/MetricCell.kt`
+(same `labelSmall`/onSurfaceVariant label + `bodyMedium` value styling). `MetricCell` itself takes
+no `modifier` parameter (callers wrap it in a weighted `Column` instead, per its existing use in
+`SessionDetailScreen`/`RepeatedIntervalDetailScreen`), so every repointed call site changed from
+`YearStatCell(label, value, Modifier.weight(1f))` / `MetricStatCell(label=, value=,
+modifier=Modifier.weight(1f))` to `Column(modifier = Modifier.weight(1f)) { MetricCell(label =,
+value =) }` — 4 call sites in `AllTimeStatsScreen.kt`'s `YearBreakdownSection`, 7 in
+`RepeatedRouteDetailScreen.kt`'s stats grid. `MonthStatCell` (`HomeScreen.kt`) deliberately left
+untouched per the issue's explicit warning — it renders values in `headlineSmall`, not
+`MetricCell`'s `bodyMedium`, so merging it would visibly shrink Home-screen text.
+
+### Tests
+New `formatWithThousandsSeparator` cases in `FormatUtilsTest` (below-1000 passthrough, single
+separator, multiple separators). No other new tests — the ARGB and duplicate-cell changes are pure
+mechanical equivalents (verified alpha/color values match the originals exactly) with no new
+branching logic. `./gradlew testDebugUnitTest` and `assembleDebug`: both pass clean, no
+regressions. `grep`-verified zero remaining `android.graphics.Color.argb(` construction from a
+Compose `Color` anywhere under `ui/`, and zero remaining `YearStatCell`/`MetricStatCell`
+references. No on-device manual check this session (issue's suggested check — Home, All-Time
+Stats, Session Detail's cardiac drift chart, and Repeated Route Detail should look pixel-identical
+— has no automated equivalent in this environment; each replacement was checked against its
+original for exact color/style equivalence at review time instead).
+
+---
+
 ## Issue #162 — Simplify: JSON parsing & entity-mapping boilerplate
 Completed: 2026-08-29
 
@@ -633,84 +688,3 @@ no-destructive-wipe/schema-mismatch assertions).
 all pass clean (281 tests, 0 failures/errors) — no dangling references, no regressions. No
 on-device verification this session (mechanical removal + fixture-test-verified DB path; the
 replacement UX now lives in Ride-Graph's browser app, not this repo).
-
----
-
-## Issue #153 — Ride Session Detail: vs. last five rides and vs. all previous rides
-Completed: 2026-08-02
-
-### What was done
-
-Full `/grill-me` design session before implementing (issue was terse: two triangles instead of
-arrows, colors specified, a legend, and an unresolved either/or about whether a "close to
-reference" state should still exist). Resolved: fully replace `MetricCell`'s existing single-arrow
-comparison (only `SessionDetailScreen` exercised it — `RepeatedIntervalDetailScreen` uses
-`MetricCell` but never passed `median`, so it was unaffected); strictly binary up/down, no
-dead-band "same" state; colors overridden by the maintainer away from the issue's suggested
-green/yellow/gray to green `0xFF4CAF50` (better, matching the pre-existing arrow's green so at
-least one color carries over) and `#592B0A` (worse) with no third/neutral color, since every
-metric on this screen already declares a `higherIsBetter` direction; all 10 comparable metric
-cells get both triangles (the 3 that previously had no comparison — Calories, Elevation gain,
-Elev./100km — got wired up too); "Fat / Carbs" stays without triangles since it renders two
-numbers as one string with no single scalar to compare; median (not the issue's literal "average")
-for "all previous," for consistency with the pre-existing last-5 logic; each triangle gates
-independently on its own ≥2-sample pool rather than an all-or-nothing overall gate (matters
-mainly for power-derived metrics, where the last-5 pool's power-having subset can differ in size
-from the all-previous pool's); triangle glyphs are Material's built-in `ArrowDropUp`/`ArrowDropDown`
-(genuinely triangular, not the old arrow glyphs) rather than a custom-drawn shape; legend is a
-static row bottom-aligned with the date header, not a tap-to-reveal popover.
-
-**`data/local/dao/CyclingSessionDao.kt`, `domain/repository/CyclingSessionRepository.kt`,
-`data/repository/CyclingSessionRepositoryImpl.kt`, test `FakeCyclingSessionRepository.kt`**
-- New `getAllSessionsBeforeDate(epochMs)`: same `WHERE sessionStart < :beforeEpochMs` shape as the
-  existing `getSessionsBeforeDate(epochMs, limit)`, just without the `LIMIT` — no shared/cached
-  singleton needed (per the maintainer, ad-hoc per-screen-load computation is fine at this app's
-  scale, matching how the existing last-5 query already works).
-
-**`domain/service/SessionComparator.kt`**
-- `computeComparison` now always returns a non-null `SessionComparison` (previously null outright
-  below 2 total previous sessions) — every median field is independently nullable instead, so a
-  metric with an insufficient sub-population (e.g. no power-having rides yet) simply omits its own
-  triangle rather than suppressing the whole card's comparisons.
-- Extracted the existing per-list median logic into a private `computeMedians(sessions)` helper,
-  called once for the last-5 pool and once for the (new) all-previous pool, producing paired
-  `medianXLast5`/`medianXAllPrevious` fields for 10 metrics (duration, distance, speed, avg power,
-  normalized power, fat efficiency, cardiac efficiency, plus 3 new ones: total kcal via
-  `SessionEnergy.from`, elevation gain, and elevation gain per 100km computed the same way
-  `AllTimeStatsAggregator` does it). `medianIntervalTimeSec` (last-5 only) is untouched — it's
-  already dead code today (nothing on the screen reads it), left as-is rather than expanding an
-  unused field to a second pool.
-- The ≥2-sample gate moved from a single early-return guard into the shared `median()` helper
-  itself (returns null below 2 values), so it now applies independently per metric per pool for
-  free, without per-field threshold logic scattered through `computeComparison`.
-
-**`ui/components/MetricCell.kt`**
-- Replaced the single `median`/arrow parameter with `medianLast5`/`medianAllPrevious`, each
-  rendering its own `getTriangle()` result (or nothing) as a 14dp `Icon` right after the value, in
-  that left-to-right order. `getTriangle` returns null (no icon) on an exact tie between `current`
-  and the reference — the binary-only redesign has no visual for "unchanged," so a literal tie
-  (only realistically possible for `Int`-valued medians) renders as neither triangle rather than
-  guessing a direction.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
-- All 10 in-scope `MetricCell` calls updated to the new dual-parameter API; Calories/Elevation
-  gain/Elev.-per-100km gained real `current` values (previously always passed `null`) alongside
-  their new median pairs.
-- New private `ComparisonLegend()`: two neutral-tinted `ArrowDropUp` icons labeled "Last 5" / "All
-  previous", placed in the same `Row` as the date header via `Arrangement.SpaceBetween` +
-  `Alignment.Bottom` so the legend text's baseline sits flush with the date title's baseline, per
-  the maintainer's explicit layout instruction.
-
-### Tests
-`SessionComparatorTest` rewritten for the new always-non-null return shape and renamed fields: the
-old "returns null" tests became "yields null medians but reports the count" tests; existing
-3/4-previous-session cases updated to assert both pools (identical when total previous sessions
-<= 5); one new case with 7 previous sessions constructed so the last-5 and all-previous medians
-provably diverge (42.0 vs. 41.0 on a deliberately skewed distance fixture), covering the "pools
-differ once ride count exceeds 5" behavior the grill-me session called out. `compileDebugKotlin`,
-`assembleDebug`, full `testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/
-test-filter stale-cache quirk from #135): all pass, no regressions. No on-device verification this
-session (Compose-only visual change, no new libraries/permissions; the maintainer specified exact
-colors/icons/layout during the grill-me session rather than leaving open questions that would
-need visual confirmation).
-

@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -547,8 +548,8 @@ private fun MonthlyStatsSection(
             )
             MonthStatCell(
                 label = "Total km",
-                value = selectedSummary?.totalKm?.toInt()?.let { km ->
-                    km.toString().reversed().chunked(3).joinToString(".").reversed()
+                value = selectedSummary?.totalKm?.toInt()?.let {
+                    FormatUtils.formatWithThousandsSeparator(it)
                 } ?: "0",
                 modifier = Modifier.weight(1f)
             )
@@ -666,12 +667,7 @@ private fun MonthlyLineChart(
 
             val labelPaint = android.graphics.Paint().apply {
                 textSize = 9.dp.toPx()
-                color = android.graphics.Color.argb(
-                    (0.5f * 255).toInt(),
-                    (onSurface.red * 255).toInt(),
-                    (onSurface.green * 255).toInt(),
-                    (onSurface.blue * 255).toInt()
-                )
+                color = onSurface.copy(alpha = 0.5f).toArgb()
             }
 
             // Horizontal gridlines and y-axis labels at multiples of 5
@@ -719,14 +715,8 @@ private fun MonthlyLineChart(
 
                 val abbr = summary.yearMonth.month.name.take(1).uppercase() +
                         summary.yearMonth.month.name.drop(1).take(2).lowercase()
-                val textAlpha = if (isSelected) 255 else (0.5f * 255).toInt()
                 labelPaint.textAlign = android.graphics.Paint.Align.CENTER
-                labelPaint.color = android.graphics.Color.argb(
-                    textAlpha,
-                    (onSurface.red * 255).toInt(),
-                    (onSurface.green * 255).toInt(),
-                    (onSurface.blue * 255).toInt()
-                )
+                labelPaint.color = onSurface.copy(alpha = if (isSelected) 1f else 0.5f).toArgb()
                 drawContext.canvas.nativeCanvas.drawText(
                     abbr,
                     x,

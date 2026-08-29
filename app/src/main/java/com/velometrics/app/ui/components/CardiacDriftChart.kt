@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -159,12 +160,7 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
                 val labelPaint = android.graphics.Paint().apply {
                     textSize = 9.dp.toPx()
                     textAlign = android.graphics.Paint.Align.CENTER
-                    color = android.graphics.Color.argb(
-                        (0.6f * 255).toInt(),
-                        (onSurfaceVariant.red * 255).toInt(),
-                        (onSurfaceVariant.green * 255).toInt(),
-                        (onSurfaceVariant.blue * 255).toInt()
-                    )
+                    color = onSurfaceVariant.copy(alpha = 0.6f).toArgb()
                 }
                 var i = 0
                 while (i <= maxIndex) {

@@ -1,7 +1,9 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.data.fitimport.ImportResult
+import com.velometrics.app.data.repository.FakeBestEffortRepository
 import com.velometrics.app.data.repository.FakeCyclingSessionRepository
+import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.CyclingSession
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -14,12 +16,18 @@ import org.junit.Test
 class RideRevealEvaluatorTest {
 
     private lateinit var repository: FakeCyclingSessionRepository
+    private lateinit var bestEffortRepository: FakeBestEffortRepository
     private lateinit var evaluator: RideRevealEvaluator
 
     @Before
     fun setup() {
         repository = FakeCyclingSessionRepository()
-        evaluator = RideRevealEvaluator(repository, RideMilestoneEvaluator(repository))
+        bestEffortRepository = FakeBestEffortRepository()
+        evaluator = RideRevealEvaluator(
+            repository,
+            RideMilestoneEvaluator(repository),
+            PowerCurveAchievementEvaluator(bestEffortRepository)
+        )
     }
 
     private fun makeSession(
@@ -173,5 +181,69 @@ class RideRevealEvaluatorTest {
         val content = evaluator.evaluate(results, baseline)
 
         assertEquals("Nice ride!", content?.headline)
+    }
+
+    @Test
+    fun `shows the milestone headline over a power-curve achievement when both qualify`() = runBlocking {
+        val baseline = Instant.parse("2026-01-01T00:00:00Z")
+        insert(baseline, distanceKm = 20.0, elevationGainM = 100.0)
+        val newRideStart = Instant.parse("2026-02-01T00:00:00Z")
+        // Both the longest-ever ride and a rank-1 20-minute power PR - milestone should win the tie.
+        val id = insert(newRideStart, distanceKm = 200.0, elevationGainM = 100.0)
+        bestEffortRepository.records.add(
+            BestEffortRecord(
+                sessionId = id,
+                sessionStart = newRideStart.toEpochMilli(),
+                split25kSec = null,
+                split50kSec = null,
+                split100kSec = null,
+                power1s = null,
+                power3s = null,
+                power5s = null,
+                power20s = null,
+                power30s = null,
+                power1m = null,
+                power5m = null,
+                power20m = 250,
+                power30m = null
+            )
+        )
+
+        val results = listOf(ImportResult.Success(id, "summary", newRideStart))
+        val content = evaluator.evaluate(results, baseline)
+
+        assertTrue(content?.headline?.contains("longest") == true)
+    }
+
+    @Test
+    fun `shows a power-curve achievement when the ride sets a genuine 20-minute power PR`() = runBlocking {
+        val baseline = Instant.parse("2026-01-01T00:00:00Z")
+        // Older ride beats the new one on distance/elevation, so no milestone qualifies.
+        insert(baseline, distanceKm = 200.0, elevationGainM = 3000.0)
+        val newRideStart = Instant.parse("2026-02-01T00:00:00Z")
+        val id = insert(newRideStart, distanceKm = 20.0, elevationGainM = 100.0)
+        bestEffortRepository.records.add(
+            BestEffortRecord(
+                sessionId = id,
+                sessionStart = newRideStart.toEpochMilli(),
+                split25kSec = null,
+                split50kSec = null,
+                split100kSec = null,
+                power1s = null,
+                power3s = null,
+                power5s = null,
+                power20s = null,
+                power30s = null,
+                power1m = null,
+                power5m = null,
+                power20m = 250,
+                power30m = null
+            )
+        )
+
+        val results = listOf(ImportResult.Success(id, "summary", newRideStart))
+        val content = evaluator.evaluate(results, baseline)
+
+        assertEquals("Your best 20-minute power ever!", content?.headline)
     }
 }

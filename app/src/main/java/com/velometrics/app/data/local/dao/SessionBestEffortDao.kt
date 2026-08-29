@@ -25,4 +25,41 @@ interface SessionBestEffortDao {
         """
     )
     fun getAllWithSessionDate(): Flow<List<BestEffortRecord>>
+
+    @Query("SELECT * FROM session_best_efforts WHERE sessionId = :sessionId")
+    suspend fun getBySessionId(sessionId: Long): SessionBestEffortEntity?
+
+    // Power-curve rank queries for Ride Reveal (see PowerCurveAchievementEvaluator): each counts
+    // rides whose best effort for that duration beats the given power, optionally scoped to
+    // on/after sinceEpochMs (null means all-time). Rank = count + 1. A NULL power value (no power
+    // meter on that ride, or the ride was shorter than the duration) is excluded automatically
+    // rather than counted as "greater".
+
+    @Query(
+        """SELECT COUNT(*) FROM session_best_efforts sbe
+           JOIN cycling_sessions cs ON cs.id = sbe.sessionId
+           WHERE sbe.power5s > :power AND (:sinceEpochMs IS NULL OR cs.sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countBestEffortsWithGreaterPower5s(power: Int, sinceEpochMs: Long?): Int
+
+    @Query(
+        """SELECT COUNT(*) FROM session_best_efforts sbe
+           JOIN cycling_sessions cs ON cs.id = sbe.sessionId
+           WHERE sbe.power1m > :power AND (:sinceEpochMs IS NULL OR cs.sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countBestEffortsWithGreaterPower1m(power: Int, sinceEpochMs: Long?): Int
+
+    @Query(
+        """SELECT COUNT(*) FROM session_best_efforts sbe
+           JOIN cycling_sessions cs ON cs.id = sbe.sessionId
+           WHERE sbe.power5m > :power AND (:sinceEpochMs IS NULL OR cs.sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countBestEffortsWithGreaterPower5m(power: Int, sinceEpochMs: Long?): Int
+
+    @Query(
+        """SELECT COUNT(*) FROM session_best_efforts sbe
+           JOIN cycling_sessions cs ON cs.id = sbe.sessionId
+           WHERE sbe.power20m > :power AND (:sinceEpochMs IS NULL OR cs.sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countBestEffortsWithGreaterPower20m(power: Int, sinceEpochMs: Long?): Int
 }

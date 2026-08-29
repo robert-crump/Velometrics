@@ -1,3 +1,71 @@
+## Issue #160 — Ride Reveal: power-curve best-effort achievements
+Completed: 2026-08-29
+
+### What was done
+
+Only `ready-for-agent` issue in the queue — the other half of the Ride Reveal Tier 1 achievement
+pair alongside #159 (ride-level milestones), which landed earlier this session and gave this one's
+milestone-beats-power-curve tie-break something genuine to verify against instead of a contrived
+resolver-only test. Mirrors #159's rank-query shape almost exactly ("count of best efforts with a
+strictly greater value, plus 1", scoped by an optional `since` bound), applied to
+`BestEffortCalculator`'s 5s/1min/5min/20min power-curve fields instead of raw session stats.
+
+One structural difference from #159: a ride-level metric (distance, elevation, speed) lives right
+on the `CyclingSession` object `RideMilestoneEvaluator.candidates()` already receives, but power-curve
+bests live in a separate `session_best_efforts` row that `RideRevealEvaluator` wasn't fetching.
+Added `BestEffortRepository.getForSession(sessionId)` (a single-row DAO lookup by `sessionId`, mapped
+to the same `BestEffortValues` domain type the calculator already produces) so
+`PowerCurveAchievementEvaluator.candidates(sessionId, sessionStart)` can look up the ride's own bests
+before ranking them.
+
+**`data/local/dao/SessionBestEffortDao.kt` (+ `BestEffortRepository`/Impl, `FakeBestEffortRepository`)**
+- `getBySessionId(sessionId): SessionBestEffortEntity?` and four `countBestEffortsWithGreaterPower{5s,
+  1m,5m,20m}(power, sinceEpochMs: Long?)` queries, each `SELECT COUNT(*) FROM session_best_efforts sbe
+  JOIN cycling_sessions cs ON cs.id = sbe.sessionId WHERE sbe.powerX > :power AND (:sinceEpochMs IS
+  NULL OR cs.sessionStart >= :sinceEpochMs)` — same join-for-the-date-scope shape #159 used, needed
+  here because `session_best_efforts` itself has no date column. A NULL power value (no power meter
+  that ride, or the ride was shorter than the duration) is excluded automatically by SQLite's
+  NULL-comparison semantics, same as #159's NULL-elevation handling. No new index (same personal-scale
+  non-issue precedent). `FakeBestEffortRepository` computes both `getForSession` and the four counts
+  directly off its existing `records: MutableList<BestEffortRecord>` — that type already carries
+  `sessionId`, `sessionStart`, and every power field, so no new fake-side storage was needed.
+
+**`domain/service/PowerCurveAchievementEvaluator.kt`** (new, `@Singleton`, injects `BestEffortRepository`)
+- `candidates(sessionId, sessionStart): List<RideRevealCandidate>`: fetches the ride's own best-effort
+  row via `getForSession`; returns `emptyList()` outright if there isn't one (no power meter that
+  ride). Builds a metric per non-null duration (5s/1m/5m/20m — up to 4, fewer if some durations are
+  null e.g. a shorter ride missing 20-min), each carrying its own count-greater-than query and a
+  headline label ("5-second power" etc). For each metric, queries both scopes and registers a
+  `POWER_CURVE_BEST_EFFORT`-family candidate for every scope where `count + 1 <= 3` — up to 8
+  candidates per ride. Headline template ("Your {best|2nd-best|3rd-best} {duration} power {ever|this
+  year}!") mirrors #159's ordinal-superlative approach.
+
+**`domain/service/RideRevealEvaluator.kt`**
+- Constructor gained `PowerCurveAchievementEvaluator`; `evaluate()` now passes
+  `milestoneEvaluator.candidates(session) + powerCurveEvaluator.candidates(session.id,
+  session.sessionStart) + fallbackCandidate(session)` to the resolver. Class doc comment updated to
+  name both Tier 1 sources as landed rather than one pending.
+
+### Tests
+New `PowerCurveAchievementEvaluatorTest` (7 cases, via `FakeBestEffortRepository`): a first-ever ride
+ranks 1st all-time on all 4 durations; a ride beaten by 3 others on a duration doesn't qualify on it;
+a ride beaten by only 2 others still qualifies at rank 3 (no-sample-size-floor case, same as #159);
+this-year scope excludes a bigger effort from a different calendar year; a ride with no best-effort
+row at all (no power meter) registers zero candidates; a null power value for one duration (ride
+shorter than 20 minutes) registers no candidate for that duration specifically, others unaffected;
+headline text for a rank-1 all-time 5-second power PR. Extended `RideRevealEvaluatorTest` (+2 cases,
+constructor now takes `PowerCurveAchievementEvaluator` too): a ride that's simultaneously the
+longest-ever *and* a rank-1 20-minute power PR shows the milestone headline, not the power-curve one
+— the acceptance criteria's required tie-break check, now running against two genuine qualifying
+achievements instead of a contrived case; a ride with no ride-level milestone (beaten on every
+tracked metric) but a genuine rank-1 20-minute power PR shows the power-curve headline instead of
+falling back. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full
+`testDebugUnitTest --rerun-tasks`: all pass (260 tests, up from 251 — 9 new), no regressions. No
+on-device verification this session (pure rank-query/candidate logic fully covered by the new unit
+tests against a fake repository; no new UI surface — the sheet itself is unchanged from #158).
+
+---
+
 ## Issue #159 — Ride Reveal: ride-level milestone achievements
 Completed: 2026-08-29
 
@@ -675,83 +743,3 @@ five card composables' modifier convention on both screens). `compileDebugKotlin
 env-var/test-filter stale-cache quirk from #135): all pass, no regressions. No on-device
 verification this session (layout-only Modifier change, low visual risk, matches an established
 pattern already proven on five other cards on the same screen).
-
----
-
-## Issue #150 — Cache AllTimeStatsViewModel aggregates instead of recomputing on every load
-Completed: 2026-07-27
-
-### What was done
-
-Only `ready-for-agent` issue in the queue; a direct follow-up to #147, which introduced the
-`GlobalAverageCache` reactive-`StateFlow` pattern and filed this issue as the natural next
-application of it. `AllTimeStatsViewModel` previously recomputed the entire all-time-best trio,
-distance splits, power curve, per-year breakdown, and power/speed point cloud from scratch on every
-screen load (`sessionRepository.getAllSessions().map { buildUiState(...) }`), including an eager
-`bestEffortRepository.getAllWithSessionDate()` call inside that `map`. Applied the same
-computation/cache split #147 established for `GlobalAverageCalculator`/`GlobalAverageCache`: pulled
-the pure aggregation logic out into a standalone object with no ViewModel/coroutine dependencies,
-then wrapped it in a singleton, app-scoped hot `StateFlow` cache, eagerly registered in
-`VelometricsApplication` so computation starts at process launch rather than on first navigation.
-
-One wrinkle `GlobalAverageCache` didn't have to deal with: this screen combines two sources
-(`cycling_sessions` and `session_best_efforts`), and `FitImportService` writes them in two separate
-suspend calls — session insert first, best-effort insert second (not one transaction). A cache built
-by just hoisting `bestEffortRepository`'s old suspend `getAllWithSessionDate()` into a `.map` off the
-sessions Flow would only ever see best-effort data current as of whenever the cache happened to
-recompute, with no trigger to re-run after the second write landed. Fixed by changing
-`SessionBestEffortDao.getAllWithSessionDate()` from a suspend one-shot query to a Room `Flow`-returning
-query — since its SQL joins `session_best_efforts` against `cycling_sessions`, Room's invalidation
-tracker re-runs it on a write to *either* table, so `combine(sessions, bestEfforts)` naturally settles
-on consistent data shortly after both writes land, without any manual invalidation wiring (same
-"no manual invalidation" property #147 relied on).
-
-**`domain/model/AllTimeStatsUiState.kt`** (new)
-- `RecordEntry`, `PowerCurvePoint`, `YearStat`, `PowerSpeedPoint`, `AllTimeStatsUiState` moved here
-  verbatim from the ViewModel file, so the cache (`data/cache`) can depend on them without depending
-  on the `ui` package — matches `RepeatedRoutesCache`/`RepeatedIntervalsCache` returning
-  domain-layer types rather than UI types.
-
-**`domain/service/AllTimeStatsAggregator.kt`** (new)
-- `buildUiState(sessions, bestEfforts): AllTimeStatsUiState`, plus every private helper
-  (`longestRideEntry`, `biggestClimbEntry`, `buildYearStats`, `buildPowerSpeedPoints`,
-  `percentileRange`/`percentile`, `elevationBucketFor`, `splitEntry`, `powerCurvePoint`) moved
-  unchanged from the ViewModel into a plain `object`, mirroring `GlobalAverageCalculator`'s shape —
-  a pure function with no coroutine/DI surface, directly unit-testable.
-
-**`data/cache/AllTimeStatsCache.kt`** (new)
-- `combine(sessionRepository.getAllSessions(), bestEffortRepository.getAllWithSessionDate()) { ... }`
-  through `AllTimeStatsAggregator.buildUiState`, `.stateIn(scope, SharingStarted.Eagerly,
-  AllTimeStatsUiState())` — same shape as `GlobalAverageCache`.
-
-**`data/local/dao/SessionBestEffortDao.kt`, `domain/repository/BestEffortRepository.kt`,
-`data/repository/BestEffortRepositoryImpl.kt`**
-- `getAllWithSessionDate()` changed from `suspend fun (): List<BestEffortRecord>` to
-  `fun (): Flow<List<BestEffortRecord>>` for the reactivity reason above. `insert` untouched.
-
-**`ui/screens/alltimestats/AllTimeStatsViewModel.kt`**
-- Reduced to `val uiState: StateFlow<AllTimeStatsUiState> = cache.uiState`, no computation left —
-  matches how `RepeatedRoutesViewModel`/`RepeatedIntervalsViewModel` consume their caches.
-
-**`ui/screens/alltimestats/AllTimeStatsScreen.kt`**
-- No behavior change; added imports for the four data classes now living in `domain/model` instead
-  of the same package.
-
-**`VelometricsApplication.kt`**
-- New `@Inject lateinit var allTimeStatsCache: AllTimeStatsCache` alongside the other three eagerly
-  registered caches.
-
-### Tests
-Moved `AllTimeStatsViewModelTest` -> `domain/service/AllTimeStatsAggregatorTest.kt`: same 9 cases,
-now calling `AllTimeStatsAggregator.buildUiState(sessions, bestEfforts)` directly instead of
-constructing a ViewModel with fake repositories and collecting a `StateFlow` under
-`StandardTestDispatcher` — simpler and matches `GlobalAverageCalculatorTest`'s plain-JUnit style,
-since the logic is now a pure function with nothing to inject. `FakeBestEffortRepository` updated to
-return `flowOf(records.toList())` for the new `Flow`-returning signature. No dedicated
-`AllTimeStatsViewModelTest`/`AllTimeStatsCacheTest` added — no other cache-consuming ViewModel or
-cache in this codebase (`RepeatedRoutesCache`, `RepeatedIntervalsCache`, `GlobalAverageCache`) has
-one either; the pass-through wiring has nothing left to assert beyond what compilation already
-guarantees. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest
---rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all
-pass, no regressions.
-

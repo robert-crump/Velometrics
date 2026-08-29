@@ -54,6 +54,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import kotlin.math.roundToInt
 import com.velometrics.app.domain.model.CyclingSessionSummary
+import com.velometrics.app.domain.model.RideRevealContent
 import com.velometrics.app.util.FormatUtils
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -344,6 +345,74 @@ fun HomeScreen(
                 }
             )
         }
+
+        // Ride Reveal: hero sheet shown once at the end of an import batch whose newest ride
+        // is genuinely new (later than everything already in the database before the sync).
+        if (currentState is ImportUiState.RideReveal) {
+            RideRevealSheet(
+                content = currentState.content,
+                onDismiss = { viewModel.clearImportState() },
+                onViewRide = {
+                    viewModel.clearImportState()
+                    onSessionClick(currentState.content.sessionId)
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RideRevealSheet(
+    content: RideRevealContent,
+    onDismiss: () -> Unit,
+    onViewRide: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = content.headline,
+                style = MaterialTheme.typography.headlineSmall
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                RideRevealStat(label = "Distance", value = FormatUtils.formatDistance(content.distanceKm))
+                RideRevealStat(label = "Duration", value = FormatUtils.formatDuration(content.netDurationSec))
+                content.elevationGainM?.let { gain ->
+                    RideRevealStat(label = "Elevation gain", value = FormatUtils.formatElevationGain(gain))
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = onViewRide, modifier = Modifier.fillMaxWidth()) {
+                Text("View ride")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RideRevealStat(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = value, style = MaterialTheme.typography.titleLarge)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

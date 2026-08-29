@@ -65,6 +65,9 @@ interface CyclingSessionDao {
     @Query("SELECT COUNT(*) FROM cycling_sessions")
     suspend fun getSessionCount(): Int
 
+    @Query("SELECT MAX(sessionStart) FROM cycling_sessions")
+    suspend fun getMaxSessionStart(): Long?
+
     @Query("UPDATE cycling_sessions SET intervalCount = :count, intervalTotalTimeSec = :totalSec WHERE id = :sessionId")
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
 

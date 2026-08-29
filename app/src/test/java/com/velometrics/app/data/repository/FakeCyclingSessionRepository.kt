@@ -5,6 +5,7 @@ import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -55,6 +56,8 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
     }
 
     override suspend fun getSessionCount(): Int = sessions.size
+
+    override suspend fun getMaxSessionStart(): Instant? = sessions.maxOfOrNull { it.sessionStart }
 
     override suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int) {
         val index = sessions.indexOfFirst { it.id == sessionId }

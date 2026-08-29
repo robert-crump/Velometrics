@@ -8,6 +8,7 @@ import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.util.toDomain
 import com.velometrics.app.util.toEntity
+import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -66,6 +67,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
 
     override suspend fun getSessionCount(): Int {
         return dao.getSessionCount()
+    }
+
+    override suspend fun getMaxSessionStart(): Instant? {
+        return dao.getMaxSessionStart()?.let { Instant.ofEpochMilli(it) }
     }
 
     override suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int) {

@@ -12,9 +12,11 @@ import com.velometrics.app.data.dropbox.DropboxSyncService
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
+import com.velometrics.app.domain.model.RideRevealContent
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.di.ApplicationScope
 import com.velometrics.app.domain.service.IntervalClusteringService
+import com.velometrics.app.domain.service.RideRevealEvaluator
 import com.velometrics.app.domain.service.RouteClusteringService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -50,6 +52,8 @@ sealed class ImportUiState {
         val total: Int
     ) : ImportUiState()
     data class Done(val result: ImportResult) : ImportUiState()
+    /** Shown instead of [Done]/the Dropbox snackbar when the batch's newest ride is genuinely new. */
+    data class RideReveal(val content: RideRevealContent) : ImportUiState()
 }
 
 data class MonthlyRideSummary(
@@ -67,6 +71,7 @@ class HomeViewModel @Inject constructor(
     private val dropboxAuthRepository: DropboxAuthRepository,
     private val routeClusteringService: RouteClusteringService,
     private val intervalClusteringService: IntervalClusteringService,
+    private val rideRevealEvaluator: RideRevealEvaluator,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -144,7 +149,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             importMutex.withLock {
                 val total = uris.size
-                var lastResult: ImportResult = ImportResult.Error("No files")
+                val results = mutableListOf<ImportResult>()
+                val revealBaseline = rideRevealEvaluator.captureBaseline()
 
                 for (index in uris.indices) {
                     val uri = uris[index]
@@ -154,9 +160,8 @@ class HomeViewModel @Inject constructor(
 
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     if (bytes == null) {
-                        lastResult = ImportResult.Error("Could not read file: $fileName")
-                        _importState.value = ImportUiState.Done(lastResult)
-                        return@withLock
+                        results.add(ImportResult.Error("Could not read file: $fileName"))
+                        break
                     }
 
                     var result = fitImportService.importFile(fileName, bytes)
@@ -177,10 +182,15 @@ class HomeViewModel @Inject constructor(
                         result = fitImportService.importFile(fileName, bytes, forceImport = true)
                     }
 
-                    lastResult = result
+                    results.add(result)
                 }
 
-                _importState.value = ImportUiState.Done(lastResult)
+                val reveal = rideRevealEvaluator.evaluate(results, revealBaseline)
+                _importState.value = if (reveal != null) {
+                    ImportUiState.RideReveal(reveal)
+                } else {
+                    ImportUiState.Done(results.lastOrNull() ?: ImportResult.Error("No files"))
+                }
             }
 
             recluster()
@@ -238,12 +248,16 @@ class HomeViewModel @Inject constructor(
                     return@launch
                 }
 
+                val revealBaseline = rideRevealEvaluator.captureBaseline()
                 when (val result = dropboxSyncService.sync()) {
                     is DropboxSyncResult.Completed -> {
                         if (result.importResults.any { it is ImportResult.Success }) {
                             recluster()
                         }
-                        if (isUserInitiated || result.importResults.isNotEmpty()) {
+                        val reveal = rideRevealEvaluator.evaluate(result.importResults, revealBaseline)
+                        if (reveal != null) {
+                            _importState.value = ImportUiState.RideReveal(reveal)
+                        } else if (isUserInitiated || result.importResults.isNotEmpty()) {
                             _dropboxSyncMessage.value = buildSyncMessage(result.importResults)
                         }
                     }

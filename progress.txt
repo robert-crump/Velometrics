@@ -1,3 +1,106 @@
+## Issue #158 — Ride Reveal: trigger + guaranteed fallback
+Completed: 2026-08-29
+
+### What was done
+
+First slice of the Ride Reveal feature (design doc: `docs/ideas/ride-reveal-hero.md`, not yet
+committed before this session). Picked over #159/#160 since both are explicitly blocked on this
+one (they plug into the resolver/trigger this issue builds). Read the design doc's trigger-condition
+section closely since it's the crux of the issue and has a subtle backfill trap: "identify the
+single most-recently-imported file's ride" turns out to mean the *chronologically* newest ride
+actually imported in the batch (by parsed FIT start-time), not the last file processed by name/
+order — the doc's own clarifying sentence ("not filename or Dropbox processing order") only makes
+sense under that reading, since `DropboxSyncService` sorts entries by filename before importing.
+The backfill guard falls out for free from comparing against a *pre-sync baseline*: captured once
+per batch via `getMaxSessionStart()` *before* any file in that batch is imported; a null baseline
+(empty DB) means "never reveal," so a first-time Dropbox connect or fresh-install backfill of
+hundreds of historical rides can't trigger it no matter which file in that batch is chronologically
+last, since there's no pre-existing max to be "later than."
+
+**`domain/repository/CyclingSessionRepository.kt` (+ Impl, DAO, `FakeCyclingSessionRepository`)**
+- New `getMaxSessionStart(): Instant?` — a plain `SELECT MAX(sessionStart)`, null on an empty table.
+  No new index; matches the design doc's explicit call that this is a non-issue at personal ride-
+  count scale.
+
+**`data/fitimport/ImportResult.kt`, `data/fitimport/FitImportService.kt`**
+- `ImportResult.Success` gained a `sessionStart: Instant` field (the already-computed
+  `session.sessionStart`, no extra DB round-trip) so callers can identify the batch's
+  chronologically-newest imported ride without re-fetching every session.
+
+**`domain/model/RideRevealCandidate.kt`** (new)
+- `RideRevealScope` (ALL_TIME, THIS_YEAR), `RideRevealFamily` (RIDE_MILESTONE,
+  POWER_CURVE_BEST_EFFORT, FALLBACK), and `RideRevealPriority(scope, rank, family):
+  Comparable<RideRevealPriority>` implementing the design doc's exact tie-break ordering (scope,
+  then rank, then family) via enum-ordinal comparison — declaring each enum's entries in
+  best-first order makes the `compareTo` a one-liner per field, no explicit weight table needed.
+  `RideRevealPriority.FALLBACK` is a companion constant (`THIS_YEAR`/`Int.MAX_VALUE`/`FALLBACK`)
+  that's guaranteed to lose to any real 1st-3rd achievement in any scope, verified in
+  `RideRevealResolverTest`. `RideRevealCandidate(headline, priority)` — deliberately just those two
+  fields, matching the issue's "a label plus a priority key" description, so #159/#160 don't need
+  any new shape to plug into.
+
+**`domain/service/RideRevealResolver.kt`** (new)
+- `resolve(candidates: List<RideRevealCandidate>): RideRevealCandidate` — a pure `reduce` picking
+  the lowest-priority (best) candidate; throws on an empty list (callers always pass at least the
+  fallback).
+
+**`domain/service/RideRevealEvaluator.kt`** (new, `@Singleton`, injects `CyclingSessionRepository`)
+- `captureBaseline()`: thin wrapper on `getMaxSessionStart()`, called once per batch *before* import
+  starts.
+- `evaluate(results, baseline)`: null baseline -> null (backfill guard). Otherwise takes
+  `results.filterIsInstance<ImportResult.Success>().maxByOrNull { it.sessionStart }` (ignores
+  `Error`/`AlreadyImported`/skipped-`SmallFile` entries) — if that ride's start isn't after
+  `baseline`, returns null (routine sync, nothing newer than what already existed). Otherwise fetches
+  the full `CyclingSession`, builds the single Tier 2 fallback candidate (static "Nice ride!"
+  headline, `RideRevealPriority.FALLBACK`), resolves it (trivially, since it's the only candidate
+  today), and returns `RideRevealContent(sessionId, headline, distanceKm, netDurationSec,
+  elevationGainM)`. This is the one place #159/#160 will extend: add their candidate(s) to the same
+  list before calling `RideRevealResolver.resolve`.
+
+**`ui/screens/home/HomeViewModel.kt`**
+- New `ImportUiState.RideReveal(content: RideRevealContent)`, shown instead of `Done`
+  (`importFromUris`) or the Dropbox snackbar (`syncDropbox`) when `RideRevealEvaluator.evaluate`
+  returns non-null.
+- `importFromUris`: now accumulates every file's `ImportResult` into a list (previously only tracked
+  `lastResult`, overwritten each iteration) so the evaluator can see the whole batch; captures the
+  baseline before the loop starts. The existing early-return-on-unreadable-file quirk (aborts the
+  rest of the batch, a pre-existing behavior out of scope here) is preserved via `break` instead of
+  `return@withLock`, with identical downstream behavior since both paths fall through to the same
+  final-state assignment now.
+- `syncDropbox`: captures the baseline immediately before `dropboxSyncService.sync()`; on
+  `DropboxSyncResult.Completed`, evaluates the reveal before falling back to the existing
+  `buildSyncMessage`/snackbar path, so pull-to-refresh gets the same reveal behavior as manual
+  import without duplicating the trigger logic.
+
+**`ui/screens/home/HomeScreen.kt`**
+- New `RideRevealSheet` (`ModalBottomSheet`, `skipPartiallyExpanded = true`): headline text, a
+  distance/duration/elevation stat row (elevation cell omitted when null, matching how the rest of
+  the app treats a missing `elevationGainM`), and a "View ride" button that dismisses the sheet and
+  navigates via the screen's existing `onSessionClick`. Rendered alongside the pre-existing
+  `SmallFileWarning` dialog block, gated on the same `currentState` snapshot.
+
+**`docs/ideas/ride-reveal-hero.md`**: committed for the first time this session (existed untracked
+in the working tree beforehand) since it's the design rationale this and the two follow-up issues
+point to.
+
+### Tests
+New `RideRevealResolverTest` (6 cases: single-candidate trivial win, achievement beats fallback
+regardless of list order, all-time beats this-year regardless of rank, lower rank wins within a
+scope, ride-milestone beats power-curve within equal scope+rank, empty list throws) and
+`RideRevealEvaluatorTest` (8 cases, via `FakeCyclingSessionRepository`: null baseline on an empty
+DB, baseline = latest existing start, fires when later than baseline, doesn't fire when not later,
+doesn't fire on a backfill into an empty DB even for the batch's newest ride, picks the
+chronologically-newest batch member rather than the last one in the results list, ignores
+non-`Success` results when picking the batch's newest ride, no successes never fires).
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `compileDebugAndroidTestKotlin`, `assembleDebug`,
+full `testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache
+quirk from #135): all pass (242 tests, up from 228 — 14 new), no regressions. No on-device
+verification this session (needs a real device with Dropbox configured and two ordered rides to
+exercise the reveal end-to-end; the trigger/resolver logic is fully covered by the new unit tests,
+and the sheet itself is a straightforward `ModalBottomSheet` with no novel rendering risk).
+
+---
+
 ## Issue #157 — Session Detail: toggle for last-5/all-previous comparison triangles; flip elevation-gain polarity
 Completed: 2026-08-28
 
@@ -658,76 +761,3 @@ for the calculator/ViewModel percentage math (verified by inspection).
 `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
 the known Gradle env-var/test-filter stale-cache quirk from #135): all pass (467 tests), no
 regressions. No manual on-device verification this session (outside this issue's explicit scope).
-
----
-
-## Issue #149 — All-time Stats: point clouds diagram
-Completed: 2026-07-27
-
-### What was done
-
-Full /grill-me design session before implementing (issue was terse: 5 bullet points, no
-elaboration). Resolved: scope (always all-time, ignores the year-navigation selector added in a
-prior session — the point cloud's whole appeal is showing every ride at once), missing-data
-handling (silently exclude rides with null `averagePower` or null `elevationGainM`, no count
-shown), speed formula (`distanceKm / netDurationSec * 3600`, matching
-`RepeatedRouteDetailViewModel`'s existing convention), component reuse (extend the existing
-`ScatterPlotChart`/`ScatterPoint` rather than write a bespoke chart — added an optional per-point
-color and a configurable dot radius, both backward-compatible defaults so
-`RepeatedRouteDetailScreen`'s existing usage is untouched), axis-step logic (extracted
-`RepeatedRouteDetailScreen`'s inline floor/ceil-to-nearest-10 X-axis rounding into a shared
-`roundedAxisBounds` util, now used by both screens — Y axis stays auto-padded, matching the
-existing "Avg Power vs Speed" chart's own behavior, since the issue's "reuse X-/Y-axis step logic"
-turned out to describe that whole existing chart, not a new Y-axis rounding rule), dot size (2dp,
-vs. 6dp default), color scheme (5-step alpha ramp on `colorScheme.primary` rather than 5 hardcoded
-hex swatches like the zone charts use, so it adapts to theme/dynamic color same as
-`PowerCurveSection` on the same screen), a compact scrollable legend row, no tap interaction
-(matches `ScatterPlotChart`'s existing static-only behavior), and no new unit tests (treated as a
-UI-only addition, verified on-device).
-
-**`ui/components/ScatterPlotChart.kt`**
-- `ScatterPoint` gains an optional `color: Color? = null`, falling back to the existing single
-  `dotColor` when absent.
-- New `dotRadius: Dp = 6.dp` parameter on `ScatterPlotChart`.
-- New top-level `roundedAxisBounds(min, max, step = 10f)`, extracted from
-  `RepeatedRouteDetailScreen`'s inline calculation.
-
-**`ui/screens/repeatedroutedetail/RepeatedRouteDetailScreen.kt`**
-- Both "Avg Power vs Speed" and "Normalized Power vs Speed" scatter charts now call
-  `roundedAxisBounds` instead of duplicating the floor/ceil rounding inline. No behavior change
-  (verified on-device: dot size, color, and axis ticks all unchanged).
-
-**`ui/screens/alltimestats/AllTimeStatsViewModel.kt`**
-- New `PowerSpeedPoint(avgPowerW, avgSpeedKmh, elevationBucket)` and
-  `AllTimeStatsUiState.powerSpeedPoints`.
-- `buildPowerSpeedPoints`: filters to sessions with `hasPower`, non-null
-  `averagePower`/`elevationGainM`, and positive `netDurationSec`/`distanceKm`; computes speed the
-  same way as `RepeatedRouteDetailViewModel`, and buckets `elevationGainM / distanceKm * 100` into
-  5 lower-inclusive ranges (0-200, 200-800, 800-1400, 1400-2000, >2000) via `elevationBucketFor`.
-
-**`ui/screens/alltimestats/AllTimeStatsScreen.kt`**
-- New `PowerSpeedPointCloudSection`, inserted after `PowerCurveSection` and before
-  `YearBreakdownSection`, titled "Power vs. Speed". Always shows the Card (matching
-  `PowerCurveSection`'s convention); shows an empty-state message instead of hiding entirely when
-  `powerSpeedPoints` is empty.
-- 5-shade legend (`ElevationBucketLegend`) in a horizontally-scrollable row below the chart, since
-  the 5 range labels don't all fit on narrow screens at once.
-
-### Manual verification (on-device)
-Installed the debug APK and navigated to All-time Stats via Home's overflow menu. Confirmed the
-new "Power vs. Speed" section renders between Power curve and By year, with small (2dp) dots
-clearly smaller than the RepeatedRoutes chart's dots, X-axis step-rounded to the nearest 10
-(matching the underlying data), Y-axis auto-padded, and a legend row that scrolls to reveal the
-">2,000" label cut off at rest (confirmed this is the intended scroll affordance, not a clipping
-bug, by swiping it into view). Verified with two datasets on the same device: an initial 7-ride set
-(3 rides had both power and elevation data, correctly excluding the other 4) and, after the
-maintainer imported more rides mid-session, a ~148-ride set showing a dense, clearly-trending
-cloud. Regression-checked `RepeatedRouteDetailScreen`'s own two scatter charts (which share the
-modified `ScatterPlotChart`/`roundedAxisBounds` code) — both still render with their original
-larger dot size, single color, and correct axis ticks.
-
-### Tests
-No new automated tests (UI-only addition, per plan — verified on-device instead).
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks`
-(matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass, no
-regressions.

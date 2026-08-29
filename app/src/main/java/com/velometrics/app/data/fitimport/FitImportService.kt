@@ -170,7 +170,7 @@ class FitImportService @Inject constructor(
                 }
             }
 
-            ImportResult.Success(id, summary)
+            ImportResult.Success(id, summary, session.sessionStart)
 
         } catch (e: FitRuntimeException) {
             Log.e(TAG, "FIT parse error for $fileName", e)

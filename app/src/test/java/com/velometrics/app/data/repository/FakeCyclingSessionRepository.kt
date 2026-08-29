@@ -59,6 +59,21 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
 
     override suspend fun getMaxSessionStart(): Instant? = sessions.maxOfOrNull { it.sessionStart }
 
+    override suspend fun countSessionsWithGreaterDistance(distanceKm: Double, since: Instant?): Int =
+        sessions.count { (since == null || it.sessionStart >= since) && it.distanceKm > distanceKm }
+
+    override suspend fun countSessionsWithGreaterElevationGain(elevationGainM: Double, since: Instant?): Int =
+        sessions.count {
+            (since == null || it.sessionStart >= since) &&
+                it.elevationGainM != null && it.elevationGainM > elevationGainM
+        }
+
+    override suspend fun countSessionsWithGreaterAverageSpeed(averageSpeedKmh: Double, since: Instant?): Int =
+        sessions.count {
+            (since == null || it.sessionStart >= since) &&
+                it.netDurationSec > 0 && (it.distanceKm / it.netDurationSec * 3600) > averageSpeedKmh
+        }
+
     override suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int) {
         val index = sessions.indexOfFirst { it.id == sessionId }
         if (index >= 0) {

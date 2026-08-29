@@ -7,6 +7,7 @@ import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -18,10 +19,15 @@ class RideRevealEvaluatorTest {
     @Before
     fun setup() {
         repository = FakeCyclingSessionRepository()
-        evaluator = RideRevealEvaluator(repository)
+        evaluator = RideRevealEvaluator(repository, RideMilestoneEvaluator(repository))
     }
 
-    private fun makeSession(id: Long, start: Instant): CyclingSession = CyclingSession(
+    private fun makeSession(
+        id: Long,
+        start: Instant,
+        distanceKm: Double = 30.0,
+        elevationGainM: Double? = 250.0
+    ): CyclingSession = CyclingSession(
         id = id,
         fileName = "ride_$id.fit",
         fileSha1 = "sha1_$id",
@@ -30,7 +36,7 @@ class RideRevealEvaluatorTest {
         totalDurationSec = 3600,
         pauseDurationSec = 0,
         netDurationSec = 3600,
-        distanceKm = 30.0,
+        distanceKm = distanceKm,
         averagePower = null,
         normalizedPower = null,
         fatBurnedGrams = null,
@@ -43,11 +49,14 @@ class RideRevealEvaluatorTest {
         powerQualityPercent = null,
         hasPower = false,
         gpsTrack = null,
-        elevationGainM = 250.0
+        elevationGainM = elevationGainM
     )
 
     private suspend fun insert(start: Instant): Long =
         repository.insertSession(makeSession(id = 0, start = start))
+
+    private suspend fun insert(start: Instant, distanceKm: Double, elevationGainM: Double?): Long =
+        repository.insertSession(makeSession(id = 0, start = start, distanceKm = distanceKm, elevationGainM = elevationGainM))
 
     @Test
     fun `captureBaseline returns null for an empty database`() = runBlocking {
@@ -133,5 +142,36 @@ class RideRevealEvaluatorTest {
         val results = listOf(ImportResult.Error("bad file"))
 
         assertNull(evaluator.evaluate(results, baseline))
+    }
+
+    @Test
+    fun `shows the milestone callout when the new ride is a genuine longest-ever`() = runBlocking {
+        val baseline = Instant.parse("2026-01-01T00:00:00Z")
+        insert(baseline, distanceKm = 20.0, elevationGainM = 100.0)
+        val newRideStart = Instant.parse("2026-02-01T00:00:00Z")
+        val id = insert(newRideStart, distanceKm = 200.0, elevationGainM = 100.0)
+
+        val results = listOf(ImportResult.Success(id, "summary", newRideStart))
+        val content = evaluator.evaluate(results, baseline)
+
+        assertTrue(content?.headline?.contains("longest") == true)
+    }
+
+    @Test
+    fun `falls back to plain stats when the new ride sets no milestone`() = runBlocking {
+        // Three rides already beat the new ride on every tracked metric, so it ranks 4th (or
+        // worse) on all of them - no milestone qualifies, even with the "no sample-size floor"
+        // assumption, since rank itself (not sample size) is what's checked.
+        insert(Instant.parse("2026-01-01T00:00:00Z"), distanceKm = 200.0, elevationGainM = 3000.0)
+        insert(Instant.parse("2026-01-02T00:00:00Z"), distanceKm = 210.0, elevationGainM = 3100.0)
+        val baseline = Instant.parse("2026-01-03T00:00:00Z")
+        insert(baseline, distanceKm = 220.0, elevationGainM = 3200.0)
+        val newRideStart = Instant.parse("2026-02-01T00:00:00Z")
+        val id = insert(newRideStart, distanceKm = 5.0, elevationGainM = 10.0)
+
+        val results = listOf(ImportResult.Success(id, "summary", newRideStart))
+        val content = evaluator.evaluate(results, baseline)
+
+        assertEquals("Nice ride!", content?.headline)
     }
 }

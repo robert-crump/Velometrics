@@ -13,12 +13,14 @@ import javax.inject.Singleton
 /**
  * Detects whether a completed import batch produced a genuinely new ride (see [evaluate]) and,
  * if so, resolves the Ride Reveal hero content for it via [RideRevealResolver]. Tier 1
- * achievement sources (ride-level milestones, power-curve bests) plug in here as they land —
- * today only the guaranteed Tier 2 plain-stats fallback is registered.
+ * achievement candidates come from [RideMilestoneEvaluator] (ride-level milestones) and, once
+ * #160 lands, a power-curve best-effort source; the guaranteed Tier 2 plain-stats fallback is
+ * always registered too, so the resolver never runs on an empty list.
  */
 @Singleton
 class RideRevealEvaluator @Inject constructor(
-    private val sessionRepository: CyclingSessionRepository
+    private val sessionRepository: CyclingSessionRepository,
+    private val milestoneEvaluator: RideMilestoneEvaluator
 ) {
 
     /**
@@ -47,7 +49,7 @@ class RideRevealEvaluator @Inject constructor(
 
         val session = sessionRepository.getSessionById(newest.sessionId) ?: return null
 
-        val candidates = listOf(fallbackCandidate(session))
+        val candidates = milestoneEvaluator.candidates(session) + fallbackCandidate(session)
         val winner = RideRevealResolver.resolve(candidates)
 
         return RideRevealContent(

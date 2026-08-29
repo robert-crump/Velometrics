@@ -1,3 +1,72 @@
+## Issue #159 — Ride Reveal: ride-level milestone achievements
+Completed: 2026-08-29
+
+### What was done
+
+Second Ride Reveal slice, picked over #160 (power-curve best-effort achievements) even though
+both were unblocked by #158 landing earlier this session — #160's own acceptance criteria needs a
+real ride-level milestone candidate to exist to verify the milestone-beats-power-curve tie-break,
+so building this one first gives that check something genuine to run against instead of a
+contrived resolver-only test.
+
+Rank query shape follows the design doc's own suggestion almost exactly: "rank = count of rides
+with a strictly greater value, plus 1", scoped by an optional `since` bound (null = all-time, or
+the ride's own calendar-year start for "this year"). Deliberately used the ride's own
+`sessionStart` year (via `ZoneId.systemDefault()`), not wall-clock "now" — the two coincide for a
+ride that just synced (the only time this runs today), but stays correct if a batch is ever
+evaluated after the fact instead of live. Confirmed the acceptance criteria's "no minimum
+sample-size threshold" assumption is genuinely load-bearing with a dedicated test: a ride with
+only 3-4 total rides ever, ranking last of them, still registers as a "3rd place" milestone.
+
+**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl, `FakeCyclingSessionRepository`)**
+- Three new `countSessionsWithGreater{Distance,ElevationGain,AverageSpeed}(value, sinceEpochMs:
+  Long?)` queries, each `SELECT COUNT(*) ... WHERE metric > :value AND (:sinceEpochMs IS NULL OR
+  sessionStart >= :sinceEpochMs)`. No new index (matches #156/#158 precedent — a non-issue at this
+  app's personal ride-count scale). A NULL `elevationGainM` column, or a `netDurationSec <= 0` row,
+  is excluded from the "greater" count automatically by SQLite's NULL-comparison semantics for the
+  first two, and by an explicit `netDurationSec > 0` guard for the average-speed query (computed
+  in-SQL as `distanceKm / netDurationSec * 3600`, not a stored column) — no separate null-handling
+  branch needed in the DAO. Repository interface takes `since: Instant?`, converting to epoch
+  millis only at the Impl boundary, matching `getMaxSessionStart`'s existing `Instant`/`Long` split.
+  `FakeCyclingSessionRepository` mirrors the same semantics with plain Kotlin filtering.
+
+**`domain/service/RideMilestoneEvaluator.kt`** (new, `@Singleton`, injects `CyclingSessionRepository`)
+- `candidates(session): List<RideRevealCandidate>`: builds a small in-memory list of the 2-3
+  trackable metrics for this ride (distance always; elevation only if `elevationGainM != null`;
+  average speed only if `netDurationSec > 0`), each carrying its own count-greater-than query, a
+  headline vocabulary (superlative + noun, e.g. "longest"/"ride"), and its raw value. For each
+  metric, queries both scopes (all-time and this-year) and registers a `RIDE_MILESTONE`-family
+  candidate for every scope where `count + 1 <= 3` — up to 6 candidates per ride, all handed to
+  `RideRevealEvaluator` for `RideRevealResolver` to pick among. Headline template
+  ("Your {ordinal-superlative} {noun} {ever|this year}!") reuses the same superlative word for rank
+  1 and prefixes "2nd-"/"3rd-" for ranks 2/3 ("Your longest ride ever!" ->
+  "Your 2nd-longest ride ever!"), which reads naturally for all three metric nouns without
+  per-metric-per-rank copy.
+
+**`domain/service/RideRevealEvaluator.kt`**
+- Constructor gained `RideMilestoneEvaluator`; `evaluate()` now passes
+  `milestoneEvaluator.candidates(session) + fallbackCandidate(session)` to the resolver instead of
+  just the fallback alone. Class doc comment updated to stop saying "today only the fallback is
+  registered" and name both this and the still-pending #160 source.
+
+### Tests
+New `RideMilestoneEvaluatorTest` (7 cases, via `FakeCyclingSessionRepository`): a first-ever ride
+ranks 1st all-time on all 3 metrics; a ride beaten by 3 others on a metric doesn't qualify on it
+(rank 4, correctly excluded); a ride beaten by only 2 others still qualifies at rank 3 (the
+no-sample-size-floor case); this-year scope excludes a bigger ride from a different calendar year
+while all-time correctly counts it; a null `elevationGainM` registers no elevation candidate; a
+zero-duration ride registers no average-speed candidate; headline text for a rank-1 all-time
+distance PR. Extended `RideRevealEvaluatorTest` (+2 cases, `RideRevealEvaluator` constructor now
+takes the new evaluator too): a genuine longest-ever ride shows the milestone headline instead of
+the fallback; a ride beaten by 3 pre-existing rides on every tracked metric still falls back to
+"Nice ride!" (regression guard for #158's guaranteed-fallback behavior). `compileDebugKotlin`,
+`compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass
+(251 tests, up from 242 — 9 new), no regressions. No on-device verification this session (pure
+rank-query/candidate logic fully covered by the new unit tests against a fake repository; no new
+UI surface — the sheet itself and its rendering were already covered by #158).
+
+---
+
 ## Issue #158 — Ride Reveal: trigger + guaranteed fallback
 Completed: 2026-08-29
 
@@ -686,78 +755,3 @@ guarantees. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugU
 --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all
 pass, no regressions.
 
----
-
-## Issue #148 — Speed distribution: changes
-Completed: 2026-07-27
-
-### What was done
-
-Full /grill-me design session before implementing (issue was terse: new buckets plus "the ride
-session Detail Screen should also receive a Speed distribution card"). Resolved: historical-data
-handling (the new 5-bucket scheme is an exact coarsening of the old 8-bucket one — every new
-boundary lines up with an old one — so a real Room migration merges existing rows' counts instead
-of relying on `fallbackToDestructiveMigration`, which would have silently wiped every ride on
-upgrade), scope of the bucket change (global — `CyclingConstants.SPEED_HISTOGRAM_BINS` is a single
-shared constant, so RepeatedRouteDetail's existing average card picks up the new buckets too, not
-just the new per-ride card), card placement (SessionDetailScreen, right after Power Zones, always
-shown since speed comes from GPS not the power meter), percentage-calc layering (in
-SessionDetailViewModel, mirroring RepeatedRouteDetailViewModel's existing count-to-percentage
-convention rather than inside the Composable), and test scope (only the migration — the
-count-to-percentage math is simple enough to skip dedicated coverage, but the migration runs once
-against real persisted ride data and a bug there is silent and hard to recover from).
-
-Mid-session (post #147, which had already landed on `main` an all-rides average reference line for
-Power/HR zone charts on this same screen and a `GlobalAverageCache.speedHistogramAverages`), wired
-the new card to that same cache for consistency with its Power Zones/HR Zones siblings, rather than
-leaving it as the only distribution card on the screen without a reference tick.
-
-**`util/Constants.kt`**
-- `SPEED_HISTOGRAM_BINS` narrowed from 8 buckets (0-5, 5-10, 10-20, 20-25, 25-30, 30-35, 35-40, >40)
-  to 5 (0-10, 10-20, 20-30, 30-40, >40), per the issue.
-
-**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`**
-- DB version 11 -> 12. New `MIGRATION_11_12` (made `internal`, not `private`, so
-  `VelometricsMigrationTest` can reference it directly): reads every `cycling_sessions.speedHistogram`
-  row's JSON, sums old-bucket counts into the new 5 labels via a fixed old-label -> new-label map
-  (`"0-5 km/h"`/`"5-10 km/h"` both -> `"0-10 km/h"`, `"10-20 km/h"` unchanged, etc.), and writes the
-  merged JSON back. No raw datapoints needed (`FitImportService` discards those after import) since
-  the merge only needs the already-aggregated old counts.
-
-**`ui/components/SpeedHistogramChart.kt`**
-- `barColors`/`shortLabels` cut from 8 to 5 entries (yellow-to-red gradient over the new buckets).
-- New `SpeedHistogramChart(percentages, allRidesAveragePercentages)` composable for a single ride,
-  delegating to the existing private `SpeedHistogramChartContent` (same rendering, including the
-  #147 average-tick-mark behavior) that `SpeedHistogramChartAvg` already used for the RepeatedRoute
-  average card.
-
-**`ui/screens/sessiondetail/SessionDetailViewModel.kt`**
-- New `speedHistogram: StateFlow<Map<String, Float>>`: this ride's own bucket counts converted to
-  percentage-of-total, computed from `session` the same way `RepeatedRouteDetailViewModel` already
-  converts counts to percentages per bin.
-- New `speedHistogramAverages: StateFlow<Map<String, Float>>` sourced directly from
-  `GlobalAverageCache`, mirroring the existing `powerZoneAverages`/`hrZoneAverages` wiring.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
-- New `SpeedHistogramChart` call inserted right after the Power Zones card/placeholder block and
-  before Heart Rate Zones, always rendered (no `hasPower`/null gating, unlike Power Zones).
-
-**`app/build.gradle.kts`**
-- New `sourceSets { getByName("debug").assets.srcDirs("$projectDir/schemas") }` (plus `androidTest`
-  for parity) so `MigrationTestHelper` can find the Room-exported schema JSONs. First attempt added
-  this to the `test` source set instead, which compiled but failed at runtime
-  (`FileNotFoundException: ... Missing file: .../11.json`) — Robolectric's local unit tests read
-  assets from the `debug` variant's merged-assets output (`isIncludeAndroidResources`), not a
-  `test`-scoped source set; switching to `debug` (rather than `main`) also keeps the schema JSONs
-  out of release builds.
-
-### Tests
-New `VelometricsMigrationTest` (`MigrationTestHelper` + Robolectric, `@SQLiteMode(NATIVE)`,
-`@Config(application = Application::class)` matching `CyclingAssetDatabaseFixtureTest`'s pattern):
-seeds a v11 row with all 8 old buckets populated with distinct counts, runs
-`DatabaseModule.MIGRATION_11_12`, and asserts each new bucket equals the exact sum of its
-contributing old buckets with no extra/missing keys. Per the grill-me scope decision, no new tests
-for the calculator/ViewModel percentage math (verified by inspection).
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching
-the known Gradle env-var/test-filter stale-cache quirk from #135): all pass (467 tests), no
-regressions. No manual on-device verification this session (outside this issue's explicit scope).

@@ -73,6 +73,18 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         return dao.getMaxSessionStart()?.let { Instant.ofEpochMilli(it) }
     }
 
+    override suspend fun countSessionsWithGreaterDistance(distanceKm: Double, since: Instant?): Int {
+        return dao.countSessionsWithGreaterDistance(distanceKm, since?.toEpochMilli())
+    }
+
+    override suspend fun countSessionsWithGreaterElevationGain(elevationGainM: Double, since: Instant?): Int {
+        return dao.countSessionsWithGreaterElevationGain(elevationGainM, since?.toEpochMilli())
+    }
+
+    override suspend fun countSessionsWithGreaterAverageSpeed(averageSpeedKmh: Double, since: Instant?): Int {
+        return dao.countSessionsWithGreaterAverageSpeed(averageSpeedKmh, since?.toEpochMilli())
+    }
+
     override suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int) {
         dao.updateIntervalStats(sessionId, count, totalSec)
     }

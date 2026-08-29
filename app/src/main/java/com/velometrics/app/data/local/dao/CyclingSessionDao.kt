@@ -68,6 +68,30 @@ interface CyclingSessionDao {
     @Query("SELECT MAX(sessionStart) FROM cycling_sessions")
     suspend fun getMaxSessionStart(): Long?
 
+    // Ride-level milestone rank queries for Ride Reveal (see RideMilestoneEvaluator): each counts
+    // rides that beat the given value on that metric, optionally scoped to on/after sinceEpochMs
+    // (null means all-time). Rank = count + 1. A NULL elevationGainM, or a session with
+    // netDurationSec <= 0, is excluded automatically rather than counted as "greater".
+
+    @Query(
+        """SELECT COUNT(*) FROM cycling_sessions
+           WHERE distanceKm > :distanceKm AND (:sinceEpochMs IS NULL OR sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countSessionsWithGreaterDistance(distanceKm: Double, sinceEpochMs: Long?): Int
+
+    @Query(
+        """SELECT COUNT(*) FROM cycling_sessions
+           WHERE elevationGainM > :elevationGainM AND (:sinceEpochMs IS NULL OR sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countSessionsWithGreaterElevationGain(elevationGainM: Double, sinceEpochMs: Long?): Int
+
+    @Query(
+        """SELECT COUNT(*) FROM cycling_sessions
+           WHERE netDurationSec > 0 AND (distanceKm / netDurationSec * 3600.0) > :averageSpeedKmh
+           AND (:sinceEpochMs IS NULL OR sessionStart >= :sinceEpochMs)"""
+    )
+    suspend fun countSessionsWithGreaterAverageSpeed(averageSpeedKmh: Double, sinceEpochMs: Long?): Int
+
     @Query("UPDATE cycling_sessions SET intervalCount = :count, intervalTotalTimeSec = :totalSec WHERE id = :sessionId")
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
 

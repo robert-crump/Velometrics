@@ -21,6 +21,12 @@ interface CyclingSessionRepository {
     suspend fun getSessionCount(): Int
     /** Latest [CyclingSession.sessionStart] persisted, or null if the table is empty. */
     suspend fun getMaxSessionStart(): Instant?
+    /** Count of persisted sessions with a strictly greater distance, since [since] (null = all-time). */
+    suspend fun countSessionsWithGreaterDistance(distanceKm: Double, since: Instant?): Int
+    /** Count of persisted sessions with a strictly greater elevation gain, since [since] (null = all-time). */
+    suspend fun countSessionsWithGreaterElevationGain(elevationGainM: Double, since: Instant?): Int
+    /** Count of persisted sessions with a strictly greater average speed, since [since] (null = all-time). */
+    suspend fun countSessionsWithGreaterAverageSpeed(averageSpeedKmh: Double, since: Instant?): Int
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
     suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>

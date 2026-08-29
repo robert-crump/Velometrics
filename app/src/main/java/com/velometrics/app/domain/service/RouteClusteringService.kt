@@ -6,6 +6,8 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import android.util.Log
 import com.velometrics.app.util.GeoUtils
+import com.velometrics.app.util.GraphUtils
+import com.velometrics.app.util.SpatialPointGrid
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +47,7 @@ class RouteClusteringService @Inject constructor(
     private data class PreparedTrack(
         val sessionId: Long,
         val sampledPoints: List<List<Double>>,
-        val grid: SpatialGrid,
+        val grid: SpatialPointGrid,
         val centroid: List<Double>,
         val recordedDistM: Double
     )
@@ -60,7 +62,7 @@ class RouteClusteringService @Inject constructor(
         return PreparedTrack(
             sessionId = data.id,
             sampledPoints = resampleTrack(raw, sampleCount),
-            grid = SpatialGrid(raw),
+            grid = SpatialPointGrid(raw, MATCH_THRESHOLD_M),
             centroid = computeCentroid(raw),
             recordedDistM = data.distanceKm * 1000.0
         )
@@ -172,28 +174,7 @@ class RouteClusteringService @Inject constructor(
         val tGraph = System.nanoTime()
 
         // ─── Step 2: connected components (single-linkage) ───
-        val componentId = IntArray(n) { -1 }
-        var nextComponent = 0
-        for (start in 0 until n) {
-            if (componentId[start] != -1) continue
-            // BFS
-            val queue = ArrayDeque<Int>()
-            queue.add(start)
-            componentId[start] = nextComponent
-            while (queue.isNotEmpty()) {
-                val node = queue.removeFirst()
-                for (neighbor in adjacency[node]) {
-                    if (componentId[neighbor] == -1) {
-                        componentId[neighbor] = nextComponent
-                        queue.add(neighbor)
-                    }
-                }
-            }
-            nextComponent++
-        }
-
-        val components = Array(nextComponent) { mutableListOf<Int>() }
-        for (i in 0 until n) components[componentId[i]].add(i)
+        val components = GraphUtils.connectedComponents(n, adjacency)
         val validGroups = components.filter { it.size >= MIN_GROUP_SIZE }
 
         if (DEBUG_LOGGING) Log.d(
@@ -251,51 +232,13 @@ class RouteClusteringService @Inject constructor(
 
     // ─── Similarity ───
 
-    private fun coverageScore(sampledA: List<List<Double>>, gridB: SpatialGrid): Double {
+    private fun coverageScore(sampledA: List<List<Double>>, gridB: SpatialPointGrid): Double {
         if (sampledA.isEmpty()) return 0.0
         var visited = 0
         for (pt in sampledA) {
             if (gridB.hasPointWithin(pt[0], pt[1])) visited++
         }
         return visited.toDouble() / sampledA.size
-    }
-
-    // ─── Spatial grid ───
-
-    private inner class SpatialGrid(points: List<List<Double>>) {
-        private val latCellSize: Double
-        private val lonCellSize: Double
-        private val cells = HashMap<Long, MutableList<List<Double>>>()
-
-        init {
-            val avgLat = points.sumOf { it[0] } / points.size
-            latCellSize = MATCH_THRESHOLD_M / 111_320.0
-            lonCellSize = MATCH_THRESHOLD_M / (111_320.0 * cos(Math.toRadians(avgLat)))
-            for (pt in points) {
-                cells.getOrPut(cellKey(pt[0], pt[1])) { mutableListOf() }.add(pt)
-            }
-        }
-
-        private fun cellKey(lat: Double, lon: Double): Long {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            return row * 2_000_000L + col + 1_000_000L
-        }
-
-        fun hasPointWithin(lat: Double, lon: Double): Boolean {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            for (dr in -1L..1L) {
-                for (dc in -1L..1L) {
-                    val bucket = cells[(row + dr) * 2_000_000L + (col + dc) + 1_000_000L]
-                        ?: continue
-                    for (pt in bucket) {
-                        if (GeoUtils.haversineDistance(lat, lon, pt[0], pt[1]) <= MATCH_THRESHOLD_M) return true
-                    }
-                }
-            }
-            return false
-        }
     }
 
     // ─── GPS track helpers ───

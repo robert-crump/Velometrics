@@ -9,6 +9,7 @@ import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.util.CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
 import com.velometrics.app.util.GeoUtils
+import com.velometrics.app.util.GraphUtils
 import com.velometrics.app.util.PolylineDecoder
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -103,26 +104,7 @@ class IntervalClusteringService @Inject constructor(
         }
 
         // ─── Step 1b: connected components (single-linkage; no minimum group size) ───
-        val componentId = IntArray(n) { -1 }
-        var nextComponent = 0
-        for (start in 0 until n) {
-            if (componentId[start] != -1) continue
-            val queue = ArrayDeque<Int>()
-            queue.add(start)
-            componentId[start] = nextComponent
-            while (queue.isNotEmpty()) {
-                val node = queue.removeFirst()
-                for (neighbor in adjacency[node]) {
-                    if (componentId[neighbor] == -1) {
-                        componentId[neighbor] = nextComponent
-                        queue.add(neighbor)
-                    }
-                }
-            }
-            nextComponent++
-        }
-        val components = Array(nextComponent) { mutableListOf<Int>() }
-        for (i in 0 until n) components[componentId[i]].add(i)
+        val components = GraphUtils.connectedComponents(n, adjacency)
         val tGraph = System.nanoTime()
 
         // ─── Step 1c: build edge geometry for each cluster via map-matching ───
@@ -207,7 +189,7 @@ class IntervalClusteringService @Inject constructor(
             fun ms(from: Long, to: Long) = (to - from) / 1_000_000
             Log.i(
                 TAG,
-                "perf: n=$n clusters=$nextComponent archetypes=${finalArchetypes.size} | " +
+                "perf: n=$n clusters=${components.size} archetypes=${finalArchetypes.size} | " +
                     "prepare=${ms(tStart, tPrepared)}ms graph=${ms(tPrepared, tGraph)}ms " +
                     "mapmatch=${ms(tGraph, tMatched)}ms postprocess=${ms(tMatched, tCompute)}ms " +
                     "persist=${ms(tCompute, System.nanoTime())}ms total=${ms(tStart, System.nanoTime())}ms"

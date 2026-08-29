@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.SessionEnergy
 import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.util.median
 import javax.inject.Inject
 
 data class SessionComparison(
@@ -130,14 +131,5 @@ class SessionComparator @Inject constructor(
     }
 
     /** Null below 2 samples — a single-sample "median" isn't a meaningful trend reference. */
-    private fun median(values: List<Double>): Double? {
-        if (values.size < 2) return null
-        val sorted = values.sorted()
-        val mid = sorted.size / 2
-        return if (sorted.size % 2 == 1) {
-            sorted[mid]
-        } else {
-            (sorted[mid - 1] + sorted[mid]) / 2.0
-        }
-    }
+    private fun median(values: List<Double>): Double? = if (values.size < 2) null else values.median()
 }

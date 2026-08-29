@@ -1,3 +1,60 @@
+## Issue #161 — Simplify: domain graph/spatial/math utilities
+Completed: 2026-08-29
+
+### What was done
+
+Pure de-duplication issue, fully scoped in the issue body itself (three named extractions, exact
+target signatures given) — planned via Explore + Plan subagents against the five source files, then
+verified every cited line range by direct read before writing the plan, since the plan was handed
+straight to implementation with no further exploration pass.
+
+**`util/GraphUtils.kt`** (new, `object`)
+- `connectedComponents(n, adjacency: Array<out MutableList<Int>>): List<List<Int>>` — the
+  identical BFS block from `RouteClusteringService.runClustering()` and
+  `IntervalClusteringService.runClustering()`, lifted verbatim (componentId/BFS/nextComponent),
+  returning components in discovery order. `n == 0` returns `emptyList()`, matching both originals.
+
+**`util/SpatialPointGrid.kt`** (new, `class`, replacing `RouteClusteringService.SpatialGrid` and
+`IntervalSimilarity.SpatialGrid`)
+- `SpatialPointGrid(points, cellRadiusM)` with `hasPointWithin(lat, lon): Boolean` — radius is now
+  a constructor param instead of a closed-over constant (`RouteClusteringService`'s was a `private
+  inner class` reading `MATCH_THRESHOLD_M`; `IntervalSimilarity`'s was a top-level nested `class`
+  reading `INTERVAL_POINT_MATCH_RADIUS_M`), so both call sites now pass their own constant
+  explicitly. Adopted `IntervalSimilarity`'s empty-list guard on the avgLat calc (the other
+  original divided by `points.size` unguarded). Both call sites' hardcoded `111_320.0` replaced
+  with `GeoUtils.METERS_PER_DEG_LAT`; `IntervalSimilarity.bboxesWithinMatchRange` had two more
+  hardcoded occurrences of the same literal (a separate function, not part of the grid class),
+  fixed too since the acceptance criteria named the file, not just the class.
+
+**`util/MathUtils.kt`** (new, top-level extension)
+- `fun List<Double>.median(): Double?`, null only on a genuinely empty list. `SessionComparator`'s
+  private `median()` becomes a one-line wrapper keeping its own "needs ≥2 samples" business rule:
+  `if (values.size < 2) null else values.median()`. `SessionMetricsCalculator`'s inline duplicate
+  (in `computeEffectivePowers`, substituting a plausible wattage for zero-power streaks) becomes
+  `prevPowers.median() ?: 0.0` — verified byte-identical behavior for empty (→0.0 fallback, same as
+  before), single-element ( → that element, same as before's `sorted[mid]` at `mid=0`), and 2+
+  element inputs across both call sites.
+
+**Related but explicitly not touched**: `MapMatcher.findConnectingPath` is a bounded
+shortest-path BFS with path reconstruction between two specific nodes — a different shape/purpose
+from the connected-components labeling BFS extracted here, flagged during exploration and left
+alone.
+
+### Tests
+New `GraphUtilsTest` (7 cases, no existing coverage previously existed for this logic): empty
+graph, single isolated node, fully-connected triangle, disconnected nodes, mixed-size clusters,
+duplicate-edges/self-loops don't affect grouping, every node appears exactly once across returned
+components. `./gradlew testDebugUnitTest`: all pass with zero modifications to
+`IntervalClusteringServiceTest`, `SessionComparatorTest`, `SessionMetricsCalculatorTest` — none of
+them reference the internals that moved, only public service APIs. `grep`-verified zero remaining
+`111_320.0` literals, `SpatialGrid` classes, or inline `componentId = IntArray` blocks in
+`app/src/main` outside the new util files. No on-device smoke test this session (no functional
+behavior changed — pure extraction verified equivalent line-by-line against the originals, not a
+substitute for the issue's own suggested manual check, but the unit-level equivalence proof covers
+the same ground for this kind of mechanical refactor).
+
+---
+
 ## Issue #160 — Ride Reveal: power-curve best-effort achievements
 Completed: 2026-08-29
 
@@ -703,43 +760,3 @@ rather than averaged over just the 4 survivors. `compileDebugKotlin` (confirms t
 migration resolves and exports `13.json`), `compileDebugUnitTestKotlin`, full `testDebugUnitTest
 --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache quirk from #135): all pass
 (12/12 in `SessionMetricsCalculatorTest`), no regressions.
-
----
-
-## Issue #151 — Ride detail: Speed distribution card is wider than the other cards
-Completed: 2026-07-29
-
-### What was done
-
-Issue had no body/labels (picked directly per the user's explicit request, not from the
-`ready-for-agent` queue — none tagged at session start). Root cause: `SpeedHistogramChartContent`'s
-`Card` used a bare `Modifier.fillMaxWidth()`, unlike every sibling card on `SessionDetailScreen`
-(`PowerZoneChart`, `HeartRateZoneChart`, `FatEfficiencyHistogram`, `SprintCard`, `IntervalListCard`),
-which all bake `Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)` directly into
-their own `Card` — that's how this screen achieves consistent card margins, since `PullUpDrawer`'s
-content column applies no horizontal padding of its own (each card owns its margin). The Speed
-Distribution card (added in #148) missed this convention, rendering edge-to-edge and visibly wider
-than its siblings.
-
-Complication: `SpeedHistogramChartContent` is shared with `SpeedHistogramChartAvg`, used on
-`RepeatedRouteDetailScreen` inside a `Column(modifier = Modifier.padding(16.dp), ...)` that already
-provides margin — that screen's own `Card(modifier = Modifier.fillMaxWidth())` usages (stats/duration
-estimator cards) rely on the parent column's padding and add none of their own. Simply adding the
-16dp horizontal padding inside the shared Card would have double-padded that screen's card instead
-(32dp inset vs. 16dp for its siblings), just moving the same bug elsewhere.
-
-**`ui/components/SpeedHistogramChart.kt`**
-- `SpeedHistogramChartContent` gained a `cardModifier: Modifier` parameter, applied to the `Card`
-  instead of a hardcoded `Modifier.fillMaxWidth()`.
-- `SpeedHistogramChart` (SessionDetailScreen) passes
-  `Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)` — matching its siblings.
-- `SpeedHistogramChartAvg` (RepeatedRouteDetailScreen) passes plain `Modifier.fillMaxWidth()` —
-  unchanged behavior, since that screen's parent column already pads.
-
-### Tests
-No new tests (pure `Modifier` plumbing, no logic change — verified by inspection against the other
-five card composables' modifier convention on both screens). `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, full `testDebugUnitTest --rerun-tasks` (matching the known Gradle
-env-var/test-filter stale-cache quirk from #135): all pass, no regressions. No on-device
-verification this session (layout-only Modifier change, low visual risk, matches an established
-pattern already proven on five other cards on the same screen).

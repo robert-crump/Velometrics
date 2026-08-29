@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.Datapoint
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
+import com.velometrics.app.util.median
 import com.google.gson.Gson
 import java.time.Duration
 import java.time.Instant
@@ -301,14 +302,7 @@ class SessionMetricsCalculator @Inject constructor() {
                     if (p > 0.0) prevPowers.add(p)
                     j--
                 }
-                val substitute = if (prevPowers.isEmpty()) {
-                    0.0
-                } else {
-                    val sorted = prevPowers.sorted()
-                    val mid = sorted.size / 2
-                    if (sorted.size % 2 == 1) sorted[mid]
-                    else (sorted[mid - 1] + sorted[mid]) / 2.0
-                }
+                val substitute = prevPowers.median() ?: 0.0
                 for (k in streakStart until i) result[k] = substitute
             }
         }

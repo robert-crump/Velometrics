@@ -4,9 +4,9 @@ import com.velometrics.app.util.CyclingConstants.INTERVAL_LENGTH_TOLERANCE_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_POINT_MATCH_RADIUS_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_POINT_SIMILARITY_THRESHOLD
 import com.velometrics.app.util.GeoUtils
+import com.velometrics.app.util.SpatialPointGrid
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.floor
 
 /**
  * Shared "do these two GPS tracks represent the same ride segment" test (#10/#25/#26):
@@ -20,7 +20,7 @@ object IntervalSimilarity {
 
     /** A GPS track ([points], as `[lat, lon]` pairs) prepared for repeated similarity tests against it. */
     class PreparedTrack(val points: List<List<Double>>, val distanceM: Double) {
-        val grid = SpatialGrid(points)
+        val grid = SpatialPointGrid(points, INTERVAL_POINT_MATCH_RADIUS_M)
 
         // Axis-aligned bounding box, used as a cheap O(1) reject before the grid coverage scan.
         val minLat: Double
@@ -59,15 +59,15 @@ object IntervalSimilarity {
      * at the highest-magnitude latitude of the pair (smallest cos) so it is never under-estimated.
      */
     private fun bboxesWithinMatchRange(a: PreparedTrack, b: PreparedTrack): Boolean {
-        val latMargin = INTERVAL_POINT_MATCH_RADIUS_M / 111_320.0
+        val latMargin = INTERVAL_POINT_MATCH_RADIUS_M / GeoUtils.METERS_PER_DEG_LAT
         if (a.minLat > b.maxLat + latMargin || b.minLat > a.maxLat + latMargin) return false
         val maxAbsLat = maxOf(abs(a.minLat), abs(a.maxLat), abs(b.minLat), abs(b.maxLat))
-        val lonMargin = INTERVAL_POINT_MATCH_RADIUS_M / (111_320.0 * cos(Math.toRadians(maxAbsLat)))
+        val lonMargin = INTERVAL_POINT_MATCH_RADIUS_M / (GeoUtils.METERS_PER_DEG_LAT * cos(Math.toRadians(maxAbsLat)))
         if (a.minLon > b.maxLon + lonMargin || b.minLon > a.maxLon + lonMargin) return false
         return true
     }
 
-    private fun coverageScore(points: List<List<Double>>, grid: SpatialGrid): Double {
+    private fun coverageScore(points: List<List<Double>>, grid: SpatialPointGrid): Double {
         if (points.isEmpty()) return 0.0
         var matched = 0
         for (pt in points) {
@@ -76,40 +76,4 @@ object IntervalSimilarity {
         return matched.toDouble() / points.size
     }
 
-    /** Spatial grid for point-to-point neighbor lookup within [INTERVAL_POINT_MATCH_RADIUS_M]. */
-    class SpatialGrid(points: List<List<Double>>) {
-        private val latCellSize: Double
-        private val lonCellSize: Double
-        private val cells = HashMap<Long, MutableList<List<Double>>>()
-
-        init {
-            val avgLat = if (points.isEmpty()) 0.0 else points.sumOf { it[0] } / points.size
-            latCellSize = INTERVAL_POINT_MATCH_RADIUS_M / 111_320.0
-            lonCellSize = INTERVAL_POINT_MATCH_RADIUS_M / (111_320.0 * cos(Math.toRadians(avgLat)))
-            for (pt in points) {
-                cells.getOrPut(cellKey(pt[0], pt[1])) { mutableListOf() }.add(pt)
-            }
-        }
-
-        private fun cellKey(lat: Double, lon: Double): Long {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            return row * 2_000_000L + col + 1_000_000L
-        }
-
-        fun hasPointWithin(lat: Double, lon: Double): Boolean {
-            val row = floor(lat / latCellSize).toLong()
-            val col = floor(lon / lonCellSize).toLong()
-            for (dr in -1L..1L) {
-                for (dc in -1L..1L) {
-                    val bucket = cells[(row + dr) * 2_000_000L + (col + dc) + 1_000_000L]
-                        ?: continue
-                    for (pt in bucket) {
-                        if (GeoUtils.haversineDistance(lat, lon, pt[0], pt[1]) <= INTERVAL_POINT_MATCH_RADIUS_M) return true
-                    }
-                }
-            }
-            return false
-        }
-    }
 }

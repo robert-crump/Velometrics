@@ -8,6 +8,7 @@ import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
+import com.velometrics.app.util.JsonSafeParser
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -30,7 +31,6 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     companion object { private const val TAG = "RepeatedIntervalRepo" }
 
     private val gson = Gson()
-    private val listLongType = object : TypeToken<List<Long>>() {}.type
     private val edgeRefListType = object : TypeToken<List<List<Long>>>() {}.type
 
     override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> {
@@ -66,11 +66,7 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveRepeatedInterval(interval: RepeatedInterval): Long {
-        val createdAt = if (interval.id != 0L) {
-            dao.getById(interval.id)?.createdAt ?: System.currentTimeMillis()
-        } else {
-            System.currentTimeMillis()
-        }
+        val createdAt = resolveCreatedAt(interval.id) { dao.getById(interval.id)?.createdAt }
         return dao.insert(domainToEntity(interval, createdAt))
     }
 
@@ -130,14 +126,8 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun parseLongList(json: String): List<Long> {
-        return try {
-            gson.fromJson(json, listLongType)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse interval IDs from JSON", e)
-            emptyList()
-        }
-    }
+    private fun parseLongList(json: String): List<Long> =
+        JsonSafeParser.parseOrDefault<List<Long>>(json, TAG, "Failed to parse interval IDs from JSON", emptyList())
 
     private fun parseEdgeRefs(json: String): List<Pair<Long, Long>> {
         return try {

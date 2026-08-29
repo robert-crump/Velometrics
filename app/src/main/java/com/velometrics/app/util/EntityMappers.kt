@@ -8,18 +8,27 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.time.Instant
 
-private val gson = Gson()
+@PublishedApi
+internal val gson = Gson()
+
+/** Deserializes this JSON string as [T]. */
+inline fun <reified T> String.parseJson(): T = gson.fromJson(this, object : TypeToken<T>() {}.type)
+
+/** Deserializes this JSON string as [T], or `null` if the string itself is `null`. */
+inline fun <reified T> String?.parseJsonOrNull(): T? =
+    this?.let { gson.fromJson(it, object : TypeToken<T>() {}.type) }
+
+/** Serializes this value to a JSON string. */
+inline fun <reified T> T.toJsonString(): String = gson.toJson(this)
 
 // CyclingSession mappers
 fun CyclingSessionEntity.toDomain(): CyclingSession {
-    val mapType = object : TypeToken<Map<String, Int>>() {}.type
-    val doubleMapType = object : TypeToken<Map<String, Double>>() {}.type
-    val powerZoneDist: Map<String, Int>? = powerZoneDistribution?.let { gson.fromJson(it, mapType) }
-    val speedHist: Map<String, Int> = gson.fromJson(speedHistogram, mapType)
-    val fatEffHist: Map<String, Int>? = fatEfficiencyHistogram?.let { gson.fromJson(it, mapType) }
-    val sprintHist: Map<String, Int>? = sprintHistogram?.let { gson.fromJson(it, mapType) }
-    val hrZoneDist: Map<String, Int>? = hrZoneDistribution?.let { gson.fromJson(it, mapType) }
-    val cardiacDrift: Map<String, Double>? = cardiacDriftBuckets?.let { gson.fromJson(it, doubleMapType) }
+    val powerZoneDist: Map<String, Int>? = powerZoneDistribution.parseJsonOrNull()
+    val speedHist: Map<String, Int> = speedHistogram.parseJson()
+    val fatEffHist: Map<String, Int>? = fatEfficiencyHistogram.parseJsonOrNull()
+    val sprintHist: Map<String, Int>? = sprintHistogram.parseJsonOrNull()
+    val hrZoneDist: Map<String, Int>? = hrZoneDistribution.parseJsonOrNull()
+    val cardiacDrift: Map<String, Double>? = cardiacDriftBuckets.parseJsonOrNull()
 
     return CyclingSession(
         id = id,
@@ -70,22 +79,22 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         normalizedPower = normalizedPower,
         fatBurnedGrams = fatBurnedGrams,
         carbsBurnedGrams = carbsBurnedGrams,
-        powerZoneDistribution = powerZoneDistribution?.let { gson.toJson(it) },
-        speedHistogram = gson.toJson(speedHistogram),
+        powerZoneDistribution = powerZoneDistribution?.toJsonString(),
+        speedHistogram = speedHistogram.toJsonString(),
         intervalCount = intervalCount,
         intervalTotalTimeSec = intervalTotalTimeSec,
         gpsQualityPercent = gpsQualityPercent,
         powerQualityPercent = powerQualityPercent,
         hasPower = hasPower,
         gpsTrack = gpsTrack,
-        fatEfficiencyHistogram = fatEfficiencyHistogram?.let { gson.toJson(it) },
+        fatEfficiencyHistogram = fatEfficiencyHistogram?.toJsonString(),
         fatEfficiencyScore = fatEfficiencyScore,
         sprintCount = sprintCount,
-        sprintHistogram = sprintHistogram?.let { gson.toJson(it) },
+        sprintHistogram = sprintHistogram?.toJsonString(),
         avgHeartRate = avgHeartRate,
         elevationGainM = elevationGainM,
-        hrZoneDistribution = hrZoneDistribution?.let { gson.toJson(it) },
-        cardiacDriftBuckets = cardiacDriftBuckets?.let { gson.toJson(it) },
+        hrZoneDistribution = hrZoneDistribution?.toJsonString(),
+        cardiacDriftBuckets = cardiacDriftBuckets?.toJsonString(),
         cardiacDriftPercent = cardiacDriftPercent
     )
 }

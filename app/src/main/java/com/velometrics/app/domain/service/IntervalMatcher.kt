@@ -4,9 +4,8 @@ import android.util.Log
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
+import com.velometrics.app.util.JsonSafeParser
 import com.velometrics.app.util.PolylineDecoder
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,9 +24,6 @@ class IntervalMatcher @Inject constructor(
     companion object {
         private const val TAG = "IntervalMatcher"
     }
-
-    private val gson = Gson()
-    private val trackType = object : TypeToken<List<List<Double>>>() {}.type
 
     /**
      * Matches [intervals] against the persisted archetypes and appends each match to its
@@ -89,12 +85,6 @@ class IntervalMatcher @Inject constructor(
         }
     }
 
-    private fun parseGpsTrack(gpsTrackJson: String): List<List<Double>> {
-        return try {
-            gson.fromJson(gpsTrackJson, trackType) ?: emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GPS track JSON", e)
-            emptyList()
-        }
-    }
+    private fun parseGpsTrack(gpsTrackJson: String): List<List<Double>> =
+        JsonSafeParser.parseOrDefault<List<List<Double>>>(gpsTrackJson, TAG, "Failed to parse GPS track JSON", emptyList())
 }

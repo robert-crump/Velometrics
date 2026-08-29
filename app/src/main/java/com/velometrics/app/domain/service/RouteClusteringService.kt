@@ -7,9 +7,8 @@ import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import android.util.Log
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
+import com.velometrics.app.util.JsonSafeParser
 import com.velometrics.app.util.SpatialPointGrid
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -21,9 +20,6 @@ class RouteClusteringService @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val repeatedRouteRepository: RepeatedRouteRepository
 ) {
-    private val gson = Gson()
-    private val trackType = object : TypeToken<List<List<Double>>>() {}.type
-
     companion object {
         private const val TAG = "RouteClusteringService"
         private const val SAMPLE_SPACING_M = 50.0      // sample session A every 50 m
@@ -245,12 +241,7 @@ class RouteClusteringService @Inject constructor(
 
     private fun parseGpsTrack(json: String?): List<List<Double>>? {
         if (json == null) return null
-        return try {
-            gson.fromJson(json, trackType)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GPS track JSON", e)
-            null
-        }
+        return JsonSafeParser.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
     }
 
     private fun computeCentroid(points: List<List<Double>>): List<Double> {

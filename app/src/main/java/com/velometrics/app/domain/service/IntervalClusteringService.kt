@@ -10,9 +10,8 @@ import com.velometrics.app.util.CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
+import com.velometrics.app.util.JsonSafeParser
 import com.velometrics.app.util.PolylineDecoder
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
@@ -36,9 +35,6 @@ class IntervalClusteringService @Inject constructor(
     private val repeatedIntervalRepository: RepeatedIntervalRepository,
     private val mapMatcher: MapMatcher
 ) {
-    private val gson = Gson()
-    private val trackType = object : TypeToken<List<List<Double>>>() {}.type
-
     companion object {
         private const val TAG = "IntervalClusteringService"
 
@@ -261,12 +257,6 @@ class IntervalClusteringService @Inject constructor(
         return kept
     }
 
-    private fun parseGpsTrack(json: String): List<List<Double>> {
-        return try {
-            gson.fromJson(json, trackType) ?: emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GPS track JSON", e)
-            emptyList()
-        }
-    }
+    private fun parseGpsTrack(json: String): List<List<Double>> =
+        JsonSafeParser.parseOrDefault<List<List<Double>>>(json, TAG, "Failed to parse GPS track JSON", emptyList())
 }

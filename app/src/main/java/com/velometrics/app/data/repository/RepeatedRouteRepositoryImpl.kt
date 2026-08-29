@@ -6,9 +6,8 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
-import android.util.Log
+import com.velometrics.app.util.JsonSafeParser
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -26,7 +25,6 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
     companion object { private const val TAG = "RepeatedRouteRepo" }
 
     private val gson = Gson()
-    private val listLongType = object : TypeToken<List<Long>>() {}.type
 
     override fun getAllRoutes(): Flow<List<RepeatedRoute>> {
         return combine(
@@ -58,11 +56,7 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveRoute(route: RepeatedRoute): Long {
-        val createdAt = if (route.id != 0L) {
-            dao.getById(route.id)?.createdAt ?: System.currentTimeMillis()
-        } else {
-            System.currentTimeMillis()
-        }
+        val createdAt = resolveCreatedAt(route.id) { dao.getById(route.id)?.createdAt }
         val entity = domainToEntity(route, createdAt)
         return dao.insert(entity)
     }
@@ -113,23 +107,11 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun parseIds(json: String): List<Long> {
-        return try {
-            gson.fromJson(json, listLongType)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse session IDs from JSON", e)
-            emptyList()
-        }
-    }
+    private fun parseIds(json: String): List<Long> =
+        JsonSafeParser.parseOrDefault<List<Long>>(json, TAG, "Failed to parse session IDs from JSON", emptyList())
 
     private fun parseGpsTrack(json: String?): List<List<Double>>? {
         if (json == null) return null
-        return try {
-            val type = object : TypeToken<List<List<Double>>>() {}.type
-            gson.fromJson(json, type)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GPS track JSON", e)
-            null
-        }
+        return JsonSafeParser.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
     }
 }

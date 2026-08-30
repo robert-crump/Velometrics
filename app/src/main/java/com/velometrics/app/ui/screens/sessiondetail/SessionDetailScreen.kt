@@ -72,23 +72,9 @@ fun SessionDetailScreen(
         }
     ) { padding ->
         if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+            LoadingBox(modifier = Modifier.padding(padding))
         } else if (session == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Session not found")
-            }
+            NotFoundBox(text = "Session not found", modifier = Modifier.padding(padding))
         } else {
             val s = session!!
             var drawerFraction by remember { mutableStateOf(0.5f) }

@@ -1,3 +1,90 @@
+## Issue #165 — Simplify: UI structural duplication (charts, dialogs, lists)
+Completed: 2026-08-30
+
+### What was done
+
+Fifth `Simplify:` mechanical-cleanup issue in the run (#161/#162/#163/#164 landed the four
+sessions before this one), same shape again but the largest yet: five separate extractions spread
+across nine files, fully scoped in the issue body with exact target signatures/behaviors and every
+deliberate non-normalization named. Read every named file before editing, no exploration subagent
+needed.
+
+**`ui/components/TickedBarChart.kt`** (new) — shared bar+tick-mark `Canvas` extracted from
+`PowerZoneChart`, `HeartRateZoneChart`, `SpeedHistogramChart` (all three were byte-identical in
+layout/canvas code, differing only in zone/bin data, colors, and two label-formatting details).
+`TickedBarEntry(label, percentage, color, percentageLabel: String?, tickPercentage: Float?)` — the
+`percentageLabel` field (not a `showLabel: Boolean`) doubles as the one real behavioral difference
+the issue called out (`PowerZoneChart`/`HeartRateZoneChart` pass `null` at 0% to hide the label,
+`SpeedHistogramChart` always passes a formatted string) *and* preserves a second, unstated
+difference the issue didn't call out but the original code had: `toInt()` (truncating) vs.
+`roundToInt()` (rounding) percentage formatting between the two chart families — each caller
+formats its own label text, so both differences survive without needing two separate flags. All
+three chart files now just build a `List<TickedBarEntry>` from their own zone/bin maps and call
+`TickedBarChart(title, entries, modifier)`; public function signatures
+(`PowerZoneChart`/`HeartRateZoneChart`/`SpeedHistogramChart`/`SpeedHistogramChartAvg`) unchanged.
+
+**`ui/components/EditableTopBarTitle.kt`** (new) — `EditableTopBarTitleState` (isEditing/editName/
+focusRequester) + `rememberEditableTopBarTitleState(name)` (re-syncs `editName` from the backing
+name whenever it changes and the user isn't mid-edit; requests focus on entering edit mode) +
+`EditableTopBarTitle` (title-slot composable, text field or plain `Text`) +
+`RowScope.EditableTopBarActions` (check/edit icon buttons, `extraActions: @Composable RowScope.()
+-> Unit = {}` slot after the edit button). `EditableTopBarActions` needed a `RowScope` receiver,
+not just a plain `@Composable` — first `compileDebugKotlin` attempt failed ("No value passed for
+parameter 'p1'") because `extraActions()` (typed `RowScope.() -> Unit`) has no receiver to invoke
+against without one. `RepeatedRouteDetailScreen` passes its "Export GPX" `IconButton` (only when
+`representativeTrack` is non-empty) as `extraActions`; `RepeatedIntervalDetailScreen` passes
+nothing, matching the issue's explicit "Interval screen doesn't have it" call-out.
+
+**`SettingsScreen.kt`** (colocated, per the issue) — private `NumberEditDialog(title, label,
+currentValue, helperText, onDismiss, onConfirm: (Int) -> Unit)` replaces the FTP/Max-HR edit
+dialogs (validates trimmed input parses to a positive int different from `currentValue` before
+calling `onConfirm`, otherwise the dialog just stays open — same as before extraction); private
+`ConfirmDialog(title, text, confirmLabel, onConfirm, onDismiss)` replaces the FTP-change/Max-HR-
+change/recalculate confirmations. Dropbox-folder dialog left untouched (confirmed byte-identical
+post-edit) — different shape (text vs. number validation), single use, as the issue specified.
+
+**`ui/components/RefreshableList.kt`** (new, generic `<T>`) — replaces
+`RepeatedRoutesContent`/`RepeatedIntervalsContent` in `RepeatedRoutesScreen.kt`: pull-to-refresh +
+loading spinner + empty-state (title/subtitle) + `LazyColumn` shape, parameterized by `entries`,
+`key`, `emptyTitle`/`emptySubtitle`, and an `itemContent` slot. Named the list parameter `entries`
+rather than `items` deliberately — a parameter literally named `items` shadows
+`androidx.compose.foundation.lazy.items` inside the same composable, which would break the
+`items(entries, key = key) { ... }` call inside `LazyColumn`. Also added a private, colocated
+`<T : Enum<T>> SortDropdownItems(dimensions, currentOrder, onSelect)` in `RepeatedRoutesScreen.kt`
+itself (per the issue: "in the same file") replacing the two duplicated enum-sort `DropdownMenu`
+bodies (route dimensions vs. interval dimensions) — generic over any enum whose ASC/DESC variants
+follow the existing `_ASC`/`_DESC` naming convention the arrow-glyph logic already relied on.
+
+**`ui/components/LoadingBox.kt`** (new) — `LoadingBox(modifier)` and `NotFoundBox(text, modifier,
+style, color)`, both internally `Modifier.fillMaxSize().then(modifier)` so a call site's own
+modifier (e.g. `Modifier.padding(padding)`) composes onto the *same* chain position the original
+inline `Box(Modifier.fillMaxSize().padding(padding), ...)` used — verified this reproduces each of
+the 4 screens' pre-existing modifier exactly, including the one deliberate inconsistency called out
+in the issue: `RepeatedRouteDetailScreen`/`RepeatedIntervalDetailScreen`'s loading spinner omits
+`.padding(padding)` (both now call bare `LoadingBox()`) while `AllTimeStatsScreen`/
+`SessionDetailScreen`'s include it (`LoadingBox(modifier = Modifier.padding(padding))`) — left
+as-is, not fixed, per the issue. `NotFoundBox`'s `style`/`color` default to `LocalTextStyle.current`/
+`Color.Unspecified` (plain `Text()`'s own defaults) so the three literal "X not found" call sites
+(Session/Route/Interval) are unchanged; `AllTimeStatsScreen`'s distinctly-styled "No rides recorded
+yet" empty state (`titleMedium`/`onSurfaceVariant`, not a literal "not found" case but the same
+Box+Text shape) passes those explicitly to preserve its different look.
+
+### Tests
+No test changes — pure structural/mechanical de-duplication across 5 extractions, each verified
+equivalent to its originals by construction (identical Canvas/dialog/list/box code, only the
+call-site data varies) rather than by new test coverage, matching #161-#164's precedent for this
+class of refactor. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full
+`testDebugUnitTest`: all pass clean, zero regressions (no Compose tests exist for any of these
+screens, so this only confirms no compile/unit-test regressions elsewhere, per the issue's own
+acceptance criteria). No on-device manual verification this session (issue's suggested check —
+charts render identically, rename flow works on both detail screens including GPX export, all 4
+Settings dialogs behave identically, Routes/Intervals lists/refresh/empty-states/sort menus behave
+identically — has no automated equivalent in this environment; each extraction's call-site
+equivalence was verified line-for-line against the pre-refactor originals at review time instead,
+consistent with #161-#164's precedent).
+
+---
+
 ## Issue #164 — Simplify: domain logic consolidation
 Completed: 2026-08-30
 
@@ -575,89 +662,3 @@ against the real checked-in `velometrics_fixture.db` (not a mock/stub) — no de
 wipe, schema_version check passes. `assembleDebug` succeeds, confirming the ~84MB asset packages
 into the APK without issue. No on-device install/run this session (mechanical asset-path swap,
 already covered by the fixture test opening the real asset through the full Room stack).
-
----
-
-## Issue #152 — Remove route-rating code from Velometrics (post Route IQ v1)
-Completed: 2026-08-11
-
-### What was done
-
-Execute-ready PRD (execution gate — Route IQ v1 shipped with equivalent functionality — already
-marked met in the issue text) with a precisely scoped file/call-site list built from two prior
-`/grill-me` passes, so this session was mostly disciplined execution against that list plus one
-more fresh call-site verification pass (per the issue's own closing note: re-verify at execution
-time, don't just trust a PRD written days/weeks earlier — issue #155, executed just before this
-one in the same session, had already found stale facts in adjacent PRDs the same way).
-
-**Deleted outright** (production): `data/gpx/GpxParser.kt`, `domain/model/GpxTrack.kt`,
-`domain/model/GpxPoiItem.kt`, `util/GpxAnalysisUtils.kt`, `ui/shared/GpxSharedViewModel.kt`,
-`ui/intent/GpxIntentViewModel.kt`, `docs/ideas/score-gpx-track.md` — all confirmed exclusive to
-the "load an external .gpx and analyze it" flow, matching the PRD's list.
-
-**Surgically trimmed**, per the PRD:
-- `MapMatcher.kt`: removed `matchTrackChunked`/`splitIntoChunks`/`ChunkedMatchResult` (only
-  caller was `GpxSharedViewModel`); kept `loadRegion`/`matchTrack`/etc., still used by
-  `IntervalClusteringService`. Removed the now-orphaned `GPX_ANALYSIS_MATCH_CHUNK_M`/
-  `GPX_SURROGATE_MAX_DISTANCE_M`/`GPX_SURROGATE_MAX_BEARING_DIFF_DEG` constants after the method,
-  per the PRD's explicit ordering note.
-- `MainActivity.kt`: removed `extractGpxUri`, both call sites, the `gpxIntentViewModel` property,
-  and (beyond the PRD's literal two-call-site description, but a direct consequence of
-  `GpxIntentViewModel` being deleted entirely) the `pendingGpxUri`-driven navigate-to-MapView
-  `LaunchedEffect` — nothing else in `MainActivity` touched.
-- `AndroidManifest.xml`: removed both `.gpx` `ACTION_VIEW`/`ACTION_SEND` intent-filter blocks;
-  `MAIN`/`LAUNCHER` filter untouched.
-- `MapViewScreen.kt`: this was the biggest surface — essentially all `.gpx`-load/analysis UI
-  turned out to be wired through the two deleted ViewModels, not just the two composables the PRD
-  named explicitly (`ElevationProfileSection`/`PoiDensitySection`). Removed: the
-  `gpxSharedViewModel`/`gpxIntentViewModel` params; all `.gpx` state collection; the GPX-track/
-  segment-highlight/finish-line-marker/POI-camera-fit map-sync `LaunchedEffect`s; the "POIs along
-  .gpx"/"List"/"Analysis" chips and their `deactivateGpxPoiMode()` wiring (now dropped from the
-  category-chip `onClick`s too); the `.gpx` Layers-panel toggle and its `OpenDocument` launcher;
-  the "POIs along .gpx" list overlay, `GpxAnalysisOverlay` dialog (plus its 4 section composables
-  and preview), and the remove-`.gpx`-confirm dialog; `GpxPoisSheetContent`/`GpxPoiRow`/
-  `OpenClosedBadge` (the last one only used by the row being removed). Left every unrelated
-  composable (past-ride tracks, interval overlay, category POI layer, flow segments, Layers-panel
-  Intervals/Flow toggles, scale bar, locate FAB) untouched.
-- `ui/components/BottomNavBar.kt`: removed the `GpxSharedViewModel` dependency and the
-  close-overlay-instead-of-navigate branch; tab taps always navigate now.
-
-**Found dead as a direct consequence, not in the PRD's literal list** (same "grep every call site,
-don't fold in unrelated pre-existing dead code, but do remove what your own change just orphaned"
-discipline #155 used the session before this one):
-- `Constants.kt`'s `FAST_WAY_HOME_TRACK_COLOR` — its own comment already documented its only use
-  as the "POIs along .gpx" orange segment highlight; that highlight's `LaunchedEffect` is gone, so
-  removed the constant too (the PRD's constants list didn't include it — it wasn't dead when the
-  PRD was written, since #155 hadn't yet removed the last other `FAST_WAY_HOME_*` constants using
-  that naming scheme, but it's zero-caller now).
-- `FormatUtils.formatGpxPoiDistance` — only caller was the now-deleted `GpxPoiRow`.
-- `MapGraphRepository.getPoisInBoundingBox` (+ `MapGraphRepositoryImpl`'s override +
-  `PoiDao.getInBoundingBox`) — only real caller was `GpxSharedViewModel.fetchPoisForTrack`;
-  removed from the interface, impl, DAO, and the two fake test doubles
-  (`MapMatcherTest`/`MapViewViewModelTest`) that had to implement the interface.
-- Confirmed `PolylineDecoder` import in `MapViewScreen.kt` was already dead *before* this change
-  (verified via `git show HEAD:...`) — left it alone, same "don't fold in a pre-existing unrelated
-  finding" call #155 made for `RewardComposer.composeEdgeReward`.
-
-**Explicitly kept, re-confirmed fresh**: `domain/service/GpxExporter.kt` in full — real caller is
-`RepeatedRouteDetailViewModel`'s export flow (the PRD's other claimed caller,
-`FastWayHomeViewModel`/`PlanARideViewModel`, no longer exists post-#155, but that doesn't change
-the keep decision since `RepeatedRouteDetailViewModel` alone is suffient reason).
-`TrackIndex`/`TrackProjection`/`TrackGeometryUtils`/`RTreeSpatialIndex` all kept — shared with
-`MapMatcher`/`IntervalClusteringService`, not `.gpx`-exclusive despite living next to `.gpx` code.
-
-### Tests
-Deleted `GpxParserTest.kt`, `GpxAnalysisUtilsTest.kt`, `FindSurrogatesTest.kt` (each exclusively
-tested a deleted file/function, per the issue's testing-decisions section). `GpxExporterTest.kt`
-(kept, tests the kept `GpxExporter`) used `GpxParser` internally as a round-trip verification tool
-for 3 of its cases — rewrote those to extract `<trkpt lat=".." lon=".."/>` via regex directly
-instead, which also makes the test self-contained to `GpxExporter`'s own output rather than
-depending on a parser outside the system under test. Stripped the now-nonexistent
-`getPoisInBoundingBox` override from both fake `MapGraphRepository` test doubles.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass clean (228 tests, 0 failures/errors — down from 281 pre-#155, expected given the deleted
-route-creation and now `.gpx`-analysis test files). No on-device verification this session
-(mechanical removal, `.gpx` sharing is inherently untestable without another app to share from in
-this environment; Map tab's remaining past-ride/interval/POI rendering paths are unchanged code,
-covered by the passing `MapViewViewModelTest`).
-

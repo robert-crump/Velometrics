@@ -2,29 +2,25 @@ package com.velometrics.app.ui.screens.repeatedintervaldetail
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.ui.components.ComposableMapView
+import com.velometrics.app.ui.components.EditableTopBarActions
+import com.velometrics.app.ui.components.EditableTopBarTitle
+import com.velometrics.app.ui.components.LoadingBox
 import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.MetricCell
+import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.PullUpDrawer
+import com.velometrics.app.ui.components.rememberEditableTopBarTitleState
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
@@ -41,38 +37,17 @@ fun RepeatedIntervalDetailScreen(
     viewModel: RepeatedIntervalDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var isEditing by remember { mutableStateOf(false) }
-    var editName by remember { mutableStateOf(TextFieldValue("")) }
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(uiState.repeatedInterval?.name) {
-        if (!isEditing) {
-            uiState.repeatedInterval?.name?.let { editName = TextFieldValue(it) }
-        }
-    }
+    val titleState = rememberEditableTopBarTitleState(uiState.repeatedInterval?.name)
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    if (isEditing) {
-                        OutlinedTextField(
-                            value = editName,
-                            onValueChange = { editName = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                viewModel.rename(editName.text)
-                                isEditing = false
-                            }),
-                            textStyle = MaterialTheme.typography.titleMedium
-                        )
-                    } else {
-                        Text(uiState.repeatedInterval?.name ?: "Interval")
-                    }
+                    EditableTopBarTitle(
+                        state = titleState,
+                        displayName = uiState.repeatedInterval?.name ?: "Interval",
+                        onRename = { viewModel.rename(it) }
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -80,38 +55,24 @@ fun RepeatedIntervalDetailScreen(
                     }
                 },
                 actions = {
-                    if (isEditing) {
-                        IconButton(onClick = {
-                            viewModel.rename(editName.text)
-                            isEditing = false
-                        }) {
-                            Icon(Icons.Default.Check, contentDescription = "Save name")
-                        }
-                    } else {
-                        IconButton(onClick = {
-                            val name = uiState.repeatedInterval?.name ?: ""
-                            editName = TextFieldValue(name, TextRange(name.length))
-                            isEditing = true
-                        }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Rename interval")
-                        }
-                    }
+                    EditableTopBarActions(
+                        state = titleState,
+                        currentName = uiState.repeatedInterval?.name,
+                        renameContentDescription = "Rename interval",
+                        onRename = { viewModel.rename(it) }
+                    )
                 }
             )
         }
     ) { padding ->
         if (uiState.isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            LoadingBox()
             return@Scaffold
         }
 
         val repeatedInterval = uiState.repeatedInterval
         if (repeatedInterval == null) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Interval not found")
-            }
+            NotFoundBox(text = "Interval not found", modifier = Modifier.padding(padding))
             return@Scaffold
         }
 
@@ -174,10 +135,6 @@ fun RepeatedIntervalDetailScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
-    }
-
-    LaunchedEffect(isEditing) {
-        if (isEditing) focusRequester.requestFocus()
     }
 }
 

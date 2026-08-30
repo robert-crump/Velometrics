@@ -3,34 +3,30 @@
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.ui.components.ComposableMapView
+import com.velometrics.app.ui.components.EditableTopBarActions
+import com.velometrics.app.ui.components.EditableTopBarTitle
+import com.velometrics.app.ui.components.LoadingBox
 import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.MetricCell
+import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.SpeedHistogramChartAvg
+import com.velometrics.app.ui.components.rememberEditableTopBarTitleState
 import com.velometrics.app.ui.components.roundedAxisBounds
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
@@ -47,9 +43,7 @@ fun RepeatedRouteDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val exportError by viewModel.exportError.collectAsState()
-    var isEditing by remember { mutableStateOf(false) }
-    var editName by remember { mutableStateOf(TextFieldValue("")) }
-    val focusRequester = remember { FocusRequester() }
+    val titleState = rememberEditableTopBarTitleState(uiState.route?.name)
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -71,34 +65,15 @@ fun RepeatedRouteDetailScreen(
         if (model != null) sliderIndex = model.defaultIndex
     }
 
-    LaunchedEffect(uiState.route?.name) {
-        if (!isEditing) {
-            uiState.route?.name?.let { editName = TextFieldValue(it) }
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    if (isEditing) {
-                        OutlinedTextField(
-                            value = editName,
-                            onValueChange = { editName = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                viewModel.renameRoute(editName.text)
-                                isEditing = false
-                            }),
-                            textStyle = MaterialTheme.typography.titleMedium
-                        )
-                    } else {
-                        Text(uiState.route?.name ?: "Route")
-                    }
+                    EditableTopBarTitle(
+                        state = titleState,
+                        displayName = uiState.route?.name ?: "Route",
+                        onRename = { viewModel.renameRoute(it) }
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -106,21 +81,12 @@ fun RepeatedRouteDetailScreen(
                     }
                 },
                 actions = {
-                    if (isEditing) {
-                        IconButton(onClick = {
-                            viewModel.renameRoute(editName.text)
-                            isEditing = false
-                        }) {
-                            Icon(Icons.Default.Check, contentDescription = "Save name")
-                        }
-                    } else {
-                        IconButton(onClick = {
-                            val name = uiState.route?.name ?: ""
-                            editName = TextFieldValue(name, TextRange(name.length))
-                            isEditing = true
-                        }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Rename route")
-                        }
+                    EditableTopBarActions(
+                        state = titleState,
+                        currentName = uiState.route?.name,
+                        renameContentDescription = "Rename route",
+                        onRename = { viewModel.renameRoute(it) }
+                    ) {
                         if (!uiState.route?.representativeTrack.isNullOrEmpty()) {
                             IconButton(onClick = { viewModel.exportGpx() }) {
                                 Icon(Icons.Default.Share, contentDescription = "Export GPX")
@@ -133,17 +99,13 @@ fun RepeatedRouteDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (uiState.isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            LoadingBox()
             return@Scaffold
         }
 
         val route = uiState.route
         if (route == null) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Route not found")
-            }
+            NotFoundBox(text = "Route not found", modifier = Modifier.padding(padding))
             return@Scaffold
         }
 
@@ -385,10 +347,6 @@ fun RepeatedRouteDetailScreen(
                 }
             }
         }
-    }
-
-    LaunchedEffect(isEditing) {
-        if (isEditing) focusRequester.requestFocus()
     }
 }
 

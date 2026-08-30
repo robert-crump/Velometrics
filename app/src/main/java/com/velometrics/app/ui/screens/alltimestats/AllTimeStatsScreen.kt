@@ -32,7 +32,9 @@ import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.PowerSpeedPoint
 import com.velometrics.app.domain.model.RecordEntry
 import com.velometrics.app.domain.model.YearStat
+import com.velometrics.app.ui.components.LoadingBox
 import com.velometrics.app.ui.components.MetricCell
+import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
 import com.velometrics.app.ui.components.roundedAxisBounds
@@ -63,24 +65,15 @@ fun AllTimeStatsScreen(
     ) { padding ->
         when {
             uiState.isLoading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+                LoadingBox(modifier = Modifier.padding(padding))
             }
             !uiState.hasAnySessions -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "No rides recorded yet",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                NotFoundBox(
+                    text = "No rides recorded yet",
+                    modifier = Modifier.padding(padding),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             else -> {
                 Column(

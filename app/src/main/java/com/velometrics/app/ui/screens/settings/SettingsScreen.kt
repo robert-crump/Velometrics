@@ -52,126 +52,62 @@ fun SettingsScreen(
 
     // FTP edit dialog
     if (showFtpDialog) {
-        var ftpInput by remember { mutableStateOf(currentFtp.toString()) }
-        AlertDialog(
-            onDismissRequest = { showFtpDialog = false },
-            title = { Text("FTP (Functional Threshold Power)") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = ftpInput,
-                        onValueChange = { ftpInput = it },
-                        label = { Text("FTP (W)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "The average power you can sustain for one hour. " +
-                            "Defines power zones, sprint detection (≥${(CyclingConstants.SPRINT_THRESHOLD_FACTOR * 100).roundToInt()}% FTP), " +
-                            "and interval detection (≥${(CyclingConstants.INTERVAL_THRESHOLD_FACTOR * 100).roundToInt()}% FTP). " +
-                            "Requires a power meter.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val parsed = ftpInput.trim().toIntOrNull()
-                    if (parsed != null && parsed > 0 && parsed != currentFtp) {
-                        showFtpDialog = false
-                        viewModel.requestFtpChange(parsed)
-                    }
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFtpDialog = false }) { Text("Cancel") }
+        NumberEditDialog(
+            title = "FTP (Functional Threshold Power)",
+            label = "FTP (W)",
+            currentValue = currentFtp,
+            helperText = "The average power you can sustain for one hour. " +
+                "Defines power zones, sprint detection (≥${(CyclingConstants.SPRINT_THRESHOLD_FACTOR * 100).roundToInt()}% FTP), " +
+                "and interval detection (≥${(CyclingConstants.INTERVAL_THRESHOLD_FACTOR * 100).roundToInt()}% FTP). " +
+                "Requires a power meter.",
+            onDismiss = { showFtpDialog = false },
+            onConfirm = { parsed ->
+                showFtpDialog = false
+                viewModel.requestFtpChange(parsed)
             }
         )
     }
 
     // FTP change confirmation dialog
     pendingFtp?.let { newFtp ->
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelFtpChange() },
-            title = { Text("Change FTP?") },
-            text = {
-                Text(
-                    "New FTP = $newFtp W will be used for all future file imports.\n\n" +
-                        "Existing session data (power zones, fat efficiency, sprints) remains based on " +
-                        "FTP = $currentFtp W and cannot be updated without re-importing those files."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmFtpChange() }) { Text("Confirm") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelFtpChange() }) { Text("Cancel") }
-            }
+        ConfirmDialog(
+            title = "Change FTP?",
+            text = "New FTP = $newFtp W will be used for all future file imports.\n\n" +
+                "Existing session data (power zones, fat efficiency, sprints) remains based on " +
+                "FTP = $currentFtp W and cannot be updated without re-importing those files.",
+            confirmLabel = "Confirm",
+            onConfirm = { viewModel.confirmFtpChange() },
+            onDismiss = { viewModel.cancelFtpChange() }
         )
     }
 
     // Max HR edit dialog
     if (showMaxHrDialog) {
-        var maxHrInput by remember { mutableStateOf(currentMaxHr.toString()) }
-        AlertDialog(
-            onDismissRequest = { showMaxHrDialog = false },
-            title = { Text("Max Heart Rate") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = maxHrInput,
-                        onValueChange = { maxHrInput = it },
-                        label = { Text("Max HR (bpm)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Your maximum heart rate in beats per minute. " +
-                            "Defines heart rate zone boundaries (Z1–Z5). " +
-                            "Requires a heart rate monitor.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val parsed = maxHrInput.trim().toIntOrNull()
-                    if (parsed != null && parsed > 0 && parsed != currentMaxHr) {
-                        showMaxHrDialog = false
-                        viewModel.requestMaxHrChange(parsed)
-                    }
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMaxHrDialog = false }) { Text("Cancel") }
+        NumberEditDialog(
+            title = "Max Heart Rate",
+            label = "Max HR (bpm)",
+            currentValue = currentMaxHr,
+            helperText = "Your maximum heart rate in beats per minute. " +
+                "Defines heart rate zone boundaries (Z1–Z5). " +
+                "Requires a heart rate monitor.",
+            onDismiss = { showMaxHrDialog = false },
+            onConfirm = { parsed ->
+                showMaxHrDialog = false
+                viewModel.requestMaxHrChange(parsed)
             }
         )
     }
 
     // Max HR change confirmation dialog
     pendingMaxHr?.let { newMaxHr ->
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelMaxHrChange() },
-            title = { Text("Change Max HR?") },
-            text = {
-                Text(
-                    "New Max HR = $newMaxHr bpm will be used for all future file imports.\n\n" +
-                        "Existing session data (heart rate zones) remains based on " +
-                        "Max HR = $currentMaxHr bpm and cannot be updated without re-importing those files."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmMaxHrChange() }) { Text("Confirm") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelMaxHrChange() }) { Text("Cancel") }
-            }
+        ConfirmDialog(
+            title = "Change Max HR?",
+            text = "New Max HR = $newMaxHr bpm will be used for all future file imports.\n\n" +
+                "Existing session data (heart rate zones) remains based on " +
+                "Max HR = $currentMaxHr bpm and cannot be updated without re-importing those files.",
+            confirmLabel = "Confirm",
+            onConfirm = { viewModel.confirmMaxHrChange() },
+            onDismiss = { viewModel.cancelMaxHrChange() }
         )
     }
 
@@ -207,24 +143,16 @@ fun SettingsScreen(
 
     // Recalculate confirmation dialog
     if (showRecalcDialog) {
-        AlertDialog(
-            onDismissRequest = { showRecalcDialog = false },
-            title = { Text("Recalculate session stats?") },
-            text = {
-                Text(
-                    "Re-runs session comparisons. Power zone histograms, sprint data, " +
-                        "heart-rate, and elevation stats require re-importing FIT files."
-                )
+        ConfirmDialog(
+            title = "Recalculate session stats?",
+            text = "Re-runs session comparisons. Power zone histograms, sprint data, " +
+                "heart-rate, and elevation stats require re-importing FIT files.",
+            confirmLabel = "Recalculate",
+            onConfirm = {
+                showRecalcDialog = false
+                viewModel.recalculateAllStats()
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRecalcDialog = false
-                    viewModel.recalculateAllStats()
-                }) { Text("Recalculate") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRecalcDialog = false }) { Text("Cancel") }
-            }
+            onDismiss = { showRecalcDialog = false }
         )
     }
 
@@ -396,4 +324,79 @@ private fun SettingsRow(
             trailing()
         }
     }
+}
+
+/**
+ * Numeric-field edit dialog shared by the FTP and Max-HR editors: a labeled number field plus a
+ * helper-text blurb, saving only when the trimmed input parses to a positive int different from
+ * [currentValue] (otherwise the dialog just stays open, same as before extraction).
+ */
+@Composable
+private fun NumberEditDialog(
+    title: String,
+    label: String,
+    currentValue: Int,
+    helperText: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var input by remember { mutableStateOf(currentValue.toString()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    label = { Text(label) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = helperText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val parsed = input.trim().toIntOrNull()
+                if (parsed != null && parsed > 0 && parsed != currentValue) {
+                    onConfirm(parsed)
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/**
+ * Title/body/confirm-or-cancel dialog shared by the FTP-change, Max-HR-change, and recalculate
+ * confirmations — all three are otherwise identical AlertDialog shells around different copy.
+ */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }

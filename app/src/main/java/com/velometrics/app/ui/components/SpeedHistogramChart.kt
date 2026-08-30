@@ -1,15 +1,9 @@
-﻿package com.velometrics.app.ui.components
+package com.velometrics.app.ui.components
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.util.CyclingConstants
@@ -24,8 +18,6 @@ private val barColors = listOf(
 )
 
 private val shortLabels = listOf("0-10", "10-20", "20-30", "30-40", ">40")
-
-private const val CHART_HEIGHT_DP = 80
 
 /**
  * Displays the speed distribution from pre-computed average percentages per bin (0–100 scale).
@@ -71,83 +63,21 @@ private fun SpeedHistogramChartContent(
     cardModifier: Modifier
 ) {
     val bins = CyclingConstants.SPEED_HISTOGRAM_BINS.map { it.first }
-    val maxPct = (percentages.values + allRidesAveragePercentages.values)
-        .maxOrNull()?.coerceAtLeast(1f) ?: 1f
 
-    val tickColor = MaterialTheme.colorScheme.onSurface
-    val tickOutlineColor = MaterialTheme.colorScheme.surface
-
-    Card(
-        modifier = cardModifier
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Speed Distribution",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                bins.forEachIndexed { index, binName ->
-                    val pct = percentages[binName] ?: 0f
-                    val fraction = pct / maxPct
-                    val avgFraction = allRidesAveragePercentages[binName]?.let { it / maxPct }
-                    val color = barColors.getOrElse(index) { barColors.last() }
-                    val shortLabel = shortLabels.getOrElse(index) { binName }
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom
-                    ) {
-                        Canvas(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(CHART_HEIGHT_DP.dp)
-                        ) {
-                            val barHeightPx = (size.height * fraction).coerceAtLeast(2.dp.toPx())
-                            drawRect(
-                                color = color,
-                                topLeft = Offset(0f, size.height - barHeightPx),
-                                size = Size(size.width, barHeightPx)
-                            )
-                            if (avgFraction != null) {
-                                val tickY = size.height - size.height * avgFraction
-                                drawLine(
-                                    color = tickOutlineColor,
-                                    start = Offset(0f, tickY),
-                                    end = Offset(size.width, tickY),
-                                    strokeWidth = 5.dp.toPx()
-                                )
-                                drawLine(
-                                    color = tickColor,
-                                    start = Offset(0f, tickY),
-                                    end = Offset(size.width, tickY),
-                                    strokeWidth = 2.dp.toPx()
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = shortLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${pct.roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-        }
+    val entries = bins.mapIndexed { index, binName ->
+        val pct = percentages[binName] ?: 0f
+        TickedBarEntry(
+            label = shortLabels.getOrElse(index) { binName },
+            percentage = pct,
+            color = barColors.getOrElse(index) { barColors.last() },
+            percentageLabel = "${pct.roundToInt()}%",
+            tickPercentage = allRidesAveragePercentages[binName]
+        )
     }
+
+    TickedBarChart(
+        title = "Speed Distribution",
+        entries = entries,
+        modifier = cardModifier
+    )
 }

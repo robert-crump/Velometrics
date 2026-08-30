@@ -2,13 +2,10 @@ package com.velometrics.app.ui.screens.repeatedroutes
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.model.RepeatedRoute
+import com.velometrics.app.ui.components.RefreshableList
 import com.velometrics.app.ui.screens.repeatedintervals.RepeatedIntervalSortOrder
 import com.velometrics.app.ui.screens.repeatedintervals.RepeatedIntervalsViewModel
 import com.velometrics.app.util.FormatUtils
@@ -60,44 +58,14 @@ fun RepeatedRoutesScreen(
                             onDismissRequest = { filterMenuExpanded = false }
                         ) {
                             if (selectedTab == RoutesSubTab.ROUTES) {
-                                routeSortDimensions.forEach { (label, defaultOrder, altOrder) ->
-                                    val isActive = routeSortOrder == defaultOrder || routeSortOrder == altOrder
-                                    val arrow = if (isActive) {
-                                        if (routeSortOrder.name.endsWith("_ASC")) " ↑" else " ↓"
-                                    } else ""
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                "$label$arrow",
-                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                        },
-                                        onClick = {
-                                            val newOrder = if (routeSortOrder == defaultOrder) altOrder else defaultOrder
-                                            viewModel.setSortOrder(newOrder)
-                                            filterMenuExpanded = false
-                                        }
-                                    )
+                                SortDropdownItems(routeSortDimensions, routeSortOrder) { newOrder ->
+                                    viewModel.setSortOrder(newOrder)
+                                    filterMenuExpanded = false
                                 }
                             } else {
-                                intervalSortDimensions.forEach { (label, defaultOrder, altOrder) ->
-                                    val isActive = intervalSortOrder == defaultOrder || intervalSortOrder == altOrder
-                                    val arrow = if (isActive) {
-                                        if (intervalSortOrder.name.endsWith("_ASC")) " ↑" else " ↓"
-                                    } else ""
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                "$label$arrow",
-                                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                        },
-                                        onClick = {
-                                            val newOrder = if (intervalSortOrder == defaultOrder) altOrder else defaultOrder
-                                            intervalsViewModel.setSortOrder(newOrder)
-                                            filterMenuExpanded = false
-                                        }
-                                    )
+                                SortDropdownItems(intervalSortDimensions, intervalSortOrder) { newOrder ->
+                                    intervalsViewModel.setSortOrder(newOrder)
+                                    filterMenuExpanded = false
                                 }
                             }
                         }
@@ -147,7 +115,6 @@ fun RepeatedRoutesScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RepeatedRoutesContent(
     viewModel: RepeatedRoutesViewModel,
@@ -157,58 +124,22 @@ private fun RepeatedRoutesContent(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    PullToRefreshBox(
+    RefreshableList(
+        entries = routes,
+        isLoading = isLoading,
         isRefreshing = isRefreshing,
         onRefresh = { viewModel.refresh() },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (isLoading) {
-                item {
-                    Box(
-                        modifier = Modifier.fillParentMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-            } else if (routes.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier.fillParentMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            "No repeated routes yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Import ≥3 sessions on the same route to get started",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                items(routes, key = { it.id }) { route ->
-                    RepeatedRouteCard(
-                        route = route,
-                        onClick = { onNavigateToRouteDetail(route.id) }
-                    )
-                }
-            }
-        }
+        key = { it.id },
+        emptyTitle = "No repeated routes yet",
+        emptySubtitle = "Import ≥3 sessions on the same route to get started"
+    ) { route ->
+        RepeatedRouteCard(
+            route = route,
+            onClick = { onNavigateToRouteDetail(route.id) }
+        )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RepeatedIntervalsContent(
     viewModel: RepeatedIntervalsViewModel,
@@ -218,54 +149,49 @@ private fun RepeatedIntervalsContent(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    PullToRefreshBox(
+    RefreshableList(
+        entries = repeatedIntervals,
+        isLoading = isLoading,
         isRefreshing = isRefreshing,
         onRefresh = { viewModel.refresh() },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (isLoading) {
-                item {
-                    Box(
-                        modifier = Modifier.fillParentMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-            } else if (repeatedIntervals.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier.fillParentMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            "No repeated intervals yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Pull to refresh after importing sessions with intervals",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                items(repeatedIntervals, key = { it.id }) { interval ->
-                    RepeatedIntervalCard(
-                        repeatedInterval = interval,
-                        onClick = { onNavigateToIntervalDetail(interval.id) }
-                    )
-                }
+        key = { it.id },
+        emptyTitle = "No repeated intervals yet",
+        emptySubtitle = "Pull to refresh after importing sessions with intervals"
+    ) { interval ->
+        RepeatedIntervalCard(
+            repeatedInterval = interval,
+            onClick = { onNavigateToIntervalDetail(interval.id) }
+        )
+    }
+}
+
+/**
+ * Enum-sort dropdown items shared by the Routes/Intervals sort menus: each dimension toggles
+ * between its default and alt (usually desc/asc) order when re-selected while already active.
+ */
+@Composable
+private fun <T : Enum<T>> SortDropdownItems(
+    dimensions: List<Triple<String, T, T>>,
+    currentOrder: T,
+    onSelect: (T) -> Unit
+) {
+    dimensions.forEach { (label, defaultOrder, altOrder) ->
+        val isActive = currentOrder == defaultOrder || currentOrder == altOrder
+        val arrow = if (isActive) {
+            if (currentOrder.name.endsWith("_ASC")) " ↑" else " ↓"
+        } else ""
+        DropdownMenuItem(
+            text = {
+                Text(
+                    "$label$arrow",
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                )
+            },
+            onClick = {
+                val newOrder = if (currentOrder == defaultOrder) altOrder else defaultOrder
+                onSelect(newOrder)
             }
-        }
+        )
     }
 }
 

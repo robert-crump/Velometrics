@@ -1,3 +1,63 @@
+## Issue #164 — Simplify: domain logic consolidation
+Completed: 2026-08-30
+
+### What was done
+
+Third `Simplify:` mechanical-cleanup issue in a row (#161/#162/#163 landed the three sessions
+before this one), same shape again: fully scoped in the issue body with exact target
+signatures/behaviors named, so went straight to reading every named file before editing, no
+exploration subagent needed.
+
+**`domain/service/RankedMetricEvaluator.kt`** (new, `object`) — extracted the ranking machinery
+`RideMilestoneEvaluator` (#159) and `PowerCurveAchievementEvaluator` (#160) each duplicated
+verbatim: `rankCandidate` (count-greater-than -> rank -> candidate-if-top-3), `startOfYear`, and
+the ordinal-headline construction ("Xxx"/"2nd-Xxx"/"3rd-Xxx" + noun + "ever"/"this year"). The two
+originals' headline vocab wasn't quite identical text (`RideMilestoneEvaluator` varies its base
+word per metric — "longest"/"most"/"fastest"; `PowerCurveAchievementEvaluator` always uses "best")
+but the *shape* was identical, so `Metric<T>` carries a per-metric `ordinalWord` field — ride
+milestones pass their own varying word, power-curve metrics all pass the literal `"best"` — and
+`rank(metrics, yearStart, family): List<RideRevealCandidate>` is generic over the metric's value
+type (`Double` for ride milestones, `Int` for power-curve watts) so both evaluators' `countGreater`
+lambda signatures still typecheck without a cast. Both evaluators now just build their own
+metric-and-query list and call `RankedMetricEvaluator.rank(...)`; verified byte-identical headline
+output for both by construction (same interpolated template, same word-selection logic, just
+lifted to a shared function) rather than by re-deriving it from scratch.
+
+**`SessionMetricsCalculator.compute()`** — the 6 separate `if (hasPower) ... else null` guards for
+`powerZoneDistribution`/`averagePower`/`normalizedPower`/`fatBurnedGrams`/`carbsBurnedGrams`/
+`fatEfficiencyHistogram`/`fatEfficiencyScore` (7 fields, `effectivePowers` itself an 8th
+power-gated local feeding 4 of them) collapsed into one `computePowerMetrics(datapoints, ftp):
+PowerMetrics` call behind a single `if (hasPower)`, returning a private `PowerMetrics` data class
+with the same nullability each field's compute function already had (`averagePower`/
+`normalizedPower`/`fatEfficiencyScore` stay `Int?`, since e.g. `computeAveragePower` can itself
+return null on an empty power list; the rest are non-null). `powerQualityPercent`'s
+`hasPower && datapoints.isNotEmpty()` and `cardiacDrift`'s `hasPower && avgHeartRate != null`
+guards left untouched per the issue's explicit call-out — genuinely different conditions, folding
+them in would change behavior. Also renamed `computePowerZones`'s shadowed `val ftp =
+ftp.toDouble()` local to `ftpDouble` (pure rename, the shadowing warning is gone but the logic is
+unchanged).
+
+**`FitImportService.filterGpsQuality`** — replaced the 5 parallel `var discardSpeed`/
+`discardPower`/`discardZero`/`discardLeap`/`discardImplied` counters with one
+`mutableMapOf("zero" to 0, "speed" to 0, "power" to 0, "leap" to 0, "implied" to 0)`, incremented
+via `discardCounts["key"] = discardCounts.getValue("key") + 1` at each of the 5 discard sites. The
+final `Log.d` line's format string is untouched byte-for-byte (same `discardZero=$x,
+discardSpeed=$x, ...` label text and ordering), just reading `discardCounts.getValue("zero")` etc.
+instead of the old individual vars.
+
+### Tests
+No test modifications, per the issue's own acceptance criteria — `RideMilestoneEvaluatorTest`,
+`PowerCurveAchievementEvaluatorTest`, and `SessionMetricsCalculatorTest` all stayed green as-is
+against the refactored code, confirming byte-identical behavior. `./gradlew testDebugUnitTest`
+(targeted run against the three named test classes, then the full suite): both pass clean, no
+regressions. `git diff --stat -- '*Test.kt'` confirms zero test files touched. No automated
+coverage exists for `FitImportService` (pre-existing, not introduced here) so the issue's suggested
+manual check (import a real FIT file, diff the discard-count debug log line before/after) wasn't
+run in this environment — covered instead by the code-level argument above: the log line's format
+string and variable-read sequence are unchanged, only the storage (5 vars -> 1 map) changed.
+
+---
+
 ## Issue #163 — Simplify: trivial UI mechanical fixes
 Completed: 2026-08-29
 
@@ -601,90 +661,3 @@ route-creation and now `.gpx`-analysis test files). No on-device verification th
 this environment; Map tab's remaining past-ride/interval/POI rendering paths are unchanged code,
 covered by the passing `MapViewViewModelTest`).
 
----
-
-## Issue #155 — Remove on-device route-creation code (post Route Builder migration)
-Completed: 2026-08-11
-
-### What was done
-
-Picked directly per the maintainer's explicit request (`use issue 155`), not auto-selected —
-the issue itself gates execution on Ride-Graph's Route Builder (Ride-Graph#88) being "far enough
-along to replace Fast Way Home / Plan A Ride for daily use," with the readiness bar explicitly
-left as a human call, not code-verifiable. Checked Ride-Graph's side first: the PRD (#88) is
-still open, but its component issues are closed (Route Builder #95, Interval Builder #96,
-`gpx_exporter` #92, `segment_connector` #91, ADR-0006 #89) — asked the maintainer to confirm
-they've actually used it enough to trust the gate is met before touching anything; confirmed yes.
-
-Removed the entire on-device route-composition/search stack per the issue's list, plus every
-transitively-dead dependency found by the same "grep every call site before deleting" discipline
-#152 established — this pulled in more than the issue's literal file list once traced:
-
-**Deleted outright** (production): `FastWayHomeService`, `RouteRefiner`, `CorridorOrienteer`,
-`RouteGenerator`, `JunctionCost`, `ExitLegPlanner`, `LoopHull`, `RouteShapeMetrics`,
-`DegradationPolicy`, `FastWayHomeViewModel`/`Overlay`, `PlanARideViewModel`/`Overlay`,
-`MapTurnEntity`/`Dao`, `CorridorEntity`/`CorridorConnectorEntity`/`CorridorDao`, and the
-now-fully-unused domain models `Corridor`/`CorridorConnector`/`MapTurn` (not in the issue's
-literal list, but every production caller was one of the files above — confirmed via grep before
-deleting, same as `HazardFilter` was found dead in a prior session).
-
-**Surgically trimmed** (not in the issue's file list, but became dead as a direct consequence of
-the above):
-- `MapGraphRepository`/`Impl`: dropped `getRoutingEdgesNear`/`getTurnsNear`/`getAllCorridors`/
-  `getAllCorridorConnectors`/`getConnectorsForCorridor` and the `RoutingEdge` data class — every
-  caller besides tests was `RouteRefiner`/`RouteGenerator`. Kept `getFlowSegmentsNear` (real
-  caller: `MapViewViewModel`, a staying feature).
-- `MapEdgeDao`: dropped `RoutingEdgeRow`/`getRoutingEdgesNear` (SQL query with `reward` scoring —
-  exclusive to `RouteRefiner`).
-- `EntityMappers.kt`: dropped `CorridorEntity.toDomain()`.
-- `RewardComposer.kt`: dropped `composeCorridorReward` (only caller was `CorridorOrienteer`);
-  kept `composeEdgeReward` — pre-existing dead code with zero production callers even before this
-  change, so out of scope here (same reasoning #152 applied to `HazardFilter`: don't fold an
-  unrelated stale-code finding into this removal's diff).
-- `CyclingAssetDatabase.kt`: dropped `MapTurnEntity`/`CorridorEntity`/`CorridorConnectorEntity`
-  from the `@Database` entity list and the `mapTurnDao()`/`corridorDao()` accessors, version 6 ->
-  7. `DatabaseModule.kt`: dropped the matching `@Provides` methods and the `turnDao`/`corridorDao`
-  constructor params on `MapGraphRepositoryImpl`.
-- `Constants.kt`: dropped `ROUTE_START_RADIUS_M`, the three `FAST_WAY_HOME_GPS_*`/`BBOX_MARGIN_M`
-  constants, `FAST_WAY_HOME_TRACK_WIDTH`, and every `PLAN_A_RIDE_*` constant. Kept
-  `FAST_WAY_HOME_TRACK_COLOR` — still load-bearing for the unrelated "POIs along .gpx" orange
-  segment highlight in `MapViewScreen.kt`, caught only by grepping its actual call sites rather
-  than trusting the name.
-- `MapViewScreen.kt`: removed the `fastWayHomeViewModel`/`planARideViewModel` params, their state
-  collection, the Fast-Way-Home/Plan-a-Ride map-render `LaunchedEffect`s, both result cards, both
-  FABs, the "Plan a ride" distance/direction/explore-weight dialog, and now-dead icon imports
-  (`DirectionsBike`, `Home`) — left every unrelated composable (GPX overlay, POI layer, interval
-  overlay, layers panel) untouched.
-
-**Explicitly kept, re-confirmed**: `GpxExporter.kt` (still used by `RepeatedRouteDetailViewModel`'s
-export) and `MapMatcher.kt` (still used by `IntervalClusteringService`) — grepped fresh rather
-than trusting #152's PRD text, since that PRD is itself still unexecuted in this codebase.
-`HazardFilter` was already gone (commit `1c133da`, prior session). `IntervalClusteringService`/
-`MapMatcher` untouched apart from one doc-comment edit (`MapMatcher.kt`'s class-doc no longer
-name-drops the now-deleted `FastWayHomeService`).
-
-**Risk flagged and verified, not assumed**: bumping `CyclingAssetDatabase`'s version while it uses
-`createFromAsset` + `fallbackToDestructiveMigration` could in theory either hard-crash (identity-
-hash mismatch) or silently wipe the bundled graph (destructive fallback) if the checked-in asset's
-baked-in schema no longer matches the narrowed entity list. Ran the real fixture-contract test
-(`CyclingAssetDatabaseFixtureTest`, from #124) against the actual checked-in
-`cycling_graph_fixture.db` rather than assuming either way — it opened clean with real data
-intact, no destructive wipe, so no fixture regeneration was needed for this change. Left a note
-in that test's docstring recording what was verified, for whoever does the `velometrics.db` asset
-swap (#156) next.
-
-### Tests
-Deleted the dedicated test files for every removed production file (`RouteGeneratorTest`,
-`CorridorOrienteerTest`, `RouteShapeGateRegressionTest`, `ExitLegPlannerTest`, `LoopHullTest`,
-`RouteRefinerTest`, `JunctionCostTest`, `RouteShapeDiagnosisHarness`, `RouteShapeMetricsTest`,
-`DegradationPolicyTest`, `FastWayHomeServiceTest`, `MapTurnEntityTest`,
-`CorridorConnectorEntityTest`) plus `EntityMappersTest` (its only case, `CorridorEntity.toDomain`,
-had no surviving subject). Trimmed `RewardComposerTest` to drop its corridor-reward cases only.
-Stripped now-nonexistent-interface overrides (`getTurnsNear`/`getAllCorridors`/etc.) from the fake
-`MapGraphRepository` test doubles in `MapMatcherTest`/`MapViewViewModelTest`, and the two
-route-search-specific assertions from `CyclingAssetDatabaseFixtureTest` (kept its core
-no-destructive-wipe/schema-mismatch assertions).
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`:
-all pass clean (281 tests, 0 failures/errors) — no dangling references, no regressions. No
-on-device verification this session (mechanical removal + fixture-test-verified DB path; the
-replacement UX now lives in Ride-Graph's browser app, not this repo).

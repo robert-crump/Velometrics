@@ -46,23 +46,9 @@ class SessionMetricsCalculator @Inject constructor() {
         // 4. Speed histogram
         val speedHistogram = computeSpeedHistogram(datapoints)
 
-        // 5. Power zones
-        val powerZoneDistribution = if (hasPower) computePowerZones(datapoints, ftp) else null
-
-        // 6. Average power
-        val averagePower = if (hasPower) computeAveragePower(datapoints) else null
-
-        // 7. Normalized power
-        val normalizedPower = if (hasPower) computeNormalizedPower(datapoints) else null
-
-        // 8. Fat/carbs burned (using effective powers to guesstimate 0 W streaks)
-        val effectivePowers = if (hasPower) computeEffectivePowers(datapoints) else null
-        val fatBurnedGrams = if (hasPower) computeFatBurned(datapoints, effectivePowers!!) else null
-        val carbsBurnedGrams = if (hasPower) computeCarbsBurned(datapoints, effectivePowers!!) else null
-
-        // 8b. Fat efficiency histogram + score
-        val fatEfficiencyHistogram = if (hasPower) computeFatEfficiencyHistogram(datapoints, effectivePowers!!) else null
-        val fatEfficiencyScore = if (hasPower) computeFatEfficiencyScore(datapoints, effectivePowers!!) else null
+        // 5-8b. Power zones, average/normalized power, fat/carbs burned, and fat efficiency
+        // (fat/carbs burned and fat efficiency use effective powers to guesstimate 0 W streaks)
+        val powerMetrics = if (hasPower) computePowerMetrics(datapoints, ftp) else null
 
         // 9. GPS quality
         val gpsQualityPercent = if (rawRecordCount > 0) {
@@ -101,11 +87,11 @@ class SessionMetricsCalculator @Inject constructor() {
             pauseDurationSec = pauseDurationSec,
             netDurationSec = netDurationSec,
             distanceKm = distanceKm,
-            averagePower = averagePower,
-            normalizedPower = normalizedPower,
-            fatBurnedGrams = fatBurnedGrams,
-            carbsBurnedGrams = carbsBurnedGrams,
-            powerZoneDistribution = powerZoneDistribution,
+            averagePower = powerMetrics?.averagePower,
+            normalizedPower = powerMetrics?.normalizedPower,
+            fatBurnedGrams = powerMetrics?.fatBurnedGrams,
+            carbsBurnedGrams = powerMetrics?.carbsBurnedGrams,
+            powerZoneDistribution = powerMetrics?.powerZoneDistribution,
             speedHistogram = speedHistogram,
             intervalCount = 0,
             intervalTotalTimeSec = 0,
@@ -113,8 +99,8 @@ class SessionMetricsCalculator @Inject constructor() {
             powerQualityPercent = powerQualityPercent,
             hasPower = hasPower,
             gpsTrack = gpsTrack,
-            fatEfficiencyHistogram = fatEfficiencyHistogram,
-            fatEfficiencyScore = fatEfficiencyScore,
+            fatEfficiencyHistogram = powerMetrics?.fatEfficiencyHistogram,
+            fatEfficiencyScore = powerMetrics?.fatEfficiencyScore,
             avgHeartRate = avgHeartRate,
             elevationGainM = elevationGainM,
             hrZoneDistribution = hrZoneDistribution,
@@ -228,11 +214,39 @@ class SessionMetricsCalculator @Inject constructor() {
         return histogram
     }
 
+    /**
+     * Power zones, average/normalized power, fat/carbs burned, and fat efficiency — everything
+     * gated on [hasPower] in one place. Fat/carbs burned and fat efficiency share a single pass
+     * of effective powers (guesstimating 0 W streaks) rather than recomputing it per field.
+     */
+    private fun computePowerMetrics(datapoints: List<Datapoint>, ftp: Int): PowerMetrics {
+        val effectivePowers = computeEffectivePowers(datapoints)
+        return PowerMetrics(
+            powerZoneDistribution = computePowerZones(datapoints, ftp),
+            averagePower = computeAveragePower(datapoints),
+            normalizedPower = computeNormalizedPower(datapoints),
+            fatBurnedGrams = computeFatBurned(datapoints, effectivePowers),
+            carbsBurnedGrams = computeCarbsBurned(datapoints, effectivePowers),
+            fatEfficiencyHistogram = computeFatEfficiencyHistogram(datapoints, effectivePowers),
+            fatEfficiencyScore = computeFatEfficiencyScore(datapoints, effectivePowers)
+        )
+    }
+
+    private data class PowerMetrics(
+        val powerZoneDistribution: Map<String, Int>,
+        val averagePower: Int?,
+        val normalizedPower: Int?,
+        val fatBurnedGrams: Double,
+        val carbsBurnedGrams: Double,
+        val fatEfficiencyHistogram: Map<String, Int>,
+        val fatEfficiencyScore: Int?
+    )
+
     private fun computePowerZones(datapoints: List<Datapoint>, ftp: Int): Map<String, Int> {
         val zones = mutableMapOf("0 W" to 0)
         CyclingConstants.POWER_ZONES.forEach { (label, _) -> zones[label] = 0 }
 
-        val ftp = ftp.toDouble()
+        val ftpDouble = ftp.toDouble()
 
         for (dp in datapoints) {
             val power = dp.power ?: 0
@@ -240,7 +254,7 @@ class SessionMetricsCalculator @Inject constructor() {
                 zones["0 W"] = (zones["0 W"] ?: 0) + 1
                 continue
             }
-            val ratio = power / ftp
+            val ratio = power / ftpDouble
             for ((label, range) in CyclingConstants.POWER_ZONES) {
                 if (ratio >= range.first && ratio < range.second) {
                     zones[label] = (zones[label] ?: 0) + 1

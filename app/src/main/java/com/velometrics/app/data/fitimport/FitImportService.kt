@@ -259,30 +259,26 @@ class FitImportService @Inject constructor(
         if (datapoints.isEmpty()) return emptyList()
 
         val filtered = mutableListOf<Datapoint>()
-        var discardSpeed = 0
-        var discardPower = 0
-        var discardZero = 0
-        var discardLeap = 0
-        var discardImplied = 0
+        val discardCounts = mutableMapOf("zero" to 0, "speed" to 0, "power" to 0, "leap" to 0, "implied" to 0)
 
         var lastValid: Datapoint? = null
 
         for (dp in datapoints) {
             // Discard zero lat/lon
             if (dp.lat == 0.0 || dp.lon == 0.0) {
-                discardZero++
+                discardCounts["zero"] = discardCounts.getValue("zero") + 1
                 continue
             }
 
             // Discard unrealistic speed
             if (dp.speedKmh != null && dp.speedKmh > CyclingConstants.MAX_REALISTIC_SPEED_KMH) {
-                discardSpeed++
+                discardCounts["speed"] = discardCounts.getValue("speed") + 1
                 continue
             }
 
             // Discard unrealistic power
             if (dp.power != null && dp.power > CyclingConstants.MAX_REALISTIC_POWER) {
-                discardPower++
+                discardCounts["power"] = discardCounts.getValue("power") + 1
                 continue
             }
 
@@ -294,7 +290,7 @@ class FitImportService @Inject constructor(
                 // Discard GPS leap: distance > 500m AND elapsed < 5s
                 if (distM > CyclingConstants.GPS_LEAP_MAX_DISTANCE_M &&
                     elapsedSec < CyclingConstants.GPS_LEAP_MAX_TIME_SEC) {
-                    discardLeap++
+                    discardCounts["leap"] = discardCounts.getValue("leap") + 1
                     continue
                 }
 
@@ -302,7 +298,7 @@ class FitImportService @Inject constructor(
                 if (elapsedSec > 0) {
                     val impliedSpeedKmh = (distM / elapsedSec) * CyclingConstants.MTS_PER_SEC_TO_KMH
                     if (impliedSpeedKmh > CyclingConstants.GPS_IMPLIED_MAX_SPEED_KMH) {
-                        discardImplied++
+                        discardCounts["implied"] = discardCounts.getValue("implied") + 1
                         continue
                     }
                 }
@@ -312,9 +308,9 @@ class FitImportService @Inject constructor(
             lastValid = dp
         }
 
-        Log.d(TAG, "GPS filter: kept=${filtered.size}, discardZero=$discardZero, " +
-                "discardSpeed=$discardSpeed, discardPower=$discardPower, " +
-                "discardLeap=$discardLeap, discardImplied=$discardImplied")
+        Log.d(TAG, "GPS filter: kept=${filtered.size}, discardZero=${discardCounts.getValue("zero")}, " +
+                "discardSpeed=${discardCounts.getValue("speed")}, discardPower=${discardCounts.getValue("power")}, " +
+                "discardLeap=${discardCounts.getValue("leap")}, discardImplied=${discardCounts.getValue("implied")}")
 
         return filtered
     }

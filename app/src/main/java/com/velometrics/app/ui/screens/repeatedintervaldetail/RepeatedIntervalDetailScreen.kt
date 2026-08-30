@@ -4,30 +4,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.EditableTopBarActions
 import com.velometrics.app.ui.components.EditableTopBarTitle
 import com.velometrics.app.ui.components.LoadingBox
-import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.MetricCell
 import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.PullUpDrawer
+import com.velometrics.app.ui.components.TrackMapWithDrawer
 import com.velometrics.app.ui.components.rememberEditableTopBarTitleState
-import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.FormatUtils
-import com.velometrics.app.util.GpsTrackParser
-import org.maplibre.android.camera.CameraUpdateFactory
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
-import org.maplibre.android.maps.MapLibreMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,9 +74,10 @@ fun RepeatedIntervalDetailScreen(
                 .padding(padding)
         ) {
             // Full-screen map background (interactive)
-            RepeatedIntervalDetailMap(
-                trackPoints = uiState.trackPoints,
-                drawerFraction = drawerFraction
+            TrackMapWithDrawer(
+                points = uiState.trackPoints,
+                drawerFraction = drawerFraction,
+                trackId = "repeated-interval-detail"
             )
 
             // Pull-up drawer with all statistics; opens at 50%
@@ -134,76 +125,6 @@ fun RepeatedIntervalDetailScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
-        }
-    }
-}
-
-@Composable
-private fun RepeatedIntervalDetailMap(
-    trackPoints: List<LatLng>,
-    drawerFraction: Float
-) {
-    val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
-    val boundsRef = remember { mutableStateOf<LatLngBounds?>(null) }
-    val density = LocalDensity.current
-
-    if (trackPoints.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Default.Map,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "No GPS data available",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    } else {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val mapHeightPx = with(density) { maxHeight.toPx() }
-
-            // Re-center track whenever the drawer snaps to a new position
-            LaunchedEffect(drawerFraction) {
-                if (drawerFraction >= 1.0f) return@LaunchedEffect
-                val map = mapRef.value ?: return@LaunchedEffect
-                val bounds = boundsRef.value ?: return@LaunchedEffect
-                val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
-                map.animateCamera(
-                    CameraUpdateFactory.newLatLngBounds(
-                        bounds,
-                        TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
-                    )
-                )
-            }
-
-            ComposableMapView(
-                modifier = Modifier.fillMaxSize(),
-                gesturesEnabled = true,
-                onMapReady = { map, style ->
-                    mapRef.value = map
-                    MapTrackRenderer.addTrack(style, "repeated-interval-detail", trackPoints, "#2196F3")
-                    val bounds = GpsTrackParser.computeBounds(trackPoints)
-                    boundsRef.value = bounds
-                    if (bounds != null) {
-                        val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
-                        map.moveCamera(
-                            CameraUpdateFactory.newLatLngBounds(
-                                bounds,
-                                TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
-                            )
-                        )
-                    }
-                }
-            )
         }
     }
 }

@@ -1,3 +1,62 @@
+## Issue #166 — Simplify: larger UI extraction (map drawer, chart drag gesture)
+Completed: 2026-08-30
+
+### What was done
+
+Sixth `Simplify:` mechanical-cleanup issue in the run (#161-#165 landed the five sessions before
+this one), same shape again: two named extractions, fully scoped in the issue body with exact
+target signatures/behaviors and an explicit non-goal called out (don't merge `MonthlyLineChart`/
+`PowerCurveChart` beyond the one shared gesture loop — they genuinely differ in axis scale,
+selection-state ownership, and a header row). Read all four named screen files before editing, no
+exploration subagent needed.
+
+**`ui/components/TrackMapWithDrawer.kt`** (new) — shared "fit track to viewport in a drawer" map
+composable extracted from `SessionDetailScreen.SessionDetailMap` and
+`RepeatedIntervalDetailScreen.RepeatedIntervalDetailMap` (both byte-identical in
+empty-state/BoxWithConstraints/re-center-on-drag/initial-camera-fit code, differing only in the
+GPS-points source, the map's track-layer id, and whether a legend overlay renders). Takes
+`points: List<LatLng>` (not a raw `gpsTrack: String?` — `RepeatedIntervalDetailScreen`'s points
+were already pre-parsed upstream, so the common denominator is the parsed list; `SessionDetailMap`
+keeps its own `remember(gpsTrack) { GpsTrackParser.parse(gpsTrack) }` above the call), `trackId`,
+`trackColor` (defaults to the `"#2196F3"` both originals hardcoded), an `onMapReady: (MapLibreMap,
+Style) -> Unit = { _, _ -> }` escape hatch, and an `overlayContent: @Composable
+BoxWithConstraintsScope.() -> Unit = {}` slot. The `onMapReady` hook exists because
+`SessionDetailScreen`'s interval-overlay *map layer* (`MapIntervalRenderer`, rendered onto the
+MapLibre `Style` itself, not a Compose overlay) needs the `Style` instance on every intervals
+change via its own `LaunchedEffect(mapStyleRef.value, intervals)` — that stays in
+`SessionDetailScreen`, hooked in through `onMapReady = { _, style -> mapStyleRef.value = style }`,
+untouched otherwise. `overlayContent` carries the session screen's Compose-UI `IntervalMapLegend`
+(passed as `{ if (intervals.isNotEmpty()) IntervalMapLegend(...) }`); `RepeatedIntervalDetailScreen`
+now calls `TrackMapWithDrawer` directly inline with no wrapper function at all, since it has
+neither a legend nor a map-style hook left once the extraction is done.
+
+**`ui/components/ChartGestures.kt`** (new) — `Modifier.dragToSelectGesture(vararg keys: Any?,
+onSelect: (Float) -> Unit)`, wrapping the byte-identical `awaitEachGesture` drag-select loop
+(select on down, re-select continuously while pressed, stop on lift) shared by
+`HomeScreen.MonthlyLineChart` and `AllTimeStatsScreen.PowerCurveChart`. Only this loop moved —
+`onSelect` is the one seam needed, since the two originals differed there: `MonthlyLineChart`
+computed an index from x and called an `onMonthSelected` callback (externally-owned selection
+state), `PowerCurveChart` computed the index and assigned directly to a local `selectedIndex` var
+(internally-owned). `vararg keys` (spread into `Modifier.pointerInput(*keys)`) preserves each
+call site's own invalidation keys unchanged — `dragToSelectGesture(monthlyData, chartWidthPx)` at
+the Home screen call site, `dragToSelectGesture(points)` at the All-Time Stats one. Per the issue's
+explicit instruction, nothing else in either chart (linear vs. log x-axis mapping, selection-state
+ownership, `PowerCurveChart`'s header row) was touched.
+
+### Tests
+No test changes, per the issue's own scope — pure structural de-duplication of two Compose-only
+UI shapes, each verified equivalent to its originals by construction (identical
+BoxWithConstraints/Canvas/gesture code, only the call-site data and one callback seam vary), same
+precedent as #161-#165 for this class of refactor. `compileDebugKotlin` and full
+`testDebugUnitTest`: both pass clean (no Compose tests exist for any of these four screens, so this
+only confirms no compile/unit-test regressions elsewhere). No on-device manual verification this
+session (issue's suggested check — map camera fit/re-centering and the interval legend on Session
+Detail and Repeated Interval Detail, drag-to-select on the Home and All-Time Stats line charts —
+has no automated equivalent in this environment; verified each extraction line-for-line against
+its pre-refactor originals at review time instead, consistent with #161-#165's precedent).
+
+---
+
 ## Issue #165 — Simplify: UI structural duplication (charts, dialogs, lists)
 Completed: 2026-08-30
 
@@ -600,65 +659,3 @@ known Gradle env-var/test-filter stale-cache quirk from #135): all pass (228/228
 on-device verification this session (Compose-only visual change; the maintainer resolved every open
 question — polarity, toggle scope, persistence, default, legend removal, empty-data handling, label
 staticness — during the `/grill-me` session rather than leaving anything to visually confirm).
-
----
-
-## Issue #156 — Swap bundled graph asset from cycling_graph.db to velometrics.db
-Completed: 2026-08-28
-
-### What was done
-
-Both blockers were already cleared: Ride-Graph#99's export split had shipped
-`velometrics.db`/`velometrics_fixture.db` (maintainer copied both into `app/src/main/assets/`
-before this session started), and #155 had already dropped `MapTurnEntity`/`CorridorEntity` and
-their DAOs from `CyclingAssetDatabase` (version bumped 6 -> 7) ahead of this swap. Verified the new
-assets' actual schema via `sqlite3` (through Python, no CLI tool in this environment) before
-touching code: `velometrics.db`/`velometrics_fixture.db` both have exactly the 4 tables
-(`map_nodes`, `map_edges`, `pois`, `metadata`) matching the already-narrowed Room entity list
-column-for-column, `metadata.schema_version = 1` (matches `EXPECTED_SCHEMA_VERSION`), and non-empty
-row counts in both the full asset (218,857 nodes / 526,408 edges / 24,705 POIs) and the fixture (4
-nodes / 3 edges / 2 POIs / 1 metadata row) — so no entity/DAO changes were needed, this was a pure
-asset-name swap plus fixing a latent breakage it exposed.
-
-**`di/DatabaseModule.kt`**: `provideCyclingAssetDatabase` now builds `"velometrics.db"` /
-`.createFromAsset("velometrics.db")` instead of `cycling_graph.db`.
-
-**`data/local/CyclingAssetDatabase.kt`**: the `schemaVersionCallback()` mismatch error message now
-names `velometrics.db` instead of the old asset filename.
-
-**Found broken as a direct consequence of #155, not caught by that session's `testDebugUnitTest`
-run**: `app/src/androidTest/.../CyclingAssetDatabaseFixtureTest.kt` still called `db.mapTurnDao()`
-— a method `CyclingAssetDatabase` no longer has since #155's entity-list narrowing. This instrumented
-test source set isn't compiled by `compileDebugUnitTestKotlin`/`testDebugUnitTest` (only
-`compileDebugAndroidTestKotlin`, which needs a connected device to actually *run*), so #155's clean
-228/228 unit-test-suite claim never exercised it — it would have failed to compile on the next real
-`connectedDebugAndroidTest` run or CI androidTest job. Rewrote it to mirror the JVM fixture test's
-post-#155 shape: dropped the `mapTurnsAreReadableNearBoundingBox` test entirely, kept the
-no-destructive-wipe test, pointed both at `velometrics_fixture.db`.
-
-**`app/src/test/.../CyclingAssetDatabaseFixtureTest.kt`**: swapped `createFromAsset` and doc-comment
-references from `cycling_graph_fixture.db` to `velometrics_fixture.db`; updated the class doc to
-record this swap instead of the #155 narrowing note (which is now historical, superseded).
-
-**Asset files**: deleted `app/src/main/assets/cycling_graph.db` (222MB, was `.gitignore`d/untracked
-— the "kept locally only" large-binary convention) and `git rm`'d the tracked
-`cycling_graph_fixture.db` (68KB), replaced by the already-present `velometrics.db`/
-`velometrics_fixture.db` pair. `.gitignore`'s large-binary-asset entry repointed from
-`cycling_graph.db` to `velometrics.db`; `velometrics_fixture.db` is small enough to stay checked
-in, same as its predecessor. `README.md`'s bundled-asset note updated (filename + ~84MB size, up
-from ~58MB — the new asset ships full-column `map_edges`, not trimmed, per the scoping decision
-recorded in the issue).
-
-**`IntervalClusteringService`/POI map layer/"POI coverage" panel** (the issue's other acceptance
-criteria): confirmed unmodified — none of them reference the asset filename or entity list
-directly, only the DAOs, which are unchanged. Not separately re-tested beyond the full suite below
-since no code in their call paths changed.
-
-### Tests
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, and (this session's actual point, since #155
-missed it) `compileDebugAndroidTestKotlin` all pass clean — confirms the androidTest fix. Full
-`testDebugUnitTest`: 228/228 pass, including both `CyclingAssetDatabaseFixtureTest` cases running
-against the real checked-in `velometrics_fixture.db` (not a mock/stub) — no destructive-fallback
-wipe, schema_version check passes. `assembleDebug` succeeds, confirming the ~84MB asset packages
-into the APK without issue. No on-device install/run this session (mechanical asset-path swap,
-already covered by the fixture test opening the real asset through the full Room stack).

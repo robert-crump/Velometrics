@@ -49,13 +49,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import kotlin.math.roundToInt
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.RideRevealContent
+import com.velometrics.app.ui.components.dragToSelectGesture
 import com.velometrics.app.util.FormatUtils
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -625,32 +624,14 @@ private fun MonthlyLineChart(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(monthlyData, chartWidthPx) {
-                    fun selectAtX(x: Float) {
-                        if (pointCount >= 2) {
-                            val innerWidth = chartWidthPx - leftPaddingPx - rightPaddingPx
-                            val stepX = innerWidth / (pointCount - 1)
-                            val idx = ((x - leftPaddingPx) / stepX)
-                                .roundToInt()
-                                .coerceIn(0, pointCount - 1)
-                            onMonthSelected(idx)
-                        }
-                    }
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        selectAtX(down.position.x)
-                        down.consume()
-                        var dragging = true
-                        while (dragging) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull()
-                            if (change != null && change.pressed) {
-                                selectAtX(change.position.x)
-                                change.consume()
-                            } else {
-                                dragging = false
-                            }
-                        }
+                .dragToSelectGesture(monthlyData, chartWidthPx) { x ->
+                    if (pointCount >= 2) {
+                        val innerWidth = chartWidthPx - leftPaddingPx - rightPaddingPx
+                        val stepX = innerWidth / (pointCount - 1)
+                        val idx = ((x - leftPaddingPx) / stepX)
+                            .roundToInt()
+                            .coerceIn(0, pointCount - 1)
+                        onMonthSelected(idx)
                     }
                 }
         ) {

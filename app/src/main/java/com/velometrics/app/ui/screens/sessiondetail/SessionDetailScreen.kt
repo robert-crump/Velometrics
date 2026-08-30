@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,15 +14,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import org.maplibre.android.geometry.LatLngBounds
-import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.CyclingSession
@@ -31,11 +27,9 @@ import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.ui.components.*
-import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
-import org.maplibre.android.camera.CameraUpdateFactory
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -181,9 +175,6 @@ private fun SessionDetailMap(
 ) {
     val points = remember(gpsTrack) { GpsTrackParser.parse(gpsTrack) }
     val mapStyleRef = remember { mutableStateOf<Style?>(null) }
-    val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
-    val boundsRef = remember { mutableStateOf<LatLngBounds?>(null) }
-    val density = LocalDensity.current
 
     LaunchedEffect(mapStyleRef.value, intervals) {
         val style = mapStyleRef.value ?: return@LaunchedEffect
@@ -193,65 +184,12 @@ private fun SessionDetailMap(
         }
     }
 
-    if (points.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Default.Map,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "No GPS data available",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    } else {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val mapHeightPx = with(density) { maxHeight.toPx() }
-
-            // Re-center track whenever the drawer snaps to a new position
-            LaunchedEffect(drawerFraction) {
-                if (drawerFraction >= 1.0f) return@LaunchedEffect
-                val map = mapRef.value ?: return@LaunchedEffect
-                val bounds = boundsRef.value ?: return@LaunchedEffect
-                val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
-                map.animateCamera(
-                    CameraUpdateFactory.newLatLngBounds(
-                        bounds,
-                        TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
-                    )
-                )
-            }
-
-            ComposableMapView(
-                modifier = Modifier.fillMaxSize(),
-                gesturesEnabled = true,
-                onMapReady = { map, style ->
-                    mapRef.value = map
-                    MapTrackRenderer.addTrack(style, "session-detail", points, "#2196F3")
-                    val bounds = GpsTrackParser.computeBounds(points)
-                    boundsRef.value = bounds
-                    if (bounds != null) {
-                        val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
-                        map.moveCamera(
-                            CameraUpdateFactory.newLatLngBounds(
-                                bounds,
-                                TRACK_FIT_PADDING, TRACK_FIT_PADDING, TRACK_FIT_PADDING, bottomPx
-                            )
-                        )
-                    }
-                    mapStyleRef.value = style
-                }
-            )
-
+    TrackMapWithDrawer(
+        points = points,
+        drawerFraction = drawerFraction,
+        trackId = "session-detail",
+        onMapReady = { _, style -> mapStyleRef.value = style },
+        overlayContent = {
             // Interval duration legend overlay
             if (intervals.isNotEmpty()) {
                 IntervalMapLegend(
@@ -260,7 +198,7 @@ private fun SessionDetailMap(
                 )
             }
         }
-    }
+    )
 }
 
 private fun hexToComposeColor(hex: String): Color {

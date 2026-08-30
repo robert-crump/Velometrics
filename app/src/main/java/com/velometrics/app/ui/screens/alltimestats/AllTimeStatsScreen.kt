@@ -3,8 +3,6 @@ package com.velometrics.app.ui.screens.alltimestats
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +21,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,6 +34,7 @@ import com.velometrics.app.ui.components.MetricCell
 import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.ScatterPlotChart
 import com.velometrics.app.ui.components.ScatterPoint
+import com.velometrics.app.ui.components.dragToSelectGesture
 import com.velometrics.app.ui.components.roundedAxisBounds
 import com.velometrics.app.util.FormatUtils
 import kotlin.math.abs
@@ -290,23 +288,8 @@ private fun PowerCurveChart(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(points) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            selectedIndex = nearestAvailableIndex(down.position.x)
-                            down.consume()
-                            var dragging = true
-                            while (dragging) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull()
-                                if (change != null && change.pressed) {
-                                    selectedIndex = nearestAvailableIndex(change.position.x)
-                                    change.consume()
-                                } else {
-                                    dragging = false
-                                }
-                            }
-                        }
+                    .dragToSelectGesture(points) { x ->
+                        selectedIndex = nearestAvailableIndex(x)
                     }
             ) {
                 val labelPaint = android.graphics.Paint().apply {

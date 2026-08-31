@@ -1,3 +1,18 @@
+## Issue #168 — Ride detail screen: More calories = better
+Completed: 2026-08-31
+
+### What was done
+
+Simple one-line polarity flip, analogous to issue #157's elevation gain polarity change. More calories burned = better workout, so the Calories metric should show an upward triangle when the current ride's calories exceed the comparison reference (last 5 or all-previous sessions). Changed `higherIsBetter = false` to `higherIsBetter = true` on the `Calories` `MetricCell` in `SessionDetailScreen.kt`.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
+- Line 370: Changed `higherIsBetter = false` to `higherIsBetter = true` with a comment explaining the rationale.
+
+### Tests
+No new tests needed — pure UI polarity parameter change on an existing metric cell. `compileDebugKotlin` and `testDebugUnitTest`: both pass clean, no regressions. No on-device verification needed (visual change, identical to #157's scope).
+
+---
+
 ## Issue #166 — Simplify: larger UI extraction (map drawer, chart drag gesture)
 Completed: 2026-08-30
 
@@ -608,54 +623,3 @@ quirk from #135): all pass (242 tests, up from 228 — 14 new), no regressions. 
 verification this session (needs a real device with Dropbox configured and two ordered rides to
 exercise the reveal end-to-end; the trigger/resolver logic is fully covered by the new unit tests,
 and the sheet itself is a straightforward `ModalBottomSheet` with no novel rendering risk).
-
----
-
-## Issue #157 — Session Detail: toggle for last-5/all-previous comparison triangles; flip elevation-gain polarity
-Completed: 2026-08-28
-
-### What was done
-
-Full `/grill-me` design session before implementing (user's request was terse: "more climbing meters
-are better," plus a toggle replacing the two-triangle display). Resolved: elevation-gain polarity
-flips both `Elevation gain` and `Elev. gain / 100km` from `higherIsBetter = false` to `true`,
-reversing #153's original "treat climbing like a fatigue cost, same as Calories" decision — accepted
-explicitly as a real tradeoff (can no longer distinguish "climbed more because I pushed harder on my
-usual route" from "climbed more because I chose a hillier route," achievement framing wins anyway);
-no noise deadband added, stays an absolute `current > reference` comparison like every other metric;
-toggle is a single global control for the whole screen (not per-metric), `FilterChip` row (matching
-`MapViewScreen`'s POI-category chip pattern) with two static-label chips — "vs. last 5" / "vs. all" —
-placed where `ComparisonLegend` used to sit, which is removed entirely; "last 5" keeps its existing
-meaning (5 sessions immediately preceding the viewed one, unchanged `SessionComparator` query); chip
-labels never show live counts, even with fewer than 5 (or 0) prior sessions; toggle selection is
-local `remember` UI state, not persisted — always resets to "vs. last 5" on screen open; an
-insufficient-data mode leaves its chip selectable and just renders metrics without a triangle, same
-as the existing per-metric null-median handling. Confirmed via grep that no other screen
-(`AllTimeStatsScreen`, `RepeatedRouteDetailViewModel`) encodes elevation-gain polarity or duplicates
-this triangle logic, so the change is isolated to `MetricCell`/`SessionDetailScreen`.
-
-**`ui/components/MetricCell.kt`**
-- Collapsed the dual `medianLast5`/`medianAllPrevious` parameters (and the two triangles they each
-  rendered) into a single `reference: Double?`, rendering at most one triangle. `getTriangle`'s
-  direction/color logic is unchanged. `RepeatedIntervalDetailScreen`'s existing `MetricCell` calls
-  never passed either median parameter, so they're unaffected by the signature change.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
-- New private `ComparisonMode` enum (`LAST_5`/`ALL_PREVIOUS`) and `ComparisonModeToggle` composable
-  (two `FilterChip`s). `ComparisonLegend` deleted along with its now-unused `ArrowDropUp` import.
-- `RideSummaryGrid` holds the toggle's `remember { mutableStateOf(ComparisonMode.LAST_5) }` state and
-  a local `pooled(last5, allPrevious)` helper that all 10 comparable `MetricCell` calls use to pick
-  which of `SessionComparison`'s paired median fields to pass as `reference`, based on the active
-  mode. `Elevation gain`/`Elev. gain / 100km` calls flip to `higherIsBetter = true`; every other
-  metric's polarity is unchanged. `SessionComparator` itself is untouched — both pools were already
-  computed per #153, this is purely UI-side selection.
-
-### Tests
-No new automated tests (pure UI restructuring — parameter collapse, toggle-driven selection, two
-polarity-flag flips — no new branching logic beyond what `getTriangle` already covers, matching #151's
-precedent for Compose-only Modifier/parameter-plumbing changes). `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest --rerun-tasks` (matching the
-known Gradle env-var/test-filter stale-cache quirk from #135): all pass (228/228), no regressions. No
-on-device verification this session (Compose-only visual change; the maintainer resolved every open
-question — polarity, toggle scope, persistence, default, legend removal, empty-data handling, label
-staticness — during the `/grill-me` session rather than leaving anything to visually confirm).

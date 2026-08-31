@@ -367,7 +367,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     value = session.energy?.formatTotalKcal() ?: "—",
                     current = totalKcal,
                     reference = pooled(comparison?.medianTotalKcalLast5, comparison?.medianTotalKcalAllPrevious),
-                    higherIsBetter = false
+                    higherIsBetter = true  // more calories burned = better workout
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(

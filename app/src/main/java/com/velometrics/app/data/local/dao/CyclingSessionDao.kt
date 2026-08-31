@@ -30,6 +30,7 @@ data class SessionMetricSampleEntity(
     @ColumnInfo(name = "elevationGainM") val elevationGainM: Double?,
     @ColumnInfo(name = "fatBurnedGrams") val fatBurnedGrams: Double?,
     @ColumnInfo(name = "carbsBurnedGrams") val carbsBurnedGrams: Double?,
+    @ColumnInfo(name = "cardiacDriftPercent") val cardiacDriftPercent: Double?,
     @ColumnInfo(name = "hasPower") val hasPower: Boolean
 )
 
@@ -103,17 +104,34 @@ interface CyclingSessionDao {
 
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
-           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, hasPower
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
     )
     suspend fun getSessionMetricSamplesBeforeDate(beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
 
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
-           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, hasPower
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDate(beforeEpochMs: Long): List<SessionMetricSampleEntity>
+
+    // Tag-scoped siblings of the two queries above, for the tag-scoped comparison narrative
+    // (#171): same projection and ordering, additionally filtered to one persisted RideTag label.
+
+    @Query(
+        """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower
+           FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
+    )
+    suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
+
+    @Query(
+        """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
+           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower
+           FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
+    )
+    suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long): List<SessionMetricSampleEntity>
 
     @Query("SELECT id, gpsTrack FROM cycling_sessions")
     suspend fun getAllIdsAndTracks(): List<SessionIdAndTrack>

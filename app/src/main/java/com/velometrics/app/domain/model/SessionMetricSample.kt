@@ -16,5 +16,6 @@ data class SessionMetricSample(
     val elevationGainM: Double?,
     val fatBurnedGrams: Double?,
     val carbsBurnedGrams: Double?,
+    val cardiacDriftPercent: Double?,
     val hasPower: Boolean
 )

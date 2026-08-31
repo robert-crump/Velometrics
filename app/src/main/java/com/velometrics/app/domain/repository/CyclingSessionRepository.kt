@@ -33,6 +33,10 @@ interface CyclingSessionRepository {
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
     suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>
     suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample>
+    /** Tag-scoped sibling of [getSessionMetricSamplesBeforeDate] (#171). */
+    suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long, limit: Int): List<SessionMetricSample>
+    /** Tag-scoped sibling of [getAllSessionMetricSamplesBeforeDate] (#171). */
+    suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long): List<SessionMetricSample>
     suspend fun getAllClusterData(): List<SessionClusterData>
     suspend fun getSessionsByIdsList(ids: List<Long>): List<CyclingSession>
 }

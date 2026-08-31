@@ -28,7 +28,8 @@ class SessionComparatorTest {
         averagePower: Int? = null,
         normalizedPower: Int? = null,
         intervalTotalTimeSec: Int = 0,
-        avgHeartRate: Int? = null
+        avgHeartRate: Int? = null,
+        tag: String? = null
     ): CyclingSession {
         val start = Instant.now().minusSeconds(daysAgo * 86400)
         return CyclingSession(
@@ -53,7 +54,8 @@ class SessionComparatorTest {
             powerQualityPercent = if (hasPower) 90.0 else null,
             hasPower = hasPower,
             gpsTrack = null,
-            avgHeartRate = avgHeartRate
+            avgHeartRate = avgHeartRate,
+            tag = tag
         )
     }
 
@@ -191,5 +193,46 @@ class SessionComparatorTest {
         assertEquals(42.0, result.medianDistanceKmLast5!!, 0.01)
         // All 7: distances [10, 12, 40, 41, 42, 43, 44] -> median 41
         assertEquals(41.0, result.medianDistanceKmAllPrevious!!, 0.01)
+    }
+
+    @Test
+    fun `tag-scoped comparison only pools sessions sharing the same tag`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Zone 2")
+        val sameTag1 = makeSession(2, 1, 3400, 28.0, tag = "Zone 2")
+        val sameTag2 = makeSession(3, 2, 3600, 32.0, tag = "Zone 2")
+        val otherTag = makeSession(4, 3, 100, 100.0, tag = "Intervals")
+        val untagged = makeSession(5, 4, 200, 200.0, tag = null)
+        repository.sessions.addAll(listOf(current, sameTag1, sameTag2, otherTag, untagged))
+
+        val result = comparator.computeComparison(current, tag = "Zone 2")
+
+        assertEquals(2, result.last5SessionCount)
+        assertEquals(2, result.allPreviousSessionCount)
+        // Median of [28.0, 32.0] = 30.0 -- the other-tag and untagged rides are excluded.
+        assertEquals(30.0, result.medianDistanceKmLast5!!, 0.01)
+    }
+
+    @Test
+    fun `tag-scoped comparison ignores same-tag sessions with fewer than 2 prior rides`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Recovery")
+        val sameTag = makeSession(2, 1, 3400, 28.0, tag = "Recovery")
+        repository.sessions.addAll(listOf(current, sameTag))
+
+        val result = comparator.computeComparison(current, tag = "Recovery")
+
+        assertEquals(1, result.last5SessionCount)
+        assertNull(result.medianDistanceKmLast5)
+    }
+
+    @Test
+    fun `untagged comparison is unaffected by passing a null tag`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Zone 2")
+        val sameTag = makeSession(2, 1, 3400, 28.0, tag = "Zone 2")
+        val otherTag = makeSession(3, 2, 3600, 32.0, tag = "Intervals")
+        repository.sessions.addAll(listOf(current, sameTag, otherTag))
+
+        val result = comparator.computeComparison(current)
+
+        assertEquals(2, result.last5SessionCount)
     }
 }

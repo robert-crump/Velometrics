@@ -113,6 +113,7 @@ fun SessionMetricSampleEntity.toDomain(): SessionMetricSample {
         elevationGainM = elevationGainM,
         fatBurnedGrams = fatBurnedGrams,
         carbsBurnedGrams = carbsBurnedGrams,
+        cardiacDriftPercent = cardiacDriftPercent,
         hasPower = hasPower
     )
 }

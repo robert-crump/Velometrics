@@ -1,3 +1,123 @@
+## Issue #171 — Tag-scoped comparison narrative on the ride detail screen
+Completed: 2026-08-31
+
+### What was done
+
+Gives the tag label added in #169 (and reshaped by #170's threshold-tuning pass, see the
+backfilled entry below) an expandable narrative: tapping it now shows a templated sentence
+comparing this ride to the rider's own tag-scoped history, e.g. "Your cardiac drift was 2.0%,
+lower than your typical 4.0% for Zone 2 rides." Also restores the label's tap affordance that
+#170 dropped when it stopped being a tappable `AssistChip` (there was nothing behind it to open
+at the time) — a small chevron next to the label now rotates 90° to read as an expand/collapse
+control.
+
+**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl,
+`FakeCyclingSessionRepository`)** — tag-filtered siblings of `getSessionMetricSamplesBeforeDate`/
+`getAllSessionMetricSamplesBeforeDate`: `getSessionMetricSamplesBeforeDateForTag`/
+`getAllSessionMetricSamplesBeforeDateForTag`, same projection and ordering, additionally filtered
+by `tag = :tag`. Also added `cardiacDriftPercent` to the shared `SessionMetricSampleEntity`/
+`SessionMetricSample` projection (needed for the narrative's drift comparison) — no schema
+change, the column already existed on `cycling_sessions`.
+
+**`domain/service/SessionComparator.kt`** — `computeComparison` gained an optional
+`tag: String? = null` parameter; when set, both reference pools (last-5 / all-previous) query the
+tag-filtered DAO methods instead, otherwise behavior is byte-identical to before (default `null`,
+all existing call sites and tests unaffected). `PoolMedians`/`SessionComparison` gained two new
+metrics: `cardiacDriftPercent` (median of `SessionMetricSample.cardiacDriftPercent`) and
+`npToApRatio` (median of per-ride normalizedPower/averagePower, mirroring the existing
+`cardiacEfficiency` ratio-of-per-sample-values pattern) — both needed as narrative candidate
+KPIs.
+
+**`domain/service/TagComparisonNarrative.kt`** (new, pure `object`) — `generate(session, tag,
+comparison)`: if the tag-scoped last-5 pool has fewer than 2 prior rides, returns "Not enough
+history for {tag} rides yet." Otherwise builds up to 5 candidate KPI sentences (cardiac drift,
+NP:AP ratio/power steadiness, fat efficiency score, average power, and — the one candidate never
+gated on power/HR data, guaranteeing a sentence whenever there's any tag-scoped history at all —
+distance) and returns whichever deviates most from its tag-scoped median by *relative* deviation
+(`|current - median| / median`), so metrics on different scales (a percentage, a ratio near 1.0,
+watts, km) compare fairly and the leading KPI isn't a hardcoded order.
+
+**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — computes a second, tag-scoped
+`sessionComparator.computeComparison(loaded, tag)` alongside the existing untagged one when the
+session has a tag, feeds it through `TagComparisonNarrative.generate`, exposes the result as
+`tagNarrative: StateFlow<String?>`. Computed eagerly in `init` alongside the existing untagged
+`comparison`, matching that flow's own precedent rather than lazily on first expand.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `RideTagLabel` is now clickable
+(`Modifier.clickable`) with an `Icons.AutoMirrored.Filled.KeyboardArrowRight` chevron that rotates
+90° when expanded (the "tilted >" affordance the user asked for mid-session), toggling a local
+`tagExpanded` boolean; the narrative text renders below the date/tag row only while expanded and
+a narrative is actually available.
+
+### Tests
+New `TagComparisonNarrativeTest` (8 cases): not-enough-history for 0 and 1 prior same-tag rides;
+leads with cardiac drift/average power/fat efficiency/NP:AP steadiness respectively when each
+deviates most; falls back to the always-available distance candidate for a ride with no power or
+heart-rate data; falls back to the not-enough-history text when every per-metric median is still
+null despite a nonzero session count. Extended `SessionComparatorTest` (+3 cases): tag-scoped
+comparison pools only same-tag sessions (verified against a mix of same-tag/other-tag/untagged
+rides); a same-tag pool with only 1 prior ride still yields null medians; passing no tag is
+unaffected by other tags existing in the pool. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
+`assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass (294 tests, 11 new), no
+regressions. Caught and fixed a real locale bug during testing: the narrative's `String.format`
+calls need explicit `Locale.US` (matching this codebase's existing `FormatUtils` convention) —
+without it, a device set to a comma-decimal locale (e.g. German, already used elsewhere in this
+app for date formatting) would render "2,0%" instead of "2.0%". No on-device verification this
+session (pure narrative-generation/DAO-filter logic fully covered by the new unit tests; the new
+chevron/expand UI is a small, visually-inspectable Compose change with no automated equivalent in
+this environment).
+
+### Note on issue #170
+While picking this issue up, found that #170's commit (`cd6d712`) never appended an entry to
+`progress.txt` — the file went straight from #169's entry to nothing, even though #170 is the
+most recent commit on `main` before this session. Backfilled a reconstructed entry below from the
+commit message and diff alone (that session's actual test-run details aren't recoverable this
+way). Separately, per the user's own flag at the start of this session: #170 deliberately
+redesigned the tag rule set (dropped Race/Endurance as categories, changed how Zone 2 and
+Intervals are computed) rather than a bug — confirmed by reading the current `RideClassifier`/
+`RideTag` code and doc comments, which describe this as intentional, so this issue was built
+against that current (post-#170) rule set rather than reverting it.
+
+---
+
+## Issue #170 — Validate & tune classifier thresholds against real ride history
+Completed: 2026-08-31 (backfilled during #171 — see note above; this entry was reconstructed from
+commit `cd6d712`'s message and diff, not written by the original session)
+
+### What was done
+
+Reviewed `RideClassifier`'s tags against the rider's 154 real imported sessions (via a new
+dev-only export tool, `RideTagDumper`) and redesigned the rule set rather than nudging the
+original thresholds:
+- Zone 2: `fatEfficiencyScore >= 75` (was zone-time-share majority)
+- Intervals: `intervalCount >= 2` (was interval-time-share >= 12%)
+- Recovery: unchanged (Zone 1 share >= 50%, or drift <= 3% + fatScore >= 70)
+- Race and Endurance removed as categories entirely — Race never fired on real data (hard efforts
+  were already claimed by the Intervals rule), and Endurance was really just "matched nothing
+  else" for 69% of rides.
+- No fallback/catch-all: `RideClassifier.classify()` now returns `RideTag?`; an unmatched ride is
+  simply untagged rather than forced to a default.
+
+Before/after tag counts on the 154 real sessions (after `reclassifyAll()`): before — Zone 2=17,
+Intervals=18, Recovery=13, Endurance=106, Race=0; after — Zone 2=29, Intervals=33, Recovery=10,
+untagged=82.
+
+UI: the tag switched from a tappable `AssistChip` to a plain label below the date on
+`SessionDetailScreen`, since at that point nothing was behind it to open (#171 gives it a
+narrative and restores the tap affordance).
+
+Also added `RideTagDumper`, a debug-only Settings-row dev tool that writes a CSV of every
+session's tag plus the signals `RideClassifier` reads, for this kind of review; a parked
+`androidTest` path for the same tool is currently unused (reproducibly uninstalled the app on the
+test device during the original investigation, per the commit message).
+
+### Tests
+(From the original commit message, not independently re-verified here.) `RideClassifierTest` and
+`RideClassificationServiceTest` were updated for the new 3-tag rule set. No migration needed —
+`tag` already existed as a nullable column from #169.
+
+---
+
 ## Issue #169 — Rule-based ride tagging, persisted and visible
 Completed: 2026-08-31
 
@@ -473,138 +593,3 @@ substitute for the issue's own suggested manual check, but the unit-level equiva
 the same ground for this kind of mechanical refactor).
 
 ---
-
-## Issue #160 — Ride Reveal: power-curve best-effort achievements
-Completed: 2026-08-29
-
-### What was done
-
-Only `ready-for-agent` issue in the queue — the other half of the Ride Reveal Tier 1 achievement
-pair alongside #159 (ride-level milestones), which landed earlier this session and gave this one's
-milestone-beats-power-curve tie-break something genuine to verify against instead of a contrived
-resolver-only test. Mirrors #159's rank-query shape almost exactly ("count of best efforts with a
-strictly greater value, plus 1", scoped by an optional `since` bound), applied to
-`BestEffortCalculator`'s 5s/1min/5min/20min power-curve fields instead of raw session stats.
-
-One structural difference from #159: a ride-level metric (distance, elevation, speed) lives right
-on the `CyclingSession` object `RideMilestoneEvaluator.candidates()` already receives, but power-curve
-bests live in a separate `session_best_efforts` row that `RideRevealEvaluator` wasn't fetching.
-Added `BestEffortRepository.getForSession(sessionId)` (a single-row DAO lookup by `sessionId`, mapped
-to the same `BestEffortValues` domain type the calculator already produces) so
-`PowerCurveAchievementEvaluator.candidates(sessionId, sessionStart)` can look up the ride's own bests
-before ranking them.
-
-**`data/local/dao/SessionBestEffortDao.kt` (+ `BestEffortRepository`/Impl, `FakeBestEffortRepository`)**
-- `getBySessionId(sessionId): SessionBestEffortEntity?` and four `countBestEffortsWithGreaterPower{5s,
-  1m,5m,20m}(power, sinceEpochMs: Long?)` queries, each `SELECT COUNT(*) FROM session_best_efforts sbe
-  JOIN cycling_sessions cs ON cs.id = sbe.sessionId WHERE sbe.powerX > :power AND (:sinceEpochMs IS
-  NULL OR cs.sessionStart >= :sinceEpochMs)` — same join-for-the-date-scope shape #159 used, needed
-  here because `session_best_efforts` itself has no date column. A NULL power value (no power meter
-  that ride, or the ride was shorter than the duration) is excluded automatically by SQLite's
-  NULL-comparison semantics, same as #159's NULL-elevation handling. No new index (same personal-scale
-  non-issue precedent). `FakeBestEffortRepository` computes both `getForSession` and the four counts
-  directly off its existing `records: MutableList<BestEffortRecord>` — that type already carries
-  `sessionId`, `sessionStart`, and every power field, so no new fake-side storage was needed.
-
-**`domain/service/PowerCurveAchievementEvaluator.kt`** (new, `@Singleton`, injects `BestEffortRepository`)
-- `candidates(sessionId, sessionStart): List<RideRevealCandidate>`: fetches the ride's own best-effort
-  row via `getForSession`; returns `emptyList()` outright if there isn't one (no power meter that
-  ride). Builds a metric per non-null duration (5s/1m/5m/20m — up to 4, fewer if some durations are
-  null e.g. a shorter ride missing 20-min), each carrying its own count-greater-than query and a
-  headline label ("5-second power" etc). For each metric, queries both scopes and registers a
-  `POWER_CURVE_BEST_EFFORT`-family candidate for every scope where `count + 1 <= 3` — up to 8
-  candidates per ride. Headline template ("Your {best|2nd-best|3rd-best} {duration} power {ever|this
-  year}!") mirrors #159's ordinal-superlative approach.
-
-**`domain/service/RideRevealEvaluator.kt`**
-- Constructor gained `PowerCurveAchievementEvaluator`; `evaluate()` now passes
-  `milestoneEvaluator.candidates(session) + powerCurveEvaluator.candidates(session.id,
-  session.sessionStart) + fallbackCandidate(session)` to the resolver. Class doc comment updated to
-  name both Tier 1 sources as landed rather than one pending.
-
-### Tests
-New `PowerCurveAchievementEvaluatorTest` (7 cases, via `FakeBestEffortRepository`): a first-ever ride
-ranks 1st all-time on all 4 durations; a ride beaten by 3 others on a duration doesn't qualify on it;
-a ride beaten by only 2 others still qualifies at rank 3 (no-sample-size-floor case, same as #159);
-this-year scope excludes a bigger effort from a different calendar year; a ride with no best-effort
-row at all (no power meter) registers zero candidates; a null power value for one duration (ride
-shorter than 20 minutes) registers no candidate for that duration specifically, others unaffected;
-headline text for a rank-1 all-time 5-second power PR. Extended `RideRevealEvaluatorTest` (+2 cases,
-constructor now takes `PowerCurveAchievementEvaluator` too): a ride that's simultaneously the
-longest-ever *and* a rank-1 20-minute power PR shows the milestone headline, not the power-curve one
-— the acceptance criteria's required tie-break check, now running against two genuine qualifying
-achievements instead of a contrived case; a ride with no ride-level milestone (beaten on every
-tracked metric) but a genuine rank-1 20-minute power PR shows the power-curve headline instead of
-falling back. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full
-`testDebugUnitTest --rerun-tasks`: all pass (260 tests, up from 251 — 9 new), no regressions. No
-on-device verification this session (pure rank-query/candidate logic fully covered by the new unit
-tests against a fake repository; no new UI surface — the sheet itself is unchanged from #158).
-
----
-
-## Issue #159 — Ride Reveal: ride-level milestone achievements
-Completed: 2026-08-29
-
-### What was done
-
-Second Ride Reveal slice, picked over #160 (power-curve best-effort achievements) even though
-both were unblocked by #158 landing earlier this session — #160's own acceptance criteria needs a
-real ride-level milestone candidate to exist to verify the milestone-beats-power-curve tie-break,
-so building this one first gives that check something genuine to run against instead of a
-contrived resolver-only test.
-
-Rank query shape follows the design doc's own suggestion almost exactly: "rank = count of rides
-with a strictly greater value, plus 1", scoped by an optional `since` bound (null = all-time, or
-the ride's own calendar-year start for "this year"). Deliberately used the ride's own
-`sessionStart` year (via `ZoneId.systemDefault()`), not wall-clock "now" — the two coincide for a
-ride that just synced (the only time this runs today), but stays correct if a batch is ever
-evaluated after the fact instead of live. Confirmed the acceptance criteria's "no minimum
-sample-size threshold" assumption is genuinely load-bearing with a dedicated test: a ride with
-only 3-4 total rides ever, ranking last of them, still registers as a "3rd place" milestone.
-
-**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl, `FakeCyclingSessionRepository`)**
-- Three new `countSessionsWithGreater{Distance,ElevationGain,AverageSpeed}(value, sinceEpochMs:
-  Long?)` queries, each `SELECT COUNT(*) ... WHERE metric > :value AND (:sinceEpochMs IS NULL OR
-  sessionStart >= :sinceEpochMs)`. No new index (matches #156/#158 precedent — a non-issue at this
-  app's personal ride-count scale). A NULL `elevationGainM` column, or a `netDurationSec <= 0` row,
-  is excluded from the "greater" count automatically by SQLite's NULL-comparison semantics for the
-  first two, and by an explicit `netDurationSec > 0` guard for the average-speed query (computed
-  in-SQL as `distanceKm / netDurationSec * 3600`, not a stored column) — no separate null-handling
-  branch needed in the DAO. Repository interface takes `since: Instant?`, converting to epoch
-  millis only at the Impl boundary, matching `getMaxSessionStart`'s existing `Instant`/`Long` split.
-  `FakeCyclingSessionRepository` mirrors the same semantics with plain Kotlin filtering.
-
-**`domain/service/RideMilestoneEvaluator.kt`** (new, `@Singleton`, injects `CyclingSessionRepository`)
-- `candidates(session): List<RideRevealCandidate>`: builds a small in-memory list of the 2-3
-  trackable metrics for this ride (distance always; elevation only if `elevationGainM != null`;
-  average speed only if `netDurationSec > 0`), each carrying its own count-greater-than query, a
-  headline vocabulary (superlative + noun, e.g. "longest"/"ride"), and its raw value. For each
-  metric, queries both scopes (all-time and this-year) and registers a `RIDE_MILESTONE`-family
-  candidate for every scope where `count + 1 <= 3` — up to 6 candidates per ride, all handed to
-  `RideRevealEvaluator` for `RideRevealResolver` to pick among. Headline template
-  ("Your {ordinal-superlative} {noun} {ever|this year}!") reuses the same superlative word for rank
-  1 and prefixes "2nd-"/"3rd-" for ranks 2/3 ("Your longest ride ever!" ->
-  "Your 2nd-longest ride ever!"), which reads naturally for all three metric nouns without
-  per-metric-per-rank copy.
-
-**`domain/service/RideRevealEvaluator.kt`**
-- Constructor gained `RideMilestoneEvaluator`; `evaluate()` now passes
-  `milestoneEvaluator.candidates(session) + fallbackCandidate(session)` to the resolver instead of
-  just the fallback alone. Class doc comment updated to stop saying "today only the fallback is
-  registered" and name both this and the still-pending #160 source.
-
-### Tests
-New `RideMilestoneEvaluatorTest` (7 cases, via `FakeCyclingSessionRepository`): a first-ever ride
-ranks 1st all-time on all 3 metrics; a ride beaten by 3 others on a metric doesn't qualify on it
-(rank 4, correctly excluded); a ride beaten by only 2 others still qualifies at rank 3 (the
-no-sample-size-floor case); this-year scope excludes a bigger ride from a different calendar year
-while all-time correctly counts it; a null `elevationGainM` registers no elevation candidate; a
-zero-duration ride registers no average-speed candidate; headline text for a rank-1 all-time
-distance PR. Extended `RideRevealEvaluatorTest` (+2 cases, `RideRevealEvaluator` constructor now
-takes the new evaluator too): a genuine longest-ever ride shows the milestone headline instead of
-the fallback; a ride beaten by 3 pre-existing rides on every tracked metric still falls back to
-"Nice ride!" (regression guard for #158's guaranteed-fallback behavior). `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass
-(251 tests, up from 242 — 9 new), no regressions. No on-device verification this session (pure
-rank-query/candidate logic fully covered by the new unit tests against a fake repository; no new
-UI surface — the sheet itself and its rendering were already covered by #158).

@@ -10,6 +10,7 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.SessionComparator
+import com.velometrics.app.domain.service.TagComparisonNarrative
 import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -48,6 +49,10 @@ class SessionDetailViewModel @Inject constructor(
     private val _comparison = MutableStateFlow<SessionComparison?>(null)
     val comparison: StateFlow<SessionComparison?> = _comparison.asStateFlow()
 
+    /** Tag-scoped comparison narrative (#171), or null if this ride has no tag. */
+    private val _tagNarrative = MutableStateFlow<String?>(null)
+    val tagNarrative: StateFlow<String?> = _tagNarrative.asStateFlow()
+
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -62,6 +67,12 @@ class SessionDetailViewModel @Inject constructor(
 
             if (loaded != null) {
                 _comparison.value = sessionComparator.computeComparison(loaded)
+
+                val tag = loaded.tag
+                if (tag != null) {
+                    val tagScopedComparison = sessionComparator.computeComparison(loaded, tag)
+                    _tagNarrative.value = TagComparisonNarrative.generate(loaded, tag, tagScopedComparison)
+                }
             }
         }
     }

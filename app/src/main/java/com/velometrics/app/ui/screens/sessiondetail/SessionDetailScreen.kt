@@ -1,11 +1,13 @@
 ﻿package com.velometrics.app.ui.screens.sessiondetail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +19,7 @@ import androidx.compose.runtime.setValue
 import org.maplibre.android.maps.Style
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +46,7 @@ fun SessionDetailScreen(
     val session by viewModel.session.collectAsState()
     val intervals by viewModel.intervals.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
+    val tagNarrative by viewModel.tagNarrative.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
     val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
@@ -89,7 +93,7 @@ fun SessionDetailScreen(
                     initialFraction = 0.5f,
                     onFractionSnapped = { drawerFraction = it }
                 ) {
-                    RideSummaryGrid(session = s, comparison = comparison)
+                    RideSummaryGrid(session = s, comparison = comparison, tagNarrative = tagNarrative)
 
                     if (s.hasPower && s.powerZoneDistribution != null) {
                         PowerZoneChart(
@@ -284,21 +288,36 @@ private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (Comparison
 
 /**
  * Rule-based classification label (#169, thresholds/category set replaced in #170), e.g.
- * "Zone 2" or "Intervals" — a plain label below the date, not a tappable chip: there's no
- * narrative/detail behind it to open.
+ * "Zone 2" or "Intervals" — tapping it expands the tag-scoped comparison narrative (#171). The
+ * chevron rotates 90° when expanded to read as a "collapse" affordance, matching the label's own
+ * clickable row rather than a separate expand icon button.
  */
 @Composable
-private fun RideTagLabel(tag: String) {
-    Text(
-        text = tag,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun RideTagLabel(tag: String, expanded: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Text(
+            text = tag,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(16.dp)
+                .rotate(if (expanded) 90f else 0f)
+        )
+    }
 }
 
 @Composable
-private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?) {
+private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?, tagNarrative: String?) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
+    var tagExpanded by remember { mutableStateOf(false) }
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 
@@ -337,9 +356,19 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 )
-                session.tag?.let { tag -> RideTagLabel(tag) }
+                session.tag?.let { tag ->
+                    RideTagLabel(tag, expanded = tagExpanded, onClick = { tagExpanded = !tagExpanded })
+                }
             }
             ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
+        }
+        if (tagExpanded && tagNarrative != null) {
+            Text(
+                text = tagNarrative,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
 

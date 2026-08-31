@@ -32,6 +32,10 @@ data class SessionComparison(
     val medianCardiacDriftPercentAllPrevious: Double?,
     val medianNpToApRatioLast5: Double?,
     val medianNpToApRatioAllPrevious: Double?,
+    val medianIntervalCountLast5: Int?,
+    val medianIntervalCountAllPrevious: Int?,
+    val medianPowerZone1SecLast5: Int?,
+    val medianPowerZone1SecAllPrevious: Int?,
     val last5SessionCount: Int,
     val allPreviousSessionCount: Int
 )
@@ -53,7 +57,9 @@ private data class PoolMedians(
     val elevationGainM: Double?,
     val elevGainPer100km: Double?,
     val cardiacDriftPercent: Double?,
-    val npToApRatio: Double?
+    val npToApRatio: Double?,
+    val intervalCount: Int?,
+    val powerZone1Sec: Int?
 )
 
 class SessionComparator @Inject constructor(
@@ -110,6 +116,10 @@ class SessionComparator @Inject constructor(
             medianCardiacDriftPercentAllPrevious = allPreviousMedians.cardiacDriftPercent,
             medianNpToApRatioLast5 = last5Medians.npToApRatio,
             medianNpToApRatioAllPrevious = allPreviousMedians.npToApRatio,
+            medianIntervalCountLast5 = last5Medians.intervalCount,
+            medianIntervalCountAllPrevious = allPreviousMedians.intervalCount,
+            medianPowerZone1SecLast5 = last5Medians.powerZone1Sec,
+            medianPowerZone1SecAllPrevious = allPreviousMedians.powerZone1Sec,
             last5SessionCount = last5.size,
             allPreviousSessionCount = allPrevious.size
         )
@@ -144,6 +154,8 @@ class SessionComparator @Inject constructor(
             if (gain != null && sample.distanceKm > 0) gain / sample.distanceKm * 100 else null
         }
         val cardiacDrifts = samples.mapNotNull { it.cardiacDriftPercent }
+        val intervalCounts = samples.map { it.intervalCount.toDouble() }
+        val powerZone1Secs = powerSamples.mapNotNull { it.powerZone1Sec?.toDouble() }
 
         return PoolMedians(
             netDurationSec = median(durations)?.toInt(),
@@ -157,7 +169,9 @@ class SessionComparator @Inject constructor(
             elevationGainM = median(elevGains),
             elevGainPer100km = median(elevGainsPer100km),
             cardiacDriftPercent = median(cardiacDrifts),
-            npToApRatio = median(npToApRatios)
+            npToApRatio = median(npToApRatios),
+            intervalCount = median(intervalCounts)?.toInt(),
+            powerZone1Sec = median(powerZone1Secs)?.toInt()
         )
     }
 

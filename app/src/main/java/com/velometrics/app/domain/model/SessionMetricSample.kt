@@ -17,5 +17,9 @@ data class SessionMetricSample(
     val fatBurnedGrams: Double?,
     val carbsBurnedGrams: Double?,
     val cardiacDriftPercent: Double?,
-    val hasPower: Boolean
+    val hasPower: Boolean,
+    val intervalCount: Int,
+    // Seconds in Power Zone 1, read from powerZoneDistribution's "Zone 1" entry. Null when the
+    // ride has no power-zone breakdown (no power data at all).
+    val powerZone1Sec: Int?
 )

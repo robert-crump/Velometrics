@@ -15,7 +15,9 @@ class TagComparisonNarrativeTest {
         normalizedPower: Int? = null,
         fatEfficiencyScore: Int? = null,
         cardiacDriftPercent: Double? = null,
-        tag: String? = "Zone 2"
+        tag: String? = "Zone 2",
+        intervalCount: Int = 0,
+        powerZoneDistribution: Map<String, Int>? = null
     ): CyclingSession {
         val start = Instant.now()
         return CyclingSession(
@@ -31,9 +33,9 @@ class TagComparisonNarrativeTest {
             normalizedPower = normalizedPower,
             fatBurnedGrams = null,
             carbsBurnedGrams = null,
-            powerZoneDistribution = null,
+            powerZoneDistribution = powerZoneDistribution,
             speedHistogram = emptyMap(),
-            intervalCount = 0,
+            intervalCount = intervalCount,
             intervalTotalTimeSec = 0,
             gpsQualityPercent = 95.0,
             powerQualityPercent = null,
@@ -51,7 +53,9 @@ class TagComparisonNarrativeTest {
         medianAvgPowerLast5: Int? = null,
         medianFatEfficiencyLast5: Double? = null,
         medianCardiacDriftPercentLast5: Double? = null,
-        medianNpToApRatioLast5: Double? = null
+        medianNpToApRatioLast5: Double? = null,
+        medianIntervalCountLast5: Int? = null,
+        medianPowerZone1SecLast5: Int? = null
     ) = SessionComparison(
         medianNetDurationSecLast5 = null,
         medianNetDurationSecAllPrevious = null,
@@ -77,6 +81,10 @@ class TagComparisonNarrativeTest {
         medianCardiacDriftPercentAllPrevious = null,
         medianNpToApRatioLast5 = medianNpToApRatioLast5,
         medianNpToApRatioAllPrevious = null,
+        medianIntervalCountLast5 = medianIntervalCountLast5,
+        medianIntervalCountAllPrevious = null,
+        medianPowerZone1SecLast5 = medianPowerZone1SecLast5,
+        medianPowerZone1SecAllPrevious = null,
         last5SessionCount = last5SessionCount,
         allPreviousSessionCount = last5SessionCount
     )
@@ -208,6 +216,89 @@ class TagComparisonNarrativeTest {
 
         assertEquals(
             "This ride was 45.0 km, longer than your typical 30.0 km for Recovery rides.",
+            result
+        )
+    }
+
+    @Test
+    fun `Zone 2 leads with fat efficiency even when another metric deviates more`() {
+        // Cardiac drift deviates far more (75%) than fat efficiency (10%), but Zone 2's main
+        // value is always fat efficiency when it's available.
+        val session = makeSession(
+            hasPower = true,
+            averagePower = 150,
+            normalizedPower = 155,
+            fatEfficiencyScore = 66,
+            cardiacDriftPercent = 1.0,
+            tag = "Zone 2"
+        )
+        val comparison = makeComparison(
+            medianAvgPowerLast5 = 149,
+            medianFatEfficiencyLast5 = 60.0,
+            medianCardiacDriftPercentLast5 = 4.0,
+            medianNpToApRatioLast5 = 1.03,
+            medianDistanceKmLast5 = 30.0
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
+
+        assertEquals(
+            "Your fat efficiency score was 66, above your typical 60 for Zone 2 rides.",
+            result
+        )
+    }
+
+    @Test
+    fun `Intervals leads with interval count when available`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 8)
+        val comparison = makeComparison(medianIntervalCountLast5 = 5, medianDistanceKmLast5 = 30.0)
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison)
+
+        assertEquals(
+            "You did 8 intervals, more than your typical 5 for Intervals rides.",
+            result
+        )
+    }
+
+    @Test
+    fun `Intervals falls back to deviation ranking when interval count median is unavailable`() {
+        val session = makeSession(
+            tag = "Intervals",
+            intervalCount = 8,
+            hasPower = true,
+            averagePower = 260,
+            normalizedPower = 270,
+            cardiacDriftPercent = 4.1
+        )
+        val comparison = makeComparison(
+            medianAvgPowerLast5 = 200,
+            medianCardiacDriftPercentLast5 = 4.0,
+            medianNpToApRatioLast5 = 1.04,
+            medianDistanceKmLast5 = 30.0
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison)
+
+        assertEquals(
+            "Your average power was 260W, above your typical 200W for Intervals rides.",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery leads with time in Power Zone 1 when available`() {
+        val session = makeSession(
+            tag = "Recovery",
+            hasPower = true,
+            powerZoneDistribution = mapOf("Zone 1" to 1800)
+        )
+        val comparison = makeComparison(medianPowerZone1SecLast5 = 1200, medianDistanceKmLast5 = 30.0)
+
+        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+
+        assertEquals(
+            "You spent 30m 0s in Zone 1, more than your typical 20m 0s for Recovery rides.",
             result
         )
     }

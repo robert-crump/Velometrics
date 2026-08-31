@@ -23,7 +23,8 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
                 distanceKm = it.distanceKm,
                 netDurationSec = it.netDurationSec,
                 averagePower = it.averagePower,
-                hasPower = it.hasPower
+                hasPower = it.hasPower,
+                tag = it.tag
             )
         }
     )

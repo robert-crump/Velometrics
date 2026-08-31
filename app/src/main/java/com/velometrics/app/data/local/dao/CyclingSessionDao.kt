@@ -16,7 +16,8 @@ data class CyclingSessionSummaryEntity(
     @ColumnInfo(name = "distanceKm") val distanceKm: Double,
     @ColumnInfo(name = "netDurationSec") val netDurationSec: Int,
     @ColumnInfo(name = "averagePower") val averagePower: Int?,
-    @ColumnInfo(name = "hasPower") val hasPower: Boolean
+    @ColumnInfo(name = "hasPower") val hasPower: Boolean,
+    @ColumnInfo(name = "tag") val tag: String?
 )
 
 data class SessionMetricSampleEntity(
@@ -48,7 +49,7 @@ interface CyclingSessionDao {
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC")
     fun getAllSessions(): Flow<List<CyclingSessionEntity>>
 
-    @Query("SELECT id, sessionStart, distanceKm, netDurationSec, averagePower, hasPower FROM cycling_sessions ORDER BY sessionStart DESC")
+    @Query("SELECT id, sessionStart, distanceKm, netDurationSec, averagePower, hasPower, tag FROM cycling_sessions ORDER BY sessionStart DESC")
     fun getAllSessionSummaries(): Flow<List<CyclingSessionSummaryEntity>>
 
     @Query("SELECT * FROM cycling_sessions WHERE id = :id")

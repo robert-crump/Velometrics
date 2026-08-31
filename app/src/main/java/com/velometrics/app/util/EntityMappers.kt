@@ -125,7 +125,8 @@ fun CyclingSessionSummaryEntity.toDomain(): CyclingSessionSummary {
         distanceKm = distanceKm,
         netDurationSec = netDurationSec,
         averagePower = averagePower,
-        hasPower = hasPower
+        hasPower = hasPower,
+        tag = tag
     )
 }
 

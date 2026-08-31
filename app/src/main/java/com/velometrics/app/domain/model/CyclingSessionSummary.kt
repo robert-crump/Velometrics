@@ -8,5 +8,6 @@ data class CyclingSessionSummary(
     val distanceKm: Double,
     val netDurationSec: Int,
     val averagePower: Int?,
-    val hasPower: Boolean
+    val hasPower: Boolean,
+    val tag: String?
 )

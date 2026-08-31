@@ -730,14 +730,27 @@ private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
                     text = FormatUtils.formatDate(session.sessionStart),
                     style = MaterialTheme.typography.titleMedium
                 )
-                // Lightning bolt icon: green if power data, gray otherwise
-                // Size is 12dp — 50% wider than the previous 8dp dot
-                Icon(
-                    imageVector = Icons.Default.FlashOn,
-                    contentDescription = if (session.hasPower) "Has power data" else "No power data",
-                    modifier = Modifier.size(12.dp),
-                    tint = if (session.hasPower) Color(0xFF4CAF50) else Color.Gray
-                )
+                // Tag (if any) sits left of the power icon, its top aligned with the icon's top;
+                // the 16.dp gap between them matches the Column's own 16.dp padding to the card's
+                // right border, so the tag-to-icon gap equals the icon-to-border gap.
+                Row(verticalAlignment = Alignment.Top) {
+                    session.tag?.let { tag ->
+                        Text(
+                            text = tag,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                    }
+                    // Lightning bolt icon: green if power data, gray otherwise
+                    // Size is 12dp — 50% wider than the previous 8dp dot
+                    Icon(
+                        imageVector = Icons.Default.FlashOn,
+                        contentDescription = if (session.hasPower) "Has power data" else "No power data",
+                        modifier = Modifier.size(12.dp),
+                        tint = if (session.hasPower) Color(0xFF4CAF50) else Color.Gray
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(

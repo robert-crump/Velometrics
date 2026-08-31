@@ -1,20 +1,26 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.RideTag
+import com.velometrics.app.util.FormatUtils
 import java.util.Locale
 import kotlin.math.abs
 
 /**
  * Templated tag-scoped comparison narrative (#171), shown when a ride's tag label is expanded on
  * Session Detail: compares this ride to its own tag-scoped "last 5 [tag] rides" pool ([comparison],
- * which must come from [SessionComparator.computeComparison] called with this same [tag]) and
- * leads with whichever KPI deviates most from that pool's median — a low-drift Zone 2 ride leads
- * with drift, a high-power Intervals ride leads with power, rather than a hardcoded metric order.
+ * which must come from [SessionComparator.computeComparison] called with this same [tag]).
  *
- * Candidate KPIs are ranked by *relative* deviation (`|current - median| / median`) so metrics on
- * different scales (a percentage, a ratio near 1.0, watts) compare fairly. Distance is the one
- * candidate never gated on power/HR data, guaranteeing a sentence whenever there's enough
- * tag-scoped history at all, even for a power-and-HR-less ride.
+ * Each [RideTag] has one designated "main value" the sentence leads with (per-user feedback,
+ * 2026-08-31) — the metric that actually defines what that tag is about, not just whichever moved
+ * the most this ride: [RideTag.ZONE_2] leads with fat efficiency, [RideTag.INTERVALS] with the
+ * interval count, [RideTag.RECOVERY] with time spent in Power Zone 1. When that main value isn't
+ * available for this ride or its comparison pool (missing power data, say), the sentence falls
+ * back to whichever remaining candidate KPI deviates most from the pool's median, ranked by
+ * *relative* deviation (`|current - median| / median`) so metrics on different scales (a
+ * percentage, a ratio near 1.0, watts) compare fairly. Distance is the one candidate never gated
+ * on power/HR data, guaranteeing a sentence whenever there's enough tag-scoped history at all,
+ * even for a power-and-HR-less ride.
  */
 object TagComparisonNarrative {
 
@@ -28,6 +34,9 @@ object TagComparisonNarrative {
             return "Not enough history for $tag rides yet."
         }
 
+        val mainValue = mainValueCandidate(session, tag, comparison)
+        if (mainValue != null) return mainValue.sentence
+
         val candidates = listOfNotNull(
             cardiacDriftCandidate(session, tag, comparison),
             npToApCandidate(session, tag, comparison),
@@ -38,6 +47,33 @@ object TagComparisonNarrative {
 
         return candidates.maxByOrNull { it.relativeDeviation }?.sentence
             ?: "Not enough history for $tag rides yet."
+    }
+
+    /** The one KPI that defines each tag (see class doc) — null when that tag has no ride data
+     *  for it yet, or isn't [RideTag]-recognized, so [generate] falls back to deviation ranking. */
+    private fun mainValueCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? =
+        when (tag) {
+            RideTag.ZONE_2.label -> fatEfficiencyCandidate(session, tag, comparison)
+            RideTag.INTERVALS.label -> intervalCountCandidate(session, tag, comparison)
+            RideTag.RECOVERY.label -> powerZone1Candidate(session, tag, comparison)
+            else -> null
+        }
+
+    private fun intervalCountCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+        val current = session.intervalCount
+        val median = comparison.medianIntervalCountLast5 ?: return null
+        val direction = if (current > median) "more" else "fewer"
+        val sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
+        return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
+    }
+
+    private fun powerZone1Candidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+        val current = session.powerZoneDistribution?.get("Zone 1") ?: return null
+        val median = comparison.medianPowerZone1SecLast5 ?: return null
+        val direction = if (current > median) "more" else "less"
+        val sentence = "You spent ${FormatUtils.formatDuration(current)} in Zone 1, $direction than your " +
+            "typical ${FormatUtils.formatDuration(median)} for $tag rides."
+        return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
     private fun relativeDeviation(current: Double, median: Double): Double =

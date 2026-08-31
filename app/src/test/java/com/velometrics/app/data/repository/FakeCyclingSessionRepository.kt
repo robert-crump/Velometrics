@@ -130,7 +130,9 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         fatBurnedGrams = fatBurnedGrams,
         carbsBurnedGrams = carbsBurnedGrams,
         cardiacDriftPercent = cardiacDriftPercent,
-        hasPower = hasPower
+        hasPower = hasPower,
+        intervalCount = intervalCount,
+        powerZone1Sec = powerZoneDistribution?.get("Zone 1")
     )
 
     override suspend fun getAllClusterData(): List<SessionClusterData> =

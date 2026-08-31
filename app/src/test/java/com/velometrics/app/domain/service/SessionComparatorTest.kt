@@ -29,7 +29,9 @@ class SessionComparatorTest {
         normalizedPower: Int? = null,
         intervalTotalTimeSec: Int = 0,
         avgHeartRate: Int? = null,
-        tag: String? = null
+        tag: String? = null,
+        intervalCount: Int = 0,
+        powerZoneDistribution: Map<String, Int>? = if (hasPower) mapOf("Zone 1" to 100) else null
     ): CyclingSession {
         val start = Instant.now().minusSeconds(daysAgo * 86400)
         return CyclingSession(
@@ -46,9 +48,9 @@ class SessionComparatorTest {
             normalizedPower = normalizedPower,
             fatBurnedGrams = if (hasPower) 30.0 else null,
             carbsBurnedGrams = if (hasPower) 80.0 else null,
-            powerZoneDistribution = if (hasPower) mapOf("Zone 1" to 100) else null,
+            powerZoneDistribution = powerZoneDistribution,
             speedHistogram = mapOf("0-10 km/h" to 100),
-            intervalCount = 0,
+            intervalCount = intervalCount,
             intervalTotalTimeSec = intervalTotalTimeSec,
             gpsQualityPercent = 95.0,
             powerQualityPercent = if (hasPower) 90.0 else null,
@@ -193,6 +195,26 @@ class SessionComparatorTest {
         assertEquals(42.0, result.medianDistanceKmLast5!!, 0.01)
         // All 7: distances [10, 12, 40, 41, 42, 43, 44] -> median 41
         assertEquals(41.0, result.medianDistanceKmAllPrevious!!, 0.01)
+    }
+
+    @Test
+    fun `median interval count and power zone 1 time computed from history`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, hasPower = true, intervalCount = 6)
+        val prev1 = makeSession(
+            2, 1, 3400, 28.0, hasPower = true, intervalCount = 2,
+            powerZoneDistribution = mapOf("Zone 1" to 600)
+        )
+        val prev2 = makeSession(
+            3, 2, 3600, 30.0, hasPower = true, intervalCount = 4,
+            powerZoneDistribution = mapOf("Zone 1" to 1200)
+        )
+        repository.sessions.addAll(listOf(current, prev1, prev2))
+
+        val result = comparator.computeComparison(current)
+        // Median of [2, 4] = 3
+        assertEquals(3, result.medianIntervalCountLast5)
+        // Median of [600, 1200] = 900
+        assertEquals(900, result.medianPowerZone1SecLast5)
     }
 
     @Test

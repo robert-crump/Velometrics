@@ -13,7 +13,9 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.*
+import com.velometrics.app.BuildConfig
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +34,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val recalcState by viewModel.recalcState.collectAsState()
+    val dumpStatus by viewModel.dumpStatus.collectAsState()
     val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
     val currentFtp by viewModel.ftp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
@@ -252,6 +255,17 @@ fun SettingsScreen(
                     if (recalcState !is RecalcState.Running) showRecalcDialog = true
                 }
             )
+
+            // Debug-only: issue #170 threshold-tuning review tool. See RideTagDumper's doc
+            // comment for why this is a Settings row instead of an instrumented test.
+            if (BuildConfig.DEBUG) {
+                SettingsRow(
+                    icon = Icons.Default.BugReport,
+                    title = "Dump ride tags (debug)",
+                    subtitle = dumpStatus ?: "Write ride_tag_dump.csv to app files",
+                    onClick = { viewModel.dumpSessionTagsForReview() }
+                )
+            }
 
             // ── About ──
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))

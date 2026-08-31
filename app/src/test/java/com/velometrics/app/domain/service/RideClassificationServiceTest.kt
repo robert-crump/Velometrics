@@ -49,9 +49,9 @@ class RideClassificationServiceTest {
     @Test
     fun `reclassifyAll is safely re-runnable and corrects a stale tag`() = runBlocking {
         val repository = FakeCyclingSessionRepository()
-        // Pre-existing (wrong) tag, e.g. from before a threshold change -- reclassifyAll must
-        // overwrite it, not just skip already-tagged sessions.
-        repository.sessions.add(zone1Session(id = 1, tag = RideTag.RACE.label))
+        // Pre-existing (wrong) tag, e.g. a stale category from before #170 removed it as a
+        // fallback -- reclassifyAll must overwrite it, not just skip already-tagged sessions.
+        repository.sessions.add(zone1Session(id = 1, tag = "Endurance"))
         val service = RideClassificationService(repository)
 
         service.reclassifyAll()

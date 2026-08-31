@@ -282,12 +282,17 @@ private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (Comparison
     }
 }
 
-/** Rule-based classification chip (#169), e.g. "Zone 2" or "Intervals". */
+/**
+ * Rule-based classification label (#169, thresholds/category set replaced in #170), e.g.
+ * "Zone 2" or "Intervals" — a plain label below the date, not a tappable chip: there's no
+ * narrative/detail behind it to open.
+ */
 @Composable
-private fun RideTagChip(tag: String) {
-    AssistChip(
-        onClick = {},
-        label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+private fun RideTagLabel(tag: String) {
+    Text(
+        text = tag,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
 
@@ -323,19 +328,16 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.Top
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Column {
                 Text(
                     text = dateFormatter.format(session.sessionStart),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 )
-                session.tag?.let { tag -> RideTagChip(tag) }
+                session.tag?.let { tag -> RideTagLabel(tag) }
             }
             ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
         }

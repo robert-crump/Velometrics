@@ -22,7 +22,7 @@ class RideClassificationService @Inject constructor(
     suspend fun reclassifyAll() {
         val sessions = sessionRepository.getAllSessions().first()
         for (session in sessions) {
-            val tag = RideClassifier.classify(session).label
+            val tag = RideClassifier.classify(session)?.label
             if (session.tag != tag) {
                 sessionRepository.updateTag(session.id, tag)
             }

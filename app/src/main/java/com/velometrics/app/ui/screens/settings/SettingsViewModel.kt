@@ -1,13 +1,17 @@
 ﻿package com.velometrics.app.ui.screens.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.RideClassificationService
+import com.velometrics.app.domain.service.RideTagDumper
 import com.velometrics.app.domain.service.SessionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +32,8 @@ class SettingsViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val sessionComparator: SessionComparator,
     private val rideClassificationService: RideClassificationService,
-    private val dropboxAuthRepository: DropboxAuthRepository
+    private val dropboxAuthRepository: DropboxAuthRepository,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     val ftp = userSettingsRepository.ftp
@@ -98,6 +103,25 @@ class SettingsViewModel @Inject constructor(
 
     fun clearRecalcState() {
         _recalcState.value = RecalcState.Idle
+    }
+
+    private val _dumpStatus = MutableStateFlow<String?>(null)
+    val dumpStatus: StateFlow<String?> = _dumpStatus.asStateFlow()
+
+    /**
+     * Debug-only entry point for [RideTagDumper] (#170 threshold-tuning review) — see
+     * [com.velometrics.app.domain.service.RideTagDumper] for why this replaced the
+     * `connectedDebugAndroidTest` approach it was originally written as. Pull the result with:
+     * `adb shell run-as com.velometrics.app cat files/ride_tag_dump.csv > ride_tag_dump.csv`
+     */
+    fun dumpSessionTagsForReview() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _dumpStatus.value = "Dumping…"
+            val sessions = sessionRepository.getAllSessions().first()
+            val outFile = File(appContext.filesDir, "ride_tag_dump.csv")
+            val byTag = RideTagDumper.dumpToCsv(sessions, outFile)
+            _dumpStatus.value = "Wrote ${sessions.size} rows ($byTag) to ${outFile.name}"
+        }
     }
 
     fun saveDropboxSyncFolder(path: String) {

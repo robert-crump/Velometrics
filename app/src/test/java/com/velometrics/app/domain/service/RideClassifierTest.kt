@@ -3,6 +3,7 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RideTag
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
@@ -10,11 +11,9 @@ class RideClassifierTest {
 
     private fun baseSession(
         netDurationSec: Int = 3600,
-        intervalTotalTimeSec: Int = 0,
+        intervalCount: Int = 0,
         powerZoneDistribution: Map<String, Int>? = null,
         hrZoneDistribution: Map<String, Int>? = null,
-        averagePower: Int? = null,
-        normalizedPower: Int? = null,
         cardiacDriftPercent: Double? = null,
         fatEfficiencyScore: Int? = null,
         hasPower: Boolean = powerZoneDistribution != null
@@ -27,14 +26,14 @@ class RideClassifierTest {
         pauseDurationSec = 0,
         netDurationSec = netDurationSec,
         distanceKm = 30.0,
-        averagePower = averagePower,
-        normalizedPower = normalizedPower,
+        averagePower = null,
+        normalizedPower = null,
         fatBurnedGrams = null,
         carbsBurnedGrams = null,
         powerZoneDistribution = powerZoneDistribution,
         speedHistogram = emptyMap(),
-        intervalCount = if (intervalTotalTimeSec > 0) 1 else 0,
-        intervalTotalTimeSec = intervalTotalTimeSec,
+        intervalCount = intervalCount,
+        intervalTotalTimeSec = 0,
         gpsQualityPercent = 100.0,
         powerQualityPercent = null,
         hasPower = hasPower,
@@ -44,97 +43,47 @@ class RideClassifierTest {
     )
 
     @Test
-    fun `classify tags Intervals when interval time share exceeds the threshold, even amid a high-zone majority`() {
-        // 20% of net time in detected intervals clears the 12% threshold, while the zone
-        // distribution alone would otherwise qualify as Race (majority Zone 4+, steady NP-AP) --
-        // Intervals must still win since it's checked first.
-        val session = baseSession(
-            netDurationSec = 3600,
-            intervalTotalTimeSec = 720,
-            powerZoneDistribution = mapOf("Zone 4" to 60, "Zone 3" to 40),
-            averagePower = 200,
-            normalizedPower = 205
-        )
+    fun `classify tags Intervals when 2 or more intervals are detected, even amid a qualifying Zone 2 fat-efficiency score`() {
+        // fatEfficiencyScore alone would otherwise qualify as Zone 2 -- Intervals must still win
+        // since it's checked first.
+        val session = baseSession(intervalCount = 2, fatEfficiencyScore = 90)
 
         assertEquals(RideTag.INTERVALS, RideClassifier.classify(session))
     }
 
     @Test
-    fun `classify tags Race for a high-zone majority with a steady NP-AP ratio`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 4" to 70, "Zone 3" to 30),
-            averagePower = 220,
-            normalizedPower = 225 // NP:AP ~= 1.02, steady
-        )
+    fun `classify does not tag Intervals for a single detected interval`() {
+        val session = baseSession(intervalCount = 1)
 
-        assertEquals(RideTag.RACE, RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session))
     }
 
     @Test
-    fun `classify tags Race ahead of a Recovery fallback signal when both apply`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 4" to 70, "Zone 3" to 30),
-            averagePower = 220,
-            normalizedPower = 225,
-            cardiacDriftPercent = 1.0,
-            fatEfficiencyScore = 95 // would also qualify as Recovery's fallback signal
-        )
-
-        assertEquals(RideTag.RACE, RideClassifier.classify(session))
-    }
-
-    @Test
-    fun `classify does not tag Race when the high-zone effort is too spiky`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 4" to 70, "Zone 3" to 30),
-            averagePower = 200,
-            normalizedPower = 240 // NP:AP = 1.2, spiky
-        )
-
-        assertEquals(RideTag.ENDURANCE, RideClassifier.classify(session))
-    }
-
-    @Test
-    fun `classify tags Race off HR-zone majority alone when there is no power meter`() {
-        val session = baseSession(
-            hasPower = false,
-            hrZoneDistribution = mapOf("Zone 4" to 55, "Zone 3" to 45)
-        )
-
-        assertEquals(RideTag.RACE, RideClassifier.classify(session))
-    }
-
-    @Test
-    fun `classify tags Zone 2 for a Zone 2 majority ride, ahead of a Recovery fallback signal`() {
-        // Zone 2 majority and a genuinely qualifying Recovery fallback (low drift, high fat
-        // efficiency) both hold -- Zone 2 must win since it's checked first.
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 2" to 65, "Zone 1" to 20, "Zone 3" to 15),
-            cardiacDriftPercent = 1.5,
-            fatEfficiencyScore = 85
-        )
+    fun `classify tags Zone 2 for a fat-efficiency score of 75 or higher`() {
+        val session = baseSession(fatEfficiencyScore = 75)
 
         assertEquals(RideTag.ZONE_2, RideClassifier.classify(session))
     }
 
     @Test
-    fun `classify prefers power zones over heart-rate zones when both are present`() {
-        // Power says Zone 2 majority, HR says Zone 4 majority -- power should win.
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 2" to 70, "Zone 3" to 30),
-            hrZoneDistribution = mapOf("Zone 4" to 70, "Zone 3" to 30),
-            averagePower = 150,
-            normalizedPower = 155
-        )
+    fun `classify does not tag Zone 2 just below the fat-efficiency floor`() {
+        val session = baseSession(fatEfficiencyScore = 74)
+
+        assertNull(RideClassifier.classify(session))
+    }
+
+    @Test
+    fun `classify tags Zone 2 ahead of a Recovery fallback signal when both apply`() {
+        // fatEfficiencyScore of 80 clears both Zone 2's 75 floor and Recovery's fallback (with
+        // low drift) -- Zone 2 must win since it's checked first.
+        val session = baseSession(fatEfficiencyScore = 80, cardiacDriftPercent = 1.0)
 
         assertEquals(RideTag.ZONE_2, RideClassifier.classify(session))
     }
 
     @Test
     fun `classify tags Recovery for a Zone 1 majority ride`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30)
-        )
+        val session = baseSession(powerZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30))
 
         assertEquals(RideTag.RECOVERY, RideClassifier.classify(session))
     }
@@ -144,27 +93,38 @@ class RideClassifierTest {
         val session = baseSession(
             powerZoneDistribution = mapOf("Zone 3" to 60, "Zone 2" to 40),
             cardiacDriftPercent = 2.0,
-            fatEfficiencyScore = 90
+            fatEfficiencyScore = 72
         )
 
         assertEquals(RideTag.RECOVERY, RideClassifier.classify(session))
     }
 
     @Test
-    fun `classify falls back to Endurance when no rule matches`() {
+    fun `classify prefers power zones over heart-rate zones for the Recovery Zone 1 signal`() {
+        // Power says no Zone 1, HR says Zone 1 majority -- power should win, so this stays
+        // unclassified rather than tagging Recovery off the HR-only signal.
         val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 2" to 30, "Zone 3" to 40, "Zone 4" to 30),
-            averagePower = 180,
-            normalizedPower = 190
+            powerZoneDistribution = mapOf("Zone 3" to 70, "Zone 2" to 30),
+            hrZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30)
         )
 
-        assertEquals(RideTag.ENDURANCE, RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session))
     }
 
     @Test
-    fun `classify falls back to Endurance when there is no zone data at all`() {
+    fun `classify returns null when no rule matches -- there is no fallback category`() {
+        val session = baseSession(
+            powerZoneDistribution = mapOf("Zone 2" to 30, "Zone 3" to 40, "Zone 4" to 30),
+            fatEfficiencyScore = 60
+        )
+
+        assertNull(RideClassifier.classify(session))
+    }
+
+    @Test
+    fun `classify returns null when there is no signal data at all`() {
         val session = baseSession()
 
-        assertEquals(RideTag.ENDURANCE, RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session))
     }
 }

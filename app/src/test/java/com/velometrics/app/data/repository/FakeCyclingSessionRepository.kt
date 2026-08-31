@@ -84,6 +84,11 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         }
     }
 
+    override suspend fun updateTag(sessionId: Long, tag: String?) {
+        val index = sessions.indexOfFirst { it.id == sessionId }
+        if (index >= 0) sessions[index] = sessions[index].copy(tag = tag)
+    }
+
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> =
         sessions.sortedByDescending { it.sessionStart }.take(limit)
 

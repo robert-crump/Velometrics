@@ -89,6 +89,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         dao.updateIntervalStats(sessionId, count, totalSec)
     }
 
+    override suspend fun updateTag(sessionId: Long, tag: String?) {
+        dao.updateTag(sessionId, tag)
+    }
+
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> {
         return dao.getRecentSessionsList(limit).map { it.toDomain() }
     }

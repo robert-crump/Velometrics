@@ -9,6 +9,7 @@ import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.BestEffortCalculator
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
+import com.velometrics.app.domain.service.RideClassifier
 import com.velometrics.app.domain.service.SprintDetector
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
@@ -158,6 +159,15 @@ class FitImportService @Inject constructor(
                     )
                 }
             }
+
+            // 11. Rule-based ride tag (#169). Classified off a local copy carrying this import's
+            // just-detected interval stats — session itself still has intervalTotalTimeSec = 0
+            // (SessionMetricsCalculator always emits that; interval detection above is what fills
+            // it in), and the DB row is updated separately rather than via a full updateSession
+            // round trip, matching updateIntervalStats' shape just above.
+            val classifiableSession = session.copy(intervalCount = intervalCount, intervalTotalTimeSec = intervalTotalSec)
+            val tag = RideClassifier.classify(classifiableSession).label
+            sessionRepository.updateTag(id, tag)
 
             val summary = buildString {
                 append("%.1f km".format(session.distanceKm))

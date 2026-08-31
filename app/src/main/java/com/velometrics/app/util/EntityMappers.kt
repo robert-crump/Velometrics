@@ -60,7 +60,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         elevationGainM = elevationGainM,
         hrZoneDistribution = hrZoneDist,
         cardiacDriftBuckets = cardiacDrift,
-        cardiacDriftPercent = cardiacDriftPercent
+        cardiacDriftPercent = cardiacDriftPercent,
+        tag = tag
     )
 }
 
@@ -95,7 +96,8 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         elevationGainM = elevationGainM,
         hrZoneDistribution = hrZoneDistribution?.toJsonString(),
         cardiacDriftBuckets = cardiacDriftBuckets?.toJsonString(),
-        cardiacDriftPercent = cardiacDriftPercent
+        cardiacDriftPercent = cardiacDriftPercent,
+        tag = tag
     )
 }
 

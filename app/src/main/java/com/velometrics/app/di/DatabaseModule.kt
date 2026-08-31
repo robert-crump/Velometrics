@@ -202,6 +202,15 @@ object DatabaseModule {
         }
     }
 
+    // Rule-based ride tagging (#169): new nullable column, backfilled onto pre-existing rows by
+    // RideClassificationService.reclassifyAll() rather than in-migration (classification needs
+    // domain logic, not just SQL).
+    internal val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE cycling_sessions ADD COLUMN tag TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -210,7 +219,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
             .fallbackToDestructiveMigration()
             .build()
     }

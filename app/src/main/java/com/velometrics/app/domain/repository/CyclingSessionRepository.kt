@@ -28,6 +28,8 @@ interface CyclingSessionRepository {
     /** Count of persisted sessions with a strictly greater average speed, since [since] (null = all-time). */
     suspend fun countSessionsWithGreaterAverageSpeed(averageSpeedKmh: Double, since: Instant?): Int
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
+    /** Sets [CyclingSession.tag] directly, without a full read-modify-write round trip. */
+    suspend fun updateTag(sessionId: Long, tag: String?)
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
     suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>
     suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample>

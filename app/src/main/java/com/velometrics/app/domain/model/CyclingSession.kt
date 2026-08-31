@@ -35,5 +35,9 @@ data class CyclingSession(
     // than half its samples excluded (power < 25% FTP) is dropped entirely, i.e. absent from this
     // map — the chart renders that as a gap, not a zero.
     val cardiacDriftBuckets: Map<String, Double>? = null,
-    val cardiacDriftPercent: Double? = null
+    val cardiacDriftPercent: Double? = null,
+    // Rule-based classification (#169): Zone 2 / Intervals / Race / Recovery / Endurance,
+    // computed at import time by RideClassifier and backfilled onto older rides by
+    // RideClassificationService.reclassifyAll().
+    val tag: String? = null
 )

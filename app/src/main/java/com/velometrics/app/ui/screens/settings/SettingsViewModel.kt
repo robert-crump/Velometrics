@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.service.RideClassificationService
 import com.velometrics.app.domain.service.SessionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val sessionRepository: CyclingSessionRepository,
     private val sessionComparator: SessionComparator,
+    private val rideClassificationService: RideClassificationService,
     private val dropboxAuthRepository: DropboxAuthRepository
 ) : ViewModel() {
 
@@ -86,6 +88,10 @@ class SettingsViewModel @Inject constructor(
             for (session in allSessions) {
                 sessionComparator.computeComparison(session)
             }
+            // Re-run rule-based tagging too — the same trigger a rider uses to recompute
+            // everything after an FTP/max-HR change also re-runs #169's classifier, e.g. once
+            // its thresholds are tuned by the follow-up issue.
+            rideClassificationService.reclassifyAll()
             _recalcState.value = RecalcState.Done
         }
     }

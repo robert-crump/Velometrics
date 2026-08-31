@@ -95,6 +95,9 @@ interface CyclingSessionDao {
     @Query("UPDATE cycling_sessions SET intervalCount = :count, intervalTotalTimeSec = :totalSec WHERE id = :sessionId")
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
 
+    @Query("UPDATE cycling_sessions SET tag = :tag WHERE id = :sessionId")
+    suspend fun updateTag(sessionId: Long, tag: String?)
+
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC LIMIT :limit")
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSessionEntity>
 

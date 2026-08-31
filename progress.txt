@@ -1,3 +1,91 @@
+## Issue #169 — Rule-based ride tagging, persisted and visible
+Completed: 2026-08-31
+
+### What was done
+
+First slice of the #167 parent (rule-based ride tagging). Auto-classifies every ride into one
+of five tags — Zone 2, Intervals, Race, Recovery, Endurance — computed at import time and
+persisted, so Session Detail can show a tag chip with no manual input. A timing subtlety in
+`FitImportService` mattered here: `SessionMetricsCalculator.compute()` always emits
+`intervalTotalTimeSec = 0` (interval detection runs afterward, power rides only), so
+classifying straight off its output would make the Intervals rule permanently dead for new
+imports. Classification now runs after interval detection, off a local `session.copy(
+intervalCount = ..., intervalTotalTimeSec = ...)` carrying that import's real interval stats —
+no extra DB round trip needed since those values are already local vars at that point.
+
+**`domain/model/RideTag.kt`** (new) — `enum class RideTag(val label: String)`, one entry per
+tag (`ZONE_2` -> `"Zone 2"`, etc.). `label`, not `name`, is what's persisted and displayed, so a
+future enum-constant rename can't silently change what's already stored.
+
+**`domain/service/RideClassifier.kt`** (new, `object`, pure — no DI, same shape as
+`BestEffortCalculator`) — `classify(session: CyclingSession): RideTag`, priority order
+Intervals -> Race -> Zone 2 -> Recovery -> Endurance (fallback), each rule a private predicate:
+- Intervals: `intervalTotalTimeSec` is >=12% of `netDurationSec`.
+- Race: zone-time majority (>=50%) in Zone 4+ *and* a steady NP:AP ("variability index") <=1.05;
+  on an HR-only ride (no power meter, NP:AP unavailable) the zone majority alone qualifies,
+  since NP:AP is a power-only signal with nothing to fall back to.
+- Zone 2: zone-time majority (>=50%) in Zone 2.
+- Recovery: zone-time majority (>=50%) in Zone 1, *or* (as a fallback when zone data doesn't
+  already say so) `cardiacDriftPercent` <=3% and `fatEfficiencyScore` >=70.
+- Endurance: everything else, including rides with no zone data at all.
+Zone-time share prefers `powerZoneDistribution` over `hrZoneDistribution` when both exist (a
+more direct effort signal); both distributions are per-datapoint counts (not percentages), so
+share = matching-zone count / total count. All thresholds are an explicit best-effort starting
+point per the issue — not validated against real ride history here, that's the follow-up
+threshold-tuning issue's job.
+
+**`domain/service/RideClassificationService.kt`** (new, `@Singleton`, injects
+`CyclingSessionRepository`) — `reclassifyAll()`: re-runs `RideClassifier` over every session,
+writing back only rows whose tag actually changed (idempotent, safe to re-run — needed by the
+same follow-up issue once thresholds change). Wired into
+`SettingsViewModel.recalculateAllStats()` alongside the existing `sessionComparator` loop, since
+that's already the app's "recompute everything across all sessions" trigger.
+
+**`data/local/entity/CyclingSessionEntity.kt`, `domain/model/CyclingSession.kt`,
+`util/EntityMappers.kt`** — new `tag: String?` field (default `null`), round-tripped through
+`toDomain()`/`toEntity()`.
+
+**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`** — schema v13 -> v14;
+`MIGRATION_13_14` (`internal val`, matching `MIGRATION_11_12`'s precedent for one under test)
+does `ALTER TABLE cycling_sessions ADD COLUMN tag TEXT` — classification needs domain logic, not
+just SQL, so backfilling existing rows is `RideClassificationService.reclassifyAll()`'s job, not
+the migration's.
+
+**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl,
+`FakeCyclingSessionRepository`)** — `updateTag(sessionId, tag)`, a direct
+`UPDATE ... SET tag = :tag` matching `updateIntervalStats`'s existing partial-update shape
+(avoids a full read-modify-write for a single-column write).
+
+**`data/fitimport/FitImportService.kt`** — after interval detection (step 10) and before
+building the summary string, computes the tag off the interval-aware local session copy and
+persists it via `sessionRepository.updateTag(id, tag)`.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — new private `RideTagChip` (an
+`AssistChip` with a no-op `onClick`, matching `MapViewScreen`'s existing "Locating…" chip
+precedent for a non-interactive informational chip), rendered next to the date in
+`RideSummaryGrid`'s header row (`session.tag?.let { RideTagChip(it) }` — no chip at all for
+older, not-yet-backfilled sessions until `reclassifyAll()` runs).
+
+### Tests
+New `RideClassifierTest` (11 cases, following `BestEffortCalculatorTest`'s pattern of a plain
+constructed-fixture test, no fake repository needed since `classify` is pure): all 5 tags
+individually, plus 3 explicit priority tie-break cases (Intervals beats an otherwise-qualifying
+Race; Race beats an otherwise-qualifying Recovery fallback; Zone 2 beats an otherwise-qualifying
+Recovery fallback), a spiky-effort case that fails Race's NP:AP check, an HR-only Race case with
+no power meter, a power-vs-HR-zone preference case, and two Endurance-fallback cases (mixed zone
+spread; no zone data at all). New `RideClassificationServiceTest` (2 cases, via
+`FakeCyclingSessionRepository`): backfills tags onto pre-existing untagged sessions; re-running
+twice corrects a stale/wrong tag and stays idempotent. New
+`VelometricsMigrationTest` case (13->14): inserts a v13 row, migrates, confirms the new `tag`
+column exists and reads back `NULL`. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
+`assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass (284 tests, up from 270 — 14
+new), no regressions. No on-device verification this session (no
+new UI interaction, just a static chip render off already-covered data; the acceptance
+criteria's classification/migration/persistence logic is fully covered by the new unit and
+migration tests).
+
+---
+
 ## Issue #168 — Ride detail screen: More calories = better
 Completed: 2026-08-31
 
@@ -520,106 +608,3 @@ the fallback; a ride beaten by 3 pre-existing rides on every tracked metric stil
 (251 tests, up from 242 — 9 new), no regressions. No on-device verification this session (pure
 rank-query/candidate logic fully covered by the new unit tests against a fake repository; no new
 UI surface — the sheet itself and its rendering were already covered by #158).
-
----
-
-## Issue #158 — Ride Reveal: trigger + guaranteed fallback
-Completed: 2026-08-29
-
-### What was done
-
-First slice of the Ride Reveal feature (design doc: `docs/ideas/ride-reveal-hero.md`, not yet
-committed before this session). Picked over #159/#160 since both are explicitly blocked on this
-one (they plug into the resolver/trigger this issue builds). Read the design doc's trigger-condition
-section closely since it's the crux of the issue and has a subtle backfill trap: "identify the
-single most-recently-imported file's ride" turns out to mean the *chronologically* newest ride
-actually imported in the batch (by parsed FIT start-time), not the last file processed by name/
-order — the doc's own clarifying sentence ("not filename or Dropbox processing order") only makes
-sense under that reading, since `DropboxSyncService` sorts entries by filename before importing.
-The backfill guard falls out for free from comparing against a *pre-sync baseline*: captured once
-per batch via `getMaxSessionStart()` *before* any file in that batch is imported; a null baseline
-(empty DB) means "never reveal," so a first-time Dropbox connect or fresh-install backfill of
-hundreds of historical rides can't trigger it no matter which file in that batch is chronologically
-last, since there's no pre-existing max to be "later than."
-
-**`domain/repository/CyclingSessionRepository.kt` (+ Impl, DAO, `FakeCyclingSessionRepository`)**
-- New `getMaxSessionStart(): Instant?` — a plain `SELECT MAX(sessionStart)`, null on an empty table.
-  No new index; matches the design doc's explicit call that this is a non-issue at personal ride-
-  count scale.
-
-**`data/fitimport/ImportResult.kt`, `data/fitimport/FitImportService.kt`**
-- `ImportResult.Success` gained a `sessionStart: Instant` field (the already-computed
-  `session.sessionStart`, no extra DB round-trip) so callers can identify the batch's
-  chronologically-newest imported ride without re-fetching every session.
-
-**`domain/model/RideRevealCandidate.kt`** (new)
-- `RideRevealScope` (ALL_TIME, THIS_YEAR), `RideRevealFamily` (RIDE_MILESTONE,
-  POWER_CURVE_BEST_EFFORT, FALLBACK), and `RideRevealPriority(scope, rank, family):
-  Comparable<RideRevealPriority>` implementing the design doc's exact tie-break ordering (scope,
-  then rank, then family) via enum-ordinal comparison — declaring each enum's entries in
-  best-first order makes the `compareTo` a one-liner per field, no explicit weight table needed.
-  `RideRevealPriority.FALLBACK` is a companion constant (`THIS_YEAR`/`Int.MAX_VALUE`/`FALLBACK`)
-  that's guaranteed to lose to any real 1st-3rd achievement in any scope, verified in
-  `RideRevealResolverTest`. `RideRevealCandidate(headline, priority)` — deliberately just those two
-  fields, matching the issue's "a label plus a priority key" description, so #159/#160 don't need
-  any new shape to plug into.
-
-**`domain/service/RideRevealResolver.kt`** (new)
-- `resolve(candidates: List<RideRevealCandidate>): RideRevealCandidate` — a pure `reduce` picking
-  the lowest-priority (best) candidate; throws on an empty list (callers always pass at least the
-  fallback).
-
-**`domain/service/RideRevealEvaluator.kt`** (new, `@Singleton`, injects `CyclingSessionRepository`)
-- `captureBaseline()`: thin wrapper on `getMaxSessionStart()`, called once per batch *before* import
-  starts.
-- `evaluate(results, baseline)`: null baseline -> null (backfill guard). Otherwise takes
-  `results.filterIsInstance<ImportResult.Success>().maxByOrNull { it.sessionStart }` (ignores
-  `Error`/`AlreadyImported`/skipped-`SmallFile` entries) — if that ride's start isn't after
-  `baseline`, returns null (routine sync, nothing newer than what already existed). Otherwise fetches
-  the full `CyclingSession`, builds the single Tier 2 fallback candidate (static "Nice ride!"
-  headline, `RideRevealPriority.FALLBACK`), resolves it (trivially, since it's the only candidate
-  today), and returns `RideRevealContent(sessionId, headline, distanceKm, netDurationSec,
-  elevationGainM)`. This is the one place #159/#160 will extend: add their candidate(s) to the same
-  list before calling `RideRevealResolver.resolve`.
-
-**`ui/screens/home/HomeViewModel.kt`**
-- New `ImportUiState.RideReveal(content: RideRevealContent)`, shown instead of `Done`
-  (`importFromUris`) or the Dropbox snackbar (`syncDropbox`) when `RideRevealEvaluator.evaluate`
-  returns non-null.
-- `importFromUris`: now accumulates every file's `ImportResult` into a list (previously only tracked
-  `lastResult`, overwritten each iteration) so the evaluator can see the whole batch; captures the
-  baseline before the loop starts. The existing early-return-on-unreadable-file quirk (aborts the
-  rest of the batch, a pre-existing behavior out of scope here) is preserved via `break` instead of
-  `return@withLock`, with identical downstream behavior since both paths fall through to the same
-  final-state assignment now.
-- `syncDropbox`: captures the baseline immediately before `dropboxSyncService.sync()`; on
-  `DropboxSyncResult.Completed`, evaluates the reveal before falling back to the existing
-  `buildSyncMessage`/snackbar path, so pull-to-refresh gets the same reveal behavior as manual
-  import without duplicating the trigger logic.
-
-**`ui/screens/home/HomeScreen.kt`**
-- New `RideRevealSheet` (`ModalBottomSheet`, `skipPartiallyExpanded = true`): headline text, a
-  distance/duration/elevation stat row (elevation cell omitted when null, matching how the rest of
-  the app treats a missing `elevationGainM`), and a "View ride" button that dismisses the sheet and
-  navigates via the screen's existing `onSessionClick`. Rendered alongside the pre-existing
-  `SmallFileWarning` dialog block, gated on the same `currentState` snapshot.
-
-**`docs/ideas/ride-reveal-hero.md`**: committed for the first time this session (existed untracked
-in the working tree beforehand) since it's the design rationale this and the two follow-up issues
-point to.
-
-### Tests
-New `RideRevealResolverTest` (6 cases: single-candidate trivial win, achievement beats fallback
-regardless of list order, all-time beats this-year regardless of rank, lower rank wins within a
-scope, ride-milestone beats power-curve within equal scope+rank, empty list throws) and
-`RideRevealEvaluatorTest` (8 cases, via `FakeCyclingSessionRepository`: null baseline on an empty
-DB, baseline = latest existing start, fires when later than baseline, doesn't fire when not later,
-doesn't fire on a backfill into an empty DB even for the batch's newest ride, picks the
-chronologically-newest batch member rather than the last one in the results list, ignores
-non-`Success` results when picking the batch's newest ride, no successes never fires).
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `compileDebugAndroidTestKotlin`, `assembleDebug`,
-full `testDebugUnitTest --rerun-tasks` (matching the known Gradle env-var/test-filter stale-cache
-quirk from #135): all pass (242 tests, up from 228 — 14 new), no regressions. No on-device
-verification this session (needs a real device with Dropbox configured and two ordered rides to
-exercise the reveal end-to-end; the trigger/resolver logic is fully covered by the new unit tests,
-and the sheet itself is a straightforward `ModalBottomSheet` with no novel rendering risk).

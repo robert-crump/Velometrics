@@ -38,5 +38,6 @@ data class CyclingSessionEntity(
     val elevationGainM: Double? = null,
     val hrZoneDistribution: String? = null,  // JSON map
     val cardiacDriftBuckets: String? = null, // JSON map: bucket index -> % of baseline
-    val cardiacDriftPercent: Double? = null
+    val cardiacDriftPercent: Double? = null,
+    val tag: String? = null // Rule-based classification label, e.g. "Zone 2" (#169)
 )

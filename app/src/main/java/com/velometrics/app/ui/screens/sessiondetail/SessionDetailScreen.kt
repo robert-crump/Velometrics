@@ -282,6 +282,15 @@ private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (Comparison
     }
 }
 
+/** Rule-based classification chip (#169), e.g. "Zone 2" or "Intervals". */
+@Composable
+private fun RideTagChip(tag: String) {
+    AssistChip(
+        onClick = {},
+        label = { Text(tag, style = MaterialTheme.typography.labelSmall) }
+    )
+}
+
 @Composable
 private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
@@ -316,12 +325,18 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom
         ) {
-            Text(
-                text = dateFormatter.format(session.sessionStart),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = dateFormatter.format(session.sessionStart),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
                 )
-            )
+                session.tag?.let { tag -> RideTagChip(tag) }
+            }
             ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
         }
         Spacer(modifier = Modifier.height(12.dp))

@@ -22,22 +22,23 @@ object RideTagDumper {
     private val CSV_HEADER = listOf(
         "id", "sessionStart", "fileName", "distanceKm", "netDurationMin",
         "storedTag", "computedTag", "tagStale",
-        "intervalCount", "fatEfficiencyScore", "zone1Share", "cardiacDriftPercent", "hasPower"
+        "intervalCount", "fatEfficiencyScore", "averagePower", "percentOfFtp", "hasPower"
     ).joinToString(",")
 
     /** Returns tag counts (by persisted tag) alongside writing the CSV, for a quick log/UI summary. */
-    fun dumpToCsv(sessions: List<CyclingSession>, outFile: File): Map<String, Int> {
+    fun dumpToCsv(sessions: List<CyclingSession>, outFile: File, ftp: Int): Map<String, Int> {
         outFile.bufferedWriter().use { out ->
             out.write(CSV_HEADER + "\n")
             for (session in sessions) {
-                out.write(rowFor(session) + "\n")
+                out.write(rowFor(session, ftp) + "\n")
             }
         }
         return sessions.groupingBy { it.tag ?: "(none)" }.eachCount()
     }
 
-    private fun rowFor(session: CyclingSession): String {
-        val computedTag = RideClassifier.classify(session)?.label
+    private fun rowFor(session: CyclingSession, ftp: Int): String {
+        val computedTag = RideClassifier.classify(session, ftp)?.label
+        val percentOfFtp = session.averagePower?.let { it.toDouble() / ftp }
         return listOf(
             session.id,
             session.sessionStart,
@@ -49,8 +50,8 @@ object RideTagDumper {
             (session.tag != computedTag),
             session.intervalCount,
             session.fatEfficiencyScore ?: "",
-            fmt(zoneShare(session, setOf("Zone 1"))),
-            fmt(session.cardiacDriftPercent),
+            session.averagePower ?: "",
+            fmt(percentOfFtp),
             session.hasPower
         ).joinToString(",")
     }
@@ -58,12 +59,4 @@ object RideTagDumper {
     private fun csvField(s: String): String = "\"${s.replace("\"", "\"\"")}\""
 
     private fun fmt(d: Double?): String = if (d == null) "" else "%.3f".format(Locale.US, d)
-
-    private fun zoneShare(session: CyclingSession, zoneLabels: Set<String>): Double? {
-        val distribution = session.powerZoneDistribution ?: session.hrZoneDistribution ?: return null
-        val total = distribution.values.sum()
-        if (total <= 0) return null
-        val matched = zoneLabels.sumOf { distribution[it] ?: 0 }
-        return matched.toDouble() / total
-    }
 }

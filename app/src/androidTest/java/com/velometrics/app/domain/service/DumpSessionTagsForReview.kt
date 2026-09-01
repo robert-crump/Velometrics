@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.di.DatabaseModule
 import com.velometrics.app.util.toDomain
 import java.io.File
@@ -35,8 +36,9 @@ class DumpSessionTagsForReview {
         val db = DatabaseModule.provideDatabase(context)
         try {
             val sessions = db.cyclingSessionDao().getAllSessions().first().map { it.toDomain() }
+            val ftp = UserSettingsRepository(context).ftp.first()
             val outFile = File(context.filesDir, "ride_tag_dump.csv")
-            val byTag = RideTagDumper.dumpToCsv(sessions, outFile)
+            val byTag = RideTagDumper.dumpToCsv(sessions, outFile, ftp)
 
             // Surfaced in the instrumentation log too, in case adb pull is done from a different
             // shell than the one running the test.

@@ -19,10 +19,10 @@ import kotlinx.coroutines.flow.first
 class RideClassificationService @Inject constructor(
     private val sessionRepository: CyclingSessionRepository
 ) {
-    suspend fun reclassifyAll() {
+    suspend fun reclassifyAll(ftp: Int) {
         val sessions = sessionRepository.getAllSessions().first()
         for (session in sessions) {
-            val tag = RideClassifier.classify(session)?.label
+            val tag = RideClassifier.classify(session, ftp)?.label
             if (session.tag != tag) {
                 sessionRepository.updateTag(session.id, tag)
             }

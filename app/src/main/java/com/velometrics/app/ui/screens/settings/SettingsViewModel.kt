@@ -96,7 +96,7 @@ class SettingsViewModel @Inject constructor(
             // Re-run rule-based tagging too — the same trigger a rider uses to recompute
             // everything after an FTP/max-HR change also re-runs #169's classifier, e.g. once
             // its thresholds are tuned by the follow-up issue.
-            rideClassificationService.reclassifyAll()
+            rideClassificationService.reclassifyAll(userSettingsRepository.ftp.first())
             _recalcState.value = RecalcState.Done
         }
     }
@@ -119,7 +119,7 @@ class SettingsViewModel @Inject constructor(
             _dumpStatus.value = "Dumping…"
             val sessions = sessionRepository.getAllSessions().first()
             val outFile = File(appContext.filesDir, "ride_tag_dump.csv")
-            val byTag = RideTagDumper.dumpToCsv(sessions, outFile)
+            val byTag = RideTagDumper.dumpToCsv(sessions, outFile, userSettingsRepository.ftp.first())
             _dumpStatus.value = "Wrote ${sessions.size} rows ($byTag) to ${outFile.name}"
         }
     }

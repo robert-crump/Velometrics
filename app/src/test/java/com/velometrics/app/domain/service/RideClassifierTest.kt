@@ -9,14 +9,14 @@ import java.time.Instant
 
 class RideClassifierTest {
 
+    private val ftp = 200
+
     private fun baseSession(
         netDurationSec: Int = 3600,
+        averagePower: Int? = null,
         intervalCount: Int = 0,
-        powerZoneDistribution: Map<String, Int>? = null,
-        hrZoneDistribution: Map<String, Int>? = null,
-        cardiacDriftPercent: Double? = null,
         fatEfficiencyScore: Int? = null,
-        hasPower: Boolean = powerZoneDistribution != null
+        hasPower: Boolean = averagePower != null
     ): CyclingSession = CyclingSession(
         fileName = "ride.fit",
         fileSha1 = "sha1",
@@ -26,105 +26,136 @@ class RideClassifierTest {
         pauseDurationSec = 0,
         netDurationSec = netDurationSec,
         distanceKm = 30.0,
-        averagePower = null,
+        averagePower = averagePower,
         normalizedPower = null,
         fatBurnedGrams = null,
         carbsBurnedGrams = null,
-        powerZoneDistribution = powerZoneDistribution,
+        powerZoneDistribution = null,
         speedHistogram = emptyMap(),
         intervalCount = intervalCount,
         intervalTotalTimeSec = 0,
         gpsQualityPercent = 100.0,
         powerQualityPercent = null,
         hasPower = hasPower,
-        hrZoneDistribution = hrZoneDistribution,
-        cardiacDriftPercent = cardiacDriftPercent,
         fatEfficiencyScore = fatEfficiencyScore
     )
 
     @Test
-    fun `classify tags Intervals when 2 or more intervals are detected, even amid a qualifying Zone 2 fat-efficiency score`() {
-        // fatEfficiencyScore alone would otherwise qualify as Zone 2 -- Intervals must still win
-        // since it's checked first.
-        val session = baseSession(intervalCount = 2, fatEfficiencyScore = 90)
+    fun `classify tags Recovery for a short ride with average power in the 50-60% FTP band`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 110) // 55% of 200 FTP, 50 min
 
-        assertEquals(RideTag.INTERVALS, RideClassifier.classify(session))
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
     }
 
     @Test
-    fun `classify does not tag Intervals for a single detected interval`() {
-        val session = baseSession(intervalCount = 1)
+    fun `classify tags Recovery at exactly the 50% FTP floor`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 100)
 
-        assertNull(RideClassifier.classify(session))
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify tags Recovery at exactly the 60% FTP ceiling`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 120)
+
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify does not tag Recovery just below the 50% FTP floor`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 99)
+
+        assertNull(RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify does not tag Recovery just above the 60% FTP ceiling`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 121)
+
+        assertNull(RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify does not tag Recovery at exactly 75 minutes -- must be shorter, not equal`() {
+        val session = baseSession(netDurationSec = 75 * 60, averagePower = 110)
+
+        assertNull(RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify tags Recovery one second under 75 minutes`() {
+        val session = baseSession(netDurationSec = 75 * 60 - 1, averagePower = 110)
+
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify does not tag Recovery when average power is missing`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = null)
+
+        assertNull(RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify tags Recovery ahead of a qualifying Zone 2 fat-efficiency score`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 110, fatEfficiencyScore = 90)
+
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
+    }
+
+    @Test
+    fun `classify tags Recovery ahead of a qualifying Intervals count`() {
+        val session = baseSession(netDurationSec = 3000, averagePower = 110, intervalCount = 3)
+
+        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session, ftp))
     }
 
     @Test
     fun `classify tags Zone 2 for a fat-efficiency score of 75 or higher`() {
         val session = baseSession(fatEfficiencyScore = 75)
 
-        assertEquals(RideTag.ZONE_2, RideClassifier.classify(session))
+        assertEquals(RideTag.ZONE_2, RideClassifier.classify(session, ftp))
     }
 
     @Test
     fun `classify does not tag Zone 2 just below the fat-efficiency floor`() {
         val session = baseSession(fatEfficiencyScore = 74)
 
-        assertNull(RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session, ftp))
     }
 
     @Test
-    fun `classify tags Zone 2 ahead of a Recovery fallback signal when both apply`() {
-        // fatEfficiencyScore of 80 clears both Zone 2's 75 floor and Recovery's fallback (with
-        // low drift) -- Zone 2 must win since it's checked first.
-        val session = baseSession(fatEfficiencyScore = 80, cardiacDriftPercent = 1.0)
+    fun `classify tags Zone 2 ahead of a qualifying Intervals count when both apply`() {
+        val session = baseSession(fatEfficiencyScore = 80, intervalCount = 3)
 
-        assertEquals(RideTag.ZONE_2, RideClassifier.classify(session))
+        assertEquals(RideTag.ZONE_2, RideClassifier.classify(session, ftp))
     }
 
     @Test
-    fun `classify tags Recovery for a Zone 1 majority ride`() {
-        val session = baseSession(powerZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30))
+    fun `classify tags Intervals when 2 or more intervals are detected and neither Recovery nor Zone 2 apply`() {
+        val session = baseSession(intervalCount = 2)
 
-        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session))
+        assertEquals(RideTag.INTERVALS, RideClassifier.classify(session, ftp))
     }
 
     @Test
-    fun `classify tags Recovery from low cardiac drift and high fat efficiency when zone data doesn't already say so`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 3" to 60, "Zone 2" to 40),
-            cardiacDriftPercent = 2.0,
-            fatEfficiencyScore = 72
-        )
+    fun `classify does not tag Intervals for a single detected interval`() {
+        val session = baseSession(intervalCount = 1)
 
-        assertEquals(RideTag.RECOVERY, RideClassifier.classify(session))
-    }
-
-    @Test
-    fun `classify prefers power zones over heart-rate zones for the Recovery Zone 1 signal`() {
-        // Power says no Zone 1, HR says Zone 1 majority -- power should win, so this stays
-        // unclassified rather than tagging Recovery off the HR-only signal.
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 3" to 70, "Zone 2" to 30),
-            hrZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30)
-        )
-
-        assertNull(RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session, ftp))
     }
 
     @Test
     fun `classify returns null when no rule matches -- there is no fallback category`() {
-        val session = baseSession(
-            powerZoneDistribution = mapOf("Zone 2" to 30, "Zone 3" to 40, "Zone 4" to 30),
-            fatEfficiencyScore = 60
-        )
+        val session = baseSession(netDurationSec = 5400, averagePower = 160, fatEfficiencyScore = 60)
 
-        assertNull(RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session, ftp))
     }
 
     @Test
     fun `classify returns null when there is no signal data at all`() {
         val session = baseSession()
 
-        assertNull(RideClassifier.classify(session))
+        assertNull(RideClassifier.classify(session, ftp))
     }
 }

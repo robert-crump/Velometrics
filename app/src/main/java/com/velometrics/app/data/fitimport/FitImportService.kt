@@ -166,7 +166,7 @@ class FitImportService @Inject constructor(
             // it in), and the DB row is updated separately rather than via a full updateSession
             // round trip, matching updateIntervalStats' shape just above.
             val classifiableSession = session.copy(intervalCount = intervalCount, intervalTotalTimeSec = intervalTotalSec)
-            val tag = RideClassifier.classify(classifiableSession)?.label
+            val tag = RideClassifier.classify(classifiableSession, ftp)?.label
             sessionRepository.updateTag(id, tag)
 
             val summary = buildString {

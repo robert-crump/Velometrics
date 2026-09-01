@@ -10,21 +10,23 @@ import java.time.Instant
 
 class RideClassificationServiceTest {
 
-    private fun zone1Session(id: Long, tag: String? = null): CyclingSession = CyclingSession(
+    private val ftp = 200
+
+    private fun recoverySession(id: Long, tag: String? = null): CyclingSession = CyclingSession(
         id = id,
         fileName = "ride$id.fit",
         fileSha1 = "sha$id",
         sessionStart = Instant.parse("2026-01-01T00:00:00Z"),
-        sessionEnd = Instant.parse("2026-01-01T01:00:00Z"),
-        totalDurationSec = 3600,
+        sessionEnd = Instant.parse("2026-01-01T00:50:00Z"),
+        totalDurationSec = 3000,
         pauseDurationSec = 0,
-        netDurationSec = 3600,
+        netDurationSec = 3000, // 50 min, under the 75-min Recovery ceiling
         distanceKm = 20.0,
-        averagePower = null,
+        averagePower = 110, // 55% of 200 FTP, within the 50-60% Recovery band
         normalizedPower = null,
         fatBurnedGrams = null,
         carbsBurnedGrams = null,
-        powerZoneDistribution = mapOf("Zone 1" to 70, "Zone 2" to 30),
+        powerZoneDistribution = null,
         speedHistogram = emptyMap(),
         intervalCount = 0,
         intervalTotalTimeSec = 0,
@@ -37,11 +39,11 @@ class RideClassificationServiceTest {
     @Test
     fun `reclassifyAll backfills a tag onto every pre-existing session`() = runBlocking {
         val repository = FakeCyclingSessionRepository()
-        repository.sessions.add(zone1Session(id = 1))
-        repository.sessions.add(zone1Session(id = 2))
+        repository.sessions.add(recoverySession(id = 1))
+        repository.sessions.add(recoverySession(id = 2))
         val service = RideClassificationService(repository)
 
-        service.reclassifyAll()
+        service.reclassifyAll(ftp)
 
         repository.sessions.forEach { assertEquals(RideTag.RECOVERY.label, it.tag) }
     }
@@ -51,11 +53,11 @@ class RideClassificationServiceTest {
         val repository = FakeCyclingSessionRepository()
         // Pre-existing (wrong) tag, e.g. a stale category from before #170 removed it as a
         // fallback -- reclassifyAll must overwrite it, not just skip already-tagged sessions.
-        repository.sessions.add(zone1Session(id = 1, tag = "Endurance"))
+        repository.sessions.add(recoverySession(id = 1, tag = "Endurance"))
         val service = RideClassificationService(repository)
 
-        service.reclassifyAll()
-        service.reclassifyAll() // re-run: must stay idempotent, not error or flip-flop
+        service.reclassifyAll(ftp)
+        service.reclassifyAll(ftp) // re-run: must stay idempotent, not error or flip-flop
 
         assertEquals(RideTag.RECOVERY.label, repository.sessions.single().tag)
     }

@@ -244,6 +244,6 @@ class RideRevealEvaluatorTest {
         val results = listOf(ImportResult.Success(id, "summary", newRideStart))
         val content = evaluator.evaluate(results, baseline)
 
-        assertEquals("Your best 20-minute power ever!", content?.headline)
+        assertEquals("Your best 20-minute power ever! (250 W)", content?.headline)
     }
 }

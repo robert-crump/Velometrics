@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RideRevealCandidate
 import com.velometrics.app.domain.model.RideRevealFamily
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.util.FormatUtils
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,13 +27,17 @@ class RideMilestoneEvaluator @Inject constructor(
         val yearStart = RankedMetricEvaluator.startOfYear(session.sessionStart)
         val metrics = buildList {
             add(
-                RankedMetricEvaluator.Metric(ordinalWord = "longest", noun = "ride", value = session.distanceKm) { value, since ->
+                RankedMetricEvaluator.Metric(
+                    ordinalWord = "longest", noun = "ride", value = session.distanceKm, format = FormatUtils::formatDistance
+                ) { value, since ->
                     sessionRepository.countSessionsWithGreaterDistance(value, since)
                 }
             )
             session.elevationGainM?.let { elevationGainM ->
                 add(
-                    RankedMetricEvaluator.Metric(ordinalWord = "most", noun = "elevation climbed", value = elevationGainM) { value, since ->
+                    RankedMetricEvaluator.Metric(
+                        ordinalWord = "most", noun = "elevation climbed", value = elevationGainM, format = FormatUtils::formatElevationGain
+                    ) { value, since ->
                         sessionRepository.countSessionsWithGreaterElevationGain(value, since)
                     }
                 )
@@ -40,7 +45,9 @@ class RideMilestoneEvaluator @Inject constructor(
             if (session.netDurationSec > 0) {
                 val averageSpeedKmh = session.distanceKm / session.netDurationSec * 3600
                 add(
-                    RankedMetricEvaluator.Metric(ordinalWord = "fastest", noun = "average speed", value = averageSpeedKmh) { value, since ->
+                    RankedMetricEvaluator.Metric(
+                        ordinalWord = "fastest", noun = "average speed", value = averageSpeedKmh, format = FormatUtils::formatSpeed
+                    ) { value, since ->
                         sessionRepository.countSessionsWithGreaterAverageSpeed(value, since)
                     }
                 )

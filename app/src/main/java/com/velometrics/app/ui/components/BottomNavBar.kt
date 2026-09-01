@@ -31,12 +31,20 @@ fun BottomNavBar(navController: NavController) {
                 label = { Text(screen.title) },
                 selected = highlightedRoute == screen.route,
                 onClick = {
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = true
+                    if (highlightedRoute == screen.route && currentRoute != screen.route) {
+                        // Already on a detail screen opened from this tab (e.g. Session Detail
+                        // opened from Home): tapping the tab it's highlighted under means "take
+                        // me back", so just pop back to the existing tab instance rather than
+                        // navigating to a freshly-restored copy of it.
+                        navController.popBackStack(screen.route, inclusive = false)
+                    } else {
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
-                        launchSingleTop = true
-                        restoreState = true
                     }
                 }
             )

@@ -3,6 +3,7 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.domain.model.RideRevealCandidate
 import com.velometrics.app.domain.model.RideRevealFamily
 import com.velometrics.app.domain.repository.BestEffortRepository
+import com.velometrics.app.util.FormatUtils
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,16 +29,16 @@ class PowerCurveAchievementEvaluator @Inject constructor(
         val yearStart = RankedMetricEvaluator.startOfYear(sessionStart)
 
         val metrics = buildList {
-            own.power5s?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "5-second power", value = it) { value, since ->
+            own.power5s?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "5-second power", value = it, format = FormatUtils::formatPower) { value, since ->
                 bestEffortRepository.countBestEffortsWithGreaterPower5s(value, since)
             }) }
-            own.power1m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "1-minute power", value = it) { value, since ->
+            own.power1m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "1-minute power", value = it, format = FormatUtils::formatPower) { value, since ->
                 bestEffortRepository.countBestEffortsWithGreaterPower1m(value, since)
             }) }
-            own.power5m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "5-minute power", value = it) { value, since ->
+            own.power5m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "5-minute power", value = it, format = FormatUtils::formatPower) { value, since ->
                 bestEffortRepository.countBestEffortsWithGreaterPower5m(value, since)
             }) }
-            own.power20m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "20-minute power", value = it) { value, since ->
+            own.power20m?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "20-minute power", value = it, format = FormatUtils::formatPower) { value, since ->
                 bestEffortRepository.countBestEffortsWithGreaterPower20m(value, since)
             }) }
         }

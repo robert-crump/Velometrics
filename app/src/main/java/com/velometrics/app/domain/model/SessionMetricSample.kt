@@ -19,6 +19,7 @@ data class SessionMetricSample(
     val cardiacDriftPercent: Double?,
     val hasPower: Boolean,
     val intervalCount: Int,
+    val intervalTotalTimeSec: Int,
     // Seconds spent below 60% of FTP (CyclingSession.timeBelowSixtyPercentFtpSec). Null when the
     // ride has no power data, or predates this field (no backfill path — see that field's doc).
     val timeBelowSixtyPercentFtpSec: Int?

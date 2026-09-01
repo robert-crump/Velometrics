@@ -21,6 +21,10 @@ import kotlin.math.abs
  * percentage, a ratio near 1.0, watts) compare fairly. Distance is the one candidate never gated
  * on power/HR data, guaranteeing a sentence whenever there's enough tag-scoped history at all,
  * even for a power-and-HR-less ride.
+ *
+ * For [RideTag.INTERVALS], a second sentence is appended naming the total time spent in
+ * intervals against the pool's median, whenever that median is available (older rides that
+ * predate [CyclingSession.intervalTotalTimeSec]'s tracking may not have one).
  */
 object TagComparisonNarrative {
 
@@ -63,8 +67,16 @@ object TagComparisonNarrative {
         val current = session.intervalCount
         val median = comparison.medianIntervalCountLast5 ?: return null
         val direction = if (current > median) "more" else "fewer"
-        val sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
+        var sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
+        timeInIntervalsSentence(session, comparison)?.let { sentence = "$sentence $it" }
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
+    }
+
+    private fun timeInIntervalsSentence(session: CyclingSession, comparison: SessionComparison): String? {
+        val current = session.intervalTotalTimeSec
+        val median = comparison.medianIntervalTotalTimeSecLast5 ?: return null
+        return "You spent ${FormatUtils.formatDuration(current)} in intervals " +
+            "(median: ${FormatUtils.formatDuration(median)})."
     }
 
     private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {

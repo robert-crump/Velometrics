@@ -132,6 +132,7 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         cardiacDriftPercent = cardiacDriftPercent,
         hasPower = hasPower,
         intervalCount = intervalCount,
+        intervalTotalTimeSec = intervalTotalTimeSec,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 

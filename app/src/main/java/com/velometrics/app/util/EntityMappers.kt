@@ -118,6 +118,7 @@ fun SessionMetricSampleEntity.toDomain(): SessionMetricSample {
         cardiacDriftPercent = cardiacDriftPercent,
         hasPower = hasPower,
         intervalCount = intervalCount,
+        intervalTotalTimeSec = intervalTotalTimeSec,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 }

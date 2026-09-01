@@ -124,6 +124,6 @@ class PowerCurveAchievementEvaluatorTest {
         val candidates = evaluator.candidates(sessionId = 1, sessionStart = start)
 
         val fiveSecond = candidates.first { it.headline.contains("5-second") && it.priority.scope == RideRevealScope.ALL_TIME }
-        assertEquals("Your best 5-second power ever!", fiveSecond.headline)
+        assertEquals("Your best 5-second power ever! (900 W)", fiveSecond.headline)
     }
 }

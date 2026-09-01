@@ -22,6 +22,7 @@ object RankedMetricEvaluator {
         val ordinalWord: String,
         val noun: String,
         val value: T,
+        val format: (T) -> String,
         val countGreater: suspend (value: T, since: Instant?) -> Int
     )
 
@@ -66,6 +67,6 @@ object RankedMetricEvaluator {
             else -> "3rd-${metric.ordinalWord}"
         }
         val scopeText = if (scope == RideRevealScope.ALL_TIME) "ever" else "this year"
-        return "Your $ordinal ${metric.noun} $scopeText!"
+        return "Your $ordinal ${metric.noun} $scopeText! (${metric.format(metric.value)})"
     }
 }

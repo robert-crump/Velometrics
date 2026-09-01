@@ -140,6 +140,6 @@ class RideMilestoneEvaluatorTest {
         val candidates = evaluator.candidates(ride.copy(id = id))
 
         val distanceCandidate = candidates.first { it.headline.contains("ride") }
-        assertEquals("Your longest ride ever!", distanceCandidate.headline)
+        assertEquals("Your longest ride ever! (100.0 km)", distanceCandidate.headline)
     }
 }

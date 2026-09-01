@@ -17,6 +17,7 @@ class TagComparisonNarrativeTest {
         cardiacDriftPercent: Double? = null,
         tag: String? = "Zone 2",
         intervalCount: Int = 0,
+        intervalTotalTimeSec: Int = 0,
         timeBelowSixtyPercentFtpSec: Int? = null
     ): CyclingSession {
         val start = Instant.now()
@@ -36,7 +37,7 @@ class TagComparisonNarrativeTest {
             powerZoneDistribution = null,
             speedHistogram = emptyMap(),
             intervalCount = intervalCount,
-            intervalTotalTimeSec = 0,
+            intervalTotalTimeSec = intervalTotalTimeSec,
             gpsQualityPercent = 95.0,
             powerQualityPercent = null,
             hasPower = hasPower,
@@ -56,6 +57,7 @@ class TagComparisonNarrativeTest {
         medianCardiacDriftPercentLast5: Double? = null,
         medianNpToApRatioLast5: Double? = null,
         medianIntervalCountLast5: Int? = null,
+        medianIntervalTotalTimeSecLast5: Int? = null,
         medianTimeBelowSixtyPercentFtpSecLast5: Int? = null
     ) = SessionComparison(
         medianNetDurationSecLast5 = null,
@@ -84,6 +86,8 @@ class TagComparisonNarrativeTest {
         medianNpToApRatioAllPrevious = null,
         medianIntervalCountLast5 = medianIntervalCountLast5,
         medianIntervalCountAllPrevious = null,
+        medianIntervalTotalTimeSecLast5 = medianIntervalTotalTimeSecLast5,
+        medianIntervalTotalTimeSecAllPrevious = null,
         medianTimeBelowSixtyPercentFtpSecLast5 = medianTimeBelowSixtyPercentFtpSecLast5,
         medianTimeBelowSixtyPercentFtpSecAllPrevious = null,
         last5SessionCount = last5SessionCount,
@@ -258,6 +262,24 @@ class TagComparisonNarrativeTest {
 
         assertEquals(
             "You did 8 intervals, more than your typical 5 for Intervals rides.",
+            result
+        )
+    }
+
+    @Test
+    fun `Intervals appends time spent in intervals when that median is available`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 8, intervalTotalTimeSec = 1573)
+        val comparison = makeComparison(
+            medianIntervalCountLast5 = 5,
+            medianIntervalTotalTimeSecLast5 = 1204,
+            medianDistanceKmLast5 = 30.0
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison)
+
+        assertEquals(
+            "You did 8 intervals, more than your typical 5 for Intervals rides. " +
+                "You spent 26m 13s in intervals (median: 20m 4s).",
             result
         )
     }

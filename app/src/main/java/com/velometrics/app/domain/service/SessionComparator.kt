@@ -34,6 +34,8 @@ data class SessionComparison(
     val medianNpToApRatioAllPrevious: Double?,
     val medianIntervalCountLast5: Int?,
     val medianIntervalCountAllPrevious: Int?,
+    val medianIntervalTotalTimeSecLast5: Int?,
+    val medianIntervalTotalTimeSecAllPrevious: Int?,
     val medianTimeBelowSixtyPercentFtpSecLast5: Int?,
     val medianTimeBelowSixtyPercentFtpSecAllPrevious: Int?,
     val last5SessionCount: Int,
@@ -59,6 +61,7 @@ private data class PoolMedians(
     val cardiacDriftPercent: Double?,
     val npToApRatio: Double?,
     val intervalCount: Int?,
+    val intervalTotalTimeSec: Int?,
     val timeBelowSixtyPercentFtpSec: Int?
 )
 
@@ -118,6 +121,8 @@ class SessionComparator @Inject constructor(
             medianNpToApRatioAllPrevious = allPreviousMedians.npToApRatio,
             medianIntervalCountLast5 = last5Medians.intervalCount,
             medianIntervalCountAllPrevious = allPreviousMedians.intervalCount,
+            medianIntervalTotalTimeSecLast5 = last5Medians.intervalTotalTimeSec,
+            medianIntervalTotalTimeSecAllPrevious = allPreviousMedians.intervalTotalTimeSec,
             medianTimeBelowSixtyPercentFtpSecLast5 = last5Medians.timeBelowSixtyPercentFtpSec,
             medianTimeBelowSixtyPercentFtpSecAllPrevious = allPreviousMedians.timeBelowSixtyPercentFtpSec,
             last5SessionCount = last5.size,
@@ -155,6 +160,7 @@ class SessionComparator @Inject constructor(
         }
         val cardiacDrifts = samples.mapNotNull { it.cardiacDriftPercent }
         val intervalCounts = samples.map { it.intervalCount.toDouble() }
+        val intervalTotalTimes = samples.map { it.intervalTotalTimeSec.toDouble() }
         val timeBelowSixtyPercentFtpSecs = powerSamples.mapNotNull { it.timeBelowSixtyPercentFtpSec?.toDouble() }
 
         return PoolMedians(
@@ -171,6 +177,7 @@ class SessionComparator @Inject constructor(
             cardiacDriftPercent = median(cardiacDrifts),
             npToApRatio = median(npToApRatios),
             intervalCount = median(intervalCounts)?.toInt(),
+            intervalTotalTimeSec = median(intervalTotalTimes)?.toInt(),
             timeBelowSixtyPercentFtpSec = median(timeBelowSixtyPercentFtpSecs)?.toInt()
         )
     }

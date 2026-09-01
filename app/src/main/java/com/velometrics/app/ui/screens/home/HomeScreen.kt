@@ -8,8 +8,11 @@ import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -730,16 +733,27 @@ private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
                     text = FormatUtils.formatDate(session.sessionStart),
                     style = MaterialTheme.typography.titleMedium
                 )
-                // Tag (if any) sits left of the power icon, its top aligned with the icon's top;
-                // the 16.dp gap between them matches the Column's own 16.dp padding to the card's
+                // Tag (if any) sits left of the power icon, vertically centered against it; the
+                // 16.dp gap between them matches the Column's own 16.dp padding to the card's
                 // right border, so the tag-to-icon gap equals the icon-to-border gap.
-                Row(verticalAlignment = Alignment.Top) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     session.tag?.let { tag ->
-                        Text(
-                            text = tag,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        // Bordered like a chip so it reads as a classification label, not a
+                        // clickable control — no Surface/clickable, so no ripple.
+                        Box(
+                            modifier = Modifier
+                                .border(
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)),
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Spacer(modifier = Modifier.width(16.dp))
                     }
                     // Lightning bolt icon: green if power data, gray otherwise

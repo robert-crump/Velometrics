@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.ui.components.*
@@ -47,6 +48,7 @@ fun SessionDetailScreen(
     val intervals by viewModel.intervals.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
     val tagNarrative by viewModel.tagNarrative.collectAsState()
+    val powerCurve by viewModel.powerCurve.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
     val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
@@ -130,6 +132,10 @@ fun SessionDetailScreen(
                         }
                     }
 
+                    if (s.hasPower && powerCurve.any { it.watts != null }) {
+                        SessionPowerCurveCard(points = powerCurve)
+                    }
+
                     SpeedHistogramChart(
                         percentages = speedHistogram,
                         allRidesAveragePercentages = speedHistogramAverages
@@ -203,6 +209,25 @@ private fun SessionDetailMap(
             }
         }
     )
+}
+
+/** This ride's own best-effort power curve (#173), placed right below Power Zones. */
+@Composable
+private fun SessionPowerCurveCard(points: List<PowerCurvePoint>) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Power curve",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            PowerCurveChart(points = points)
+        }
+    }
 }
 
 private fun hexToComposeColor(hex: String): Color {

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.PowerCurvePoint
+import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.SessionComparison
@@ -22,6 +24,7 @@ class SessionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val sessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
+    private val bestEffortRepository: BestEffortRepository,
     private val sessionComparator: SessionComparator,
     globalAverageCache: GlobalAverageCache
 ) : ViewModel() {
@@ -53,6 +56,10 @@ class SessionDetailViewModel @Inject constructor(
     private val _tagNarrative = MutableStateFlow<String?>(null)
     val tagNarrative: StateFlow<String?> = _tagNarrative.asStateFlow()
 
+    /** This ride's own best-effort power curve (#173), or empty if it has no power data at all. */
+    private val _powerCurve = MutableStateFlow<List<PowerCurvePoint>>(emptyList())
+    val powerCurve: StateFlow<List<PowerCurvePoint>> = _powerCurve.asStateFlow()
+
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -67,6 +74,7 @@ class SessionDetailViewModel @Inject constructor(
 
             if (loaded != null) {
                 _comparison.value = sessionComparator.computeComparison(loaded)
+                _powerCurve.value = bestEffortRepository.getForSession(sessionId)?.toPowerCurvePoints().orEmpty()
 
                 val tag = loaded.tag
                 if (tag != null) {

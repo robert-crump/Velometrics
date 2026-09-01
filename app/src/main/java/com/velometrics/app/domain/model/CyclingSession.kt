@@ -39,5 +39,10 @@ data class CyclingSession(
     // Rule-based classification (#169): Zone 2 / Intervals / Race / Recovery / Endurance,
     // computed at import time by RideClassifier and backfilled onto older rides by
     // RideClassificationService.reclassifyAll().
-    val tag: String? = null
+    val tag: String? = null,
+    // Seconds spent with power below CyclingConstants.RECOVERY_TIME_BELOW_FTP_FRACTION (60%) of
+    // FTP, power-having rides only. Computed once at import time from raw per-second power (no
+    // backfill path for pre-existing rides, same as fatEfficiencyScore/cardiacDriftPercent) — the
+    // metric the Recovery tag-comparison narrative leads with.
+    val timeBelowSixtyPercentFtpSec: Int? = null
 )

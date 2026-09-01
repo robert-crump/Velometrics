@@ -61,7 +61,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         hrZoneDistribution = hrZoneDist,
         cardiacDriftBuckets = cardiacDrift,
         cardiacDriftPercent = cardiacDriftPercent,
-        tag = tag
+        tag = tag,
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 }
 
@@ -97,7 +98,8 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         hrZoneDistribution = hrZoneDistribution?.toJsonString(),
         cardiacDriftBuckets = cardiacDriftBuckets?.toJsonString(),
         cardiacDriftPercent = cardiacDriftPercent,
-        tag = tag
+        tag = tag,
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 }
 
@@ -116,7 +118,7 @@ fun SessionMetricSampleEntity.toDomain(): SessionMetricSample {
         cardiacDriftPercent = cardiacDriftPercent,
         hasPower = hasPower,
         intervalCount = intervalCount,
-        powerZone1Sec = powerZone1Sec
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 }
 

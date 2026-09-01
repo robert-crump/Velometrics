@@ -34,8 +34,8 @@ data class SessionComparison(
     val medianNpToApRatioAllPrevious: Double?,
     val medianIntervalCountLast5: Int?,
     val medianIntervalCountAllPrevious: Int?,
-    val medianPowerZone1SecLast5: Int?,
-    val medianPowerZone1SecAllPrevious: Int?,
+    val medianTimeBelowSixtyPercentFtpSecLast5: Int?,
+    val medianTimeBelowSixtyPercentFtpSecAllPrevious: Int?,
     val last5SessionCount: Int,
     val allPreviousSessionCount: Int
 )
@@ -59,7 +59,7 @@ private data class PoolMedians(
     val cardiacDriftPercent: Double?,
     val npToApRatio: Double?,
     val intervalCount: Int?,
-    val powerZone1Sec: Int?
+    val timeBelowSixtyPercentFtpSec: Int?
 )
 
 class SessionComparator @Inject constructor(
@@ -118,8 +118,8 @@ class SessionComparator @Inject constructor(
             medianNpToApRatioAllPrevious = allPreviousMedians.npToApRatio,
             medianIntervalCountLast5 = last5Medians.intervalCount,
             medianIntervalCountAllPrevious = allPreviousMedians.intervalCount,
-            medianPowerZone1SecLast5 = last5Medians.powerZone1Sec,
-            medianPowerZone1SecAllPrevious = allPreviousMedians.powerZone1Sec,
+            medianTimeBelowSixtyPercentFtpSecLast5 = last5Medians.timeBelowSixtyPercentFtpSec,
+            medianTimeBelowSixtyPercentFtpSecAllPrevious = allPreviousMedians.timeBelowSixtyPercentFtpSec,
             last5SessionCount = last5.size,
             allPreviousSessionCount = allPrevious.size
         )
@@ -155,7 +155,7 @@ class SessionComparator @Inject constructor(
         }
         val cardiacDrifts = samples.mapNotNull { it.cardiacDriftPercent }
         val intervalCounts = samples.map { it.intervalCount.toDouble() }
-        val powerZone1Secs = powerSamples.mapNotNull { it.powerZone1Sec?.toDouble() }
+        val timeBelowSixtyPercentFtpSecs = powerSamples.mapNotNull { it.timeBelowSixtyPercentFtpSec?.toDouble() }
 
         return PoolMedians(
             netDurationSec = median(durations)?.toInt(),
@@ -171,7 +171,7 @@ class SessionComparator @Inject constructor(
             cardiacDriftPercent = median(cardiacDrifts),
             npToApRatio = median(npToApRatios),
             intervalCount = median(intervalCounts)?.toInt(),
-            powerZone1Sec = median(powerZone1Secs)?.toInt()
+            timeBelowSixtyPercentFtpSec = median(timeBelowSixtyPercentFtpSecs)?.toInt()
         )
     }
 

@@ -34,7 +34,7 @@ data class SessionMetricSampleEntity(
     @ColumnInfo(name = "cardiacDriftPercent") val cardiacDriftPercent: Double?,
     @ColumnInfo(name = "hasPower") val hasPower: Boolean,
     @ColumnInfo(name = "intervalCount") val intervalCount: Int,
-    @ColumnInfo(name = "powerZone1Sec") val powerZone1Sec: Int?
+    @ColumnInfo(name = "timeBelowSixtyPercentFtpSec") val timeBelowSixtyPercentFtpSec: Int?
 )
 
 @Dao
@@ -108,7 +108,7 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, CAST(json_extract(powerZoneDistribution, '${'$'}."Zone 1"') AS INTEGER) AS powerZone1Sec
+           intervalCount, timeBelowSixtyPercentFtpSec
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
     )
     suspend fun getSessionMetricSamplesBeforeDate(beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
@@ -116,7 +116,7 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, CAST(json_extract(powerZoneDistribution, '${'$'}."Zone 1"') AS INTEGER) AS powerZone1Sec
+           intervalCount, timeBelowSixtyPercentFtpSec
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDate(beforeEpochMs: Long): List<SessionMetricSampleEntity>
@@ -127,7 +127,7 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, CAST(json_extract(powerZoneDistribution, '${'$'}."Zone 1"') AS INTEGER) AS powerZone1Sec
+           intervalCount, timeBelowSixtyPercentFtpSec
            FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
     )
     suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
@@ -135,7 +135,7 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, CAST(json_extract(powerZoneDistribution, '${'$'}."Zone 1"') AS INTEGER) AS powerZone1Sec
+           intervalCount, timeBelowSixtyPercentFtpSec
            FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long): List<SessionMetricSampleEntity>

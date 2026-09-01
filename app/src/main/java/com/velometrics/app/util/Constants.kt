@@ -7,6 +7,11 @@ object CyclingConstants {
     const val INTERVAL_THRESHOLD_FACTOR = 0.95       // Interval detected at FTP × 0.95
     const val MAX_REALISTIC_POWER = 1500             // Watts
 
+    // Shared with RideClassifier's Recovery upper power bound (RECOVERY_MAX_POWER_FTP_FRACTION):
+    // also the threshold behind CyclingSession.timeBelowSixtyPercentFtpSec, the metric the
+    // Recovery tag-comparison narrative leads with.
+    const val RECOVERY_TIME_BELOW_FTP_FRACTION = 0.60
+
     // Interval detection
     const val INTERVAL_MIN_DURATION_SEC = 120
     const val INTERVAL_ALLOWED_REST_SEC = 15

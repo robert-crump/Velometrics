@@ -132,7 +132,7 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         cardiacDriftPercent = cardiacDriftPercent,
         hasPower = hasPower,
         intervalCount = intervalCount,
-        powerZone1Sec = powerZoneDistribution?.get("Zone 1")
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
     )
 
     override suspend fun getAllClusterData(): List<SessionClusterData> =

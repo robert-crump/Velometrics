@@ -31,7 +31,7 @@ class SessionComparatorTest {
         avgHeartRate: Int? = null,
         tag: String? = null,
         intervalCount: Int = 0,
-        powerZoneDistribution: Map<String, Int>? = if (hasPower) mapOf("Zone 1" to 100) else null
+        timeBelowSixtyPercentFtpSec: Int? = if (hasPower) 100 else null
     ): CyclingSession {
         val start = Instant.now().minusSeconds(daysAgo * 86400)
         return CyclingSession(
@@ -48,7 +48,7 @@ class SessionComparatorTest {
             normalizedPower = normalizedPower,
             fatBurnedGrams = if (hasPower) 30.0 else null,
             carbsBurnedGrams = if (hasPower) 80.0 else null,
-            powerZoneDistribution = powerZoneDistribution,
+            powerZoneDistribution = null,
             speedHistogram = mapOf("0-10 km/h" to 100),
             intervalCount = intervalCount,
             intervalTotalTimeSec = intervalTotalTimeSec,
@@ -57,7 +57,8 @@ class SessionComparatorTest {
             hasPower = hasPower,
             gpsTrack = null,
             avgHeartRate = avgHeartRate,
-            tag = tag
+            tag = tag,
+            timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
         )
     }
 
@@ -198,15 +199,15 @@ class SessionComparatorTest {
     }
 
     @Test
-    fun `median interval count and power zone 1 time computed from history`() = runBlocking {
+    fun `median interval count and time below 60% FTP computed from history`() = runBlocking {
         val current = makeSession(1, 0, 3600, 30.0, hasPower = true, intervalCount = 6)
         val prev1 = makeSession(
             2, 1, 3400, 28.0, hasPower = true, intervalCount = 2,
-            powerZoneDistribution = mapOf("Zone 1" to 600)
+            timeBelowSixtyPercentFtpSec = 600
         )
         val prev2 = makeSession(
             3, 2, 3600, 30.0, hasPower = true, intervalCount = 4,
-            powerZoneDistribution = mapOf("Zone 1" to 1200)
+            timeBelowSixtyPercentFtpSec = 1200
         )
         repository.sessions.addAll(listOf(current, prev1, prev2))
 
@@ -214,7 +215,7 @@ class SessionComparatorTest {
         // Median of [2, 4] = 3
         assertEquals(3, result.medianIntervalCountLast5)
         // Median of [600, 1200] = 900
-        assertEquals(900, result.medianPowerZone1SecLast5)
+        assertEquals(900, result.medianTimeBelowSixtyPercentFtpSecLast5)
     }
 
     @Test

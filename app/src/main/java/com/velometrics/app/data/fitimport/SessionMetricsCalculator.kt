@@ -105,7 +105,8 @@ class SessionMetricsCalculator @Inject constructor() {
             elevationGainM = elevationGainM,
             hrZoneDistribution = hrZoneDistribution,
             cardiacDriftBuckets = cardiacDrift?.buckets,
-            cardiacDriftPercent = cardiacDrift?.decouplingPercent
+            cardiacDriftPercent = cardiacDrift?.decouplingPercent,
+            timeBelowSixtyPercentFtpSec = powerMetrics?.timeBelowSixtyPercentFtpSec
         )
     }
 
@@ -228,7 +229,8 @@ class SessionMetricsCalculator @Inject constructor() {
             fatBurnedGrams = computeFatBurned(datapoints, effectivePowers),
             carbsBurnedGrams = computeCarbsBurned(datapoints, effectivePowers),
             fatEfficiencyHistogram = computeFatEfficiencyHistogram(datapoints, effectivePowers),
-            fatEfficiencyScore = computeFatEfficiencyScore(datapoints, effectivePowers)
+            fatEfficiencyScore = computeFatEfficiencyScore(datapoints, effectivePowers),
+            timeBelowSixtyPercentFtpSec = computeTimeBelowSixtyPercentFtp(datapoints, ftp)
         )
     }
 
@@ -239,7 +241,8 @@ class SessionMetricsCalculator @Inject constructor() {
         val fatBurnedGrams: Double,
         val carbsBurnedGrams: Double,
         val fatEfficiencyHistogram: Map<String, Int>,
-        val fatEfficiencyScore: Int?
+        val fatEfficiencyScore: Int?,
+        val timeBelowSixtyPercentFtpSec: Int
     )
 
     private fun computePowerZones(datapoints: List<Datapoint>, ftp: Int): Map<String, Int> {
@@ -263,6 +266,18 @@ class SessionMetricsCalculator @Inject constructor() {
             }
         }
         return zones
+    }
+
+    /**
+     * Count of datapoints (≈ seconds, at the FIT file's 1Hz recording rate) with power below
+     * [CyclingConstants.RECOVERY_TIME_BELOW_FTP_FRACTION] (60%) of FTP — the metric the Recovery
+     * tag-comparison narrative leads with. Unlike [computePowerZones]'s "Zone 1" bucket, this
+     * includes 0W coasting: a rider soft-pedaling or coasting genuinely spent that time below the
+     * threshold, whereas Zone 1 deliberately carves 0W into its own separate bucket.
+     */
+    private fun computeTimeBelowSixtyPercentFtp(datapoints: List<Datapoint>, ftp: Int): Int {
+        val threshold = ftp * CyclingConstants.RECOVERY_TIME_BELOW_FTP_FRACTION
+        return datapoints.count { (it.power ?: 0) < threshold }
     }
 
     private fun computeAveragePower(datapoints: List<Datapoint>): Int? {

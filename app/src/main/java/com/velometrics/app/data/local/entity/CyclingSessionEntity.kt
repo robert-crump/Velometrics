@@ -39,5 +39,6 @@ data class CyclingSessionEntity(
     val hrZoneDistribution: String? = null,  // JSON map
     val cardiacDriftBuckets: String? = null, // JSON map: bucket index -> % of baseline
     val cardiacDriftPercent: Double? = null,
-    val tag: String? = null // Rule-based classification label, e.g. "Zone 2" (#169)
+    val tag: String? = null, // Rule-based classification label, e.g. "Zone 2" (#169)
+    val timeBelowSixtyPercentFtpSec: Int? = null // Seconds below 60% FTP; power rides only, import-time only
 )

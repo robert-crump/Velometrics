@@ -2,6 +2,7 @@ package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RideTag
+import com.velometrics.app.util.CyclingConstants
 
 /**
  * Rule-based ride tagging (#169, thresholds replaced in #170's validation pass, Recovery redefined
@@ -27,7 +28,7 @@ object RideClassifier {
 
     /** Average power, as a fraction of FTP, must fall within this range (inclusive) to be eligible for Recovery. */
     private const val RECOVERY_MIN_POWER_FTP_FRACTION = 0.50
-    private const val RECOVERY_MAX_POWER_FTP_FRACTION = 0.60
+    private const val RECOVERY_MAX_POWER_FTP_FRACTION = CyclingConstants.RECOVERY_TIME_BELOW_FTP_FRACTION
 
     fun classify(session: CyclingSession, ftp: Int): RideTag? = when {
         isRecovery(session, ftp) -> RideTag.RECOVERY

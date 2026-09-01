@@ -14,7 +14,7 @@ import kotlin.math.abs
  * Each [RideTag] has one designated "main value" the sentence leads with (per-user feedback,
  * 2026-08-31) — the metric that actually defines what that tag is about, not just whichever moved
  * the most this ride: [RideTag.ZONE_2] leads with fat efficiency, [RideTag.INTERVALS] with the
- * interval count, [RideTag.RECOVERY] with time spent in Power Zone 1. When that main value isn't
+ * interval count, [RideTag.RECOVERY] with time spent below 60% of FTP. When that main value isn't
  * available for this ride or its comparison pool (missing power data, say), the sentence falls
  * back to whichever remaining candidate KPI deviates most from the pool's median, ranked by
  * *relative* deviation (`|current - median| / median`) so metrics on different scales (a
@@ -55,7 +55,7 @@ object TagComparisonNarrative {
         when (tag) {
             RideTag.ZONE_2.label -> fatEfficiencyCandidate(session, tag, comparison)
             RideTag.INTERVALS.label -> intervalCountCandidate(session, tag, comparison)
-            RideTag.RECOVERY.label -> powerZone1Candidate(session, tag, comparison)
+            RideTag.RECOVERY.label -> timeBelowSixtyPercentFtpCandidate(session, tag, comparison)
             else -> null
         }
 
@@ -67,11 +67,11 @@ object TagComparisonNarrative {
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
-    private fun powerZone1Candidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
-        val current = session.powerZoneDistribution?.get("Zone 1") ?: return null
-        val median = comparison.medianPowerZone1SecLast5 ?: return null
+    private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+        val current = session.timeBelowSixtyPercentFtpSec ?: return null
+        val median = comparison.medianTimeBelowSixtyPercentFtpSecLast5 ?: return null
         val direction = if (current > median) "more" else "less"
-        val sentence = "You spent ${FormatUtils.formatDuration(current)} in Zone 1, $direction than your " +
+        val sentence = "You spent ${FormatUtils.formatDuration(current)} below 60% of FTP, $direction than your " +
             "typical ${FormatUtils.formatDuration(median)} for $tag rides."
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }

@@ -19,7 +19,7 @@ data class SessionMetricSample(
     val cardiacDriftPercent: Double?,
     val hasPower: Boolean,
     val intervalCount: Int,
-    // Seconds in Power Zone 1, read from powerZoneDistribution's "Zone 1" entry. Null when the
-    // ride has no power-zone breakdown (no power data at all).
-    val powerZone1Sec: Int?
+    // Seconds spent below 60% of FTP (CyclingSession.timeBelowSixtyPercentFtpSec). Null when the
+    // ride has no power data, or predates this field (no backfill path — see that field's doc).
+    val timeBelowSixtyPercentFtpSec: Int?
 )

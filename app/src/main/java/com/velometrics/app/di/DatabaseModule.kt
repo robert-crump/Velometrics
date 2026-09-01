@@ -211,6 +211,16 @@ object DatabaseModule {
         }
     }
 
+    // Recovery tag-comparison narrative now leads with time spent below 60% FTP rather than time
+    // in power Zone 1, and that threshold doesn't line up with any existing power-zone boundary
+    // (Zone 1 is 0-55%, Zone 2 is 55-70%) -- computed fresh at import time from raw per-second
+    // power, same no-backfill-for-existing-rows precedent as MIGRATION_13_14's tag column.
+    internal val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE cycling_sessions ADD COLUMN timeBelowSixtyPercentFtpSec INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -219,7 +229,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
             .fallbackToDestructiveMigration()
             .build()
     }

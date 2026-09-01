@@ -17,7 +17,7 @@ class TagComparisonNarrativeTest {
         cardiacDriftPercent: Double? = null,
         tag: String? = "Zone 2",
         intervalCount: Int = 0,
-        powerZoneDistribution: Map<String, Int>? = null
+        timeBelowSixtyPercentFtpSec: Int? = null
     ): CyclingSession {
         val start = Instant.now()
         return CyclingSession(
@@ -33,7 +33,7 @@ class TagComparisonNarrativeTest {
             normalizedPower = normalizedPower,
             fatBurnedGrams = null,
             carbsBurnedGrams = null,
-            powerZoneDistribution = powerZoneDistribution,
+            powerZoneDistribution = null,
             speedHistogram = emptyMap(),
             intervalCount = intervalCount,
             intervalTotalTimeSec = 0,
@@ -42,7 +42,8 @@ class TagComparisonNarrativeTest {
             hasPower = hasPower,
             fatEfficiencyScore = fatEfficiencyScore,
             cardiacDriftPercent = cardiacDriftPercent,
-            tag = tag
+            tag = tag,
+            timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
         )
     }
 
@@ -55,7 +56,7 @@ class TagComparisonNarrativeTest {
         medianCardiacDriftPercentLast5: Double? = null,
         medianNpToApRatioLast5: Double? = null,
         medianIntervalCountLast5: Int? = null,
-        medianPowerZone1SecLast5: Int? = null
+        medianTimeBelowSixtyPercentFtpSecLast5: Int? = null
     ) = SessionComparison(
         medianNetDurationSecLast5 = null,
         medianNetDurationSecAllPrevious = null,
@@ -83,8 +84,8 @@ class TagComparisonNarrativeTest {
         medianNpToApRatioAllPrevious = null,
         medianIntervalCountLast5 = medianIntervalCountLast5,
         medianIntervalCountAllPrevious = null,
-        medianPowerZone1SecLast5 = medianPowerZone1SecLast5,
-        medianPowerZone1SecAllPrevious = null,
+        medianTimeBelowSixtyPercentFtpSecLast5 = medianTimeBelowSixtyPercentFtpSecLast5,
+        medianTimeBelowSixtyPercentFtpSecAllPrevious = null,
         last5SessionCount = last5SessionCount,
         allPreviousSessionCount = last5SessionCount
     )
@@ -287,18 +288,18 @@ class TagComparisonNarrativeTest {
     }
 
     @Test
-    fun `Recovery leads with time in Power Zone 1 when available`() {
+    fun `Recovery leads with time below 60% of FTP when available`() {
         val session = makeSession(
             tag = "Recovery",
             hasPower = true,
-            powerZoneDistribution = mapOf("Zone 1" to 1800)
+            timeBelowSixtyPercentFtpSec = 1800
         )
-        val comparison = makeComparison(medianPowerZone1SecLast5 = 1200, medianDistanceKmLast5 = 30.0)
+        val comparison = makeComparison(medianTimeBelowSixtyPercentFtpSecLast5 = 1200, medianDistanceKmLast5 = 30.0)
 
         val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
 
         assertEquals(
-            "You spent 30m 0s in Zone 1, more than your typical 20m 0s for Recovery rides.",
+            "You spent 30m 0s below 60% of FTP, more than your typical 20m 0s for Recovery rides.",
             result
         )
     }

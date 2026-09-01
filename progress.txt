@@ -1,3 +1,31 @@
+## Issue #173 — Change heart rate zones formula
+Completed: 2026-09-01
+
+### What was done
+
+Replaced the HR zone boundaries with Strava's formula: Zone 1|Endurance 0-109 bpm, Zone 2|Moderate
+109-144, Zone 3|Tempo 144-161, Zone 4|Threshold 161-179, Zone 5|Anaerobic 179+, all against Strava's
+185 bpm reference max HR. As requested, these are expressed as fractions of max HR (0%-100% scale)
+rather than hardcoded bpm, so they keep working with each rider's own configured max HR setting
+(`UserSettingsRepository.maxHr`), not just 185. No database bump: `hrZoneDistribution` is computed
+once at import time (`SessionMetricsCalculator.computeHrZones`) and stored per-session, so already-
+imported rides keep their old distribution untouched — only rides imported after this change get the
+new boundaries, satisfying the issue's "new imports only" requirement with no migration needed.
+
+**`util/Constants.kt`** — `CyclingConstants.HR_ZONES` boundaries changed from the old ad-hoc
+60/70/80/90% splits to 109/185, 144/185, 161/185, 179/185 (Strava's bpm thresholds scaled by its
+185 reference max HR). Zone labels ("Zone 1".."Zone 5") and `DEFAULT_MAX_HR` unchanged — only the
+fraction cutoffs moved, so no other file (HR zone chart colors/labels, DB schema, JSON keys)
+needed touching.
+
+### Tests
+Added `SessionMetricsCalculatorTest`: new test asserts `hrZoneDistribution` buckets bpm readings
+at and just past each Strava boundary (108/109/143/144/160/161/178/179 with `maxHr = 185`) into the
+expected zone. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `testDebugUnitTest`: all pass,
+309 tests, zero failures/errors across the whole suite (verified via aggregated test-result XML).
+
+---
+
 ## Ride tag narrative — tag-specific "main value" (user feedback, no issue filed)
 Completed: 2026-08-31
 
@@ -528,60 +556,3 @@ references. No on-device manual check this session (issue's suggested check — 
 Stats, Session Detail's cardiac drift chart, and Repeated Route Detail should look pixel-identical
 — has no automated equivalent in this environment; each replacement was checked against its
 original for exact color/style equivalence at review time instead).
-
----
-
-## Issue #162 — Simplify: JSON parsing & entity-mapping boilerplate
-Completed: 2026-08-29
-
-### What was done
-
-Pure de-duplication issue, fully scoped in the issue body (three named extractions, exact target
-signatures given) — same shape as #161's util-extraction the session before this one, so went
-straight to reading every cited call site before writing any code, no exploration subagent needed.
-
-**`util/JsonSafeParser.kt`** (new, `object`)
-- `inline fun <reified T> parseOrDefault(json, tag, errorMessage, default): T` — the "try
-  gson.fromJson, log + fall back to a default on failure" shape duplicated across 6 call sites in
-  `RouteClusteringService`, `IntervalClusteringService`, `IntervalMatcher`, and both repeated-*
-  repository impls. Added an internal `result ?: default` null-coalesce beyond a literal lift of
-  the original bodies: two of the six originals (`IntervalClusteringService`/`IntervalMatcher`'s
-  `parseGpsTrack`) explicitly guarded against `gson.fromJson` returning `null` on a successful-but-
-  degenerate parse (e.g. a literal `"null"` payload) with their own `?: emptyList()`; folding that
-  into the shared helper preserves those two call sites' behavior exactly while also hardening the
-  other four against the same latent edge case they hadn't guarded against. `RepeatedIntervalRepositoryImpl.parseEdgeRefs`
-  was deliberately left alone (not among the 6) — it parses to one type then transforms the result
-  into `List<Pair<Long,Long>>` inside the same try block, a different shape from "parse to T,
-  return T," matching how the issue already carved out `util/GpsTrackParser.kt` for an analogous
-  reason (a different concern bolted onto the parse).
-- `gson` is a `@PublishedApi internal val`, not `private` — a public inline function can't close
-  over a private property (`compileDebugKotlin` caught this immediately: "Public-API inline
-  function cannot access non-public-API property").
-
-**`util/EntityMappers.kt`**
-- Added `String.parseJson<T>()`, `String?.parseJsonOrNull<T>()`, `T.toJsonString()` — same
-  reified-inline-plus-`@PublishedApi internal gson`-instance shape as `JsonSafeParser`, but with no
-  tag/default/logging (these fields have no persisted-JSON-failure fallback path today; `parseJson`
-  on a malformed non-nullable field still throws, matching the pre-existing behavior exactly). Used
-  to replace `CyclingSessionEntity.toDomain()`/`toEntity()`'s 6 manual `gson.fromJson`/`gson.toJson`
-  pairs (power-zone/speed/fat-efficiency/sprint/HR-zone histograms plus cardiac-drift buckets) and
-  removed the now-unused `mapType`/`doubleMapType` locals.
-
-**`data/repository/RepositoryUtils.kt`** (new, top-level `suspend fun`)
-- `resolveCreatedAt(id, lookupExisting): Long` — the identical "existing row keeps its `createdAt`,
-  new row gets `now`" 5-line block from `RepeatedRouteRepositoryImpl.saveRoute` and
-  `RepeatedIntervalRepositoryImpl.saveRepeatedInterval`, both now a one-line call passing their own
-  DAO lookup as the lambda.
-
-### Tests
-No new tests — pure mechanical de-duplication, zero behavior change at 4 of 6 `JsonSafeParser`
-call sites and a documented, deliberate hardening (not a behavior change in practice) at the other
-2; `resolveCreatedAt`/`EntityMappers` helpers are likewise line-for-line equivalent to what they
-replaced. `./gradlew testDebugUnitTest`: all pass with zero test modifications, per the issue's own
-acceptance criteria. No on-device manual check this session (the issue's suggested manual check —
-import a FIT file, rename a repeated route/interval, reimport/resave, confirm `createdAt` survival
-and identical JSON round-trips — has no automated equivalent in this environment; the code-level
-equivalence argument above covers the same ground for this class of refactor, consistent with
-#161's precedent for mechanical extractions the session before this one).
-
----

@@ -103,6 +103,35 @@ class SessionMetricsCalculatorTest {
     }
 
     @Test
+    fun `hrZoneDistribution buckets bpm using Strava's zone formula scaled to maxHr`() {
+        // Strava reference (#173, max HR 185): Z1 0-109, Z2 109-144, Z3 144-161, Z4 161-179, Z5 179+.
+        // One datapoint at (and just past) each boundary bpm, maxHr passed through unchanged as 185.
+        val bpmByExpectedZone = listOf(
+            108 to "Zone 1",
+            109 to "Zone 2",
+            143 to "Zone 2",
+            144 to "Zone 3",
+            160 to "Zone 3",
+            161 to "Zone 4",
+            178 to "Zone 4",
+            179 to "Zone 5"
+        )
+        val datapoints = bpmByExpectedZone.mapIndexed { index, (bpm, _) -> datapoint(index, heartRate = bpm) }
+
+        val session = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = datapoints,
+            hasPower = false, timerEvents = emptyList(), rawRecordCount = datapoints.size,
+            originalPowerCount = 0, maxHr = 185
+        )
+
+        val distribution = requireNotNull(session.hrZoneDistribution)
+        val expectedCounts = bpmByExpectedZone.groupingBy { it.second }.eachCount()
+        for (zone in listOf("Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5")) {
+            assertEquals("count for $zone", expectedCounts[zone] ?: 0, distribution[zone])
+        }
+    }
+
+    @Test
     fun `elevationGainM is null when altitude data is absent or insufficient`() {
         val noAltitude = (0 until 10).map { datapoint(it) }
         val oneAltitude = listOf(datapoint(0, altitude = 100.0)) +

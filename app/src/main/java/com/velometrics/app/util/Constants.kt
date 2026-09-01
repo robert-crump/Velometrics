@@ -87,13 +87,15 @@ object CyclingConstants {
     )
 
     // Heart rate zones (label → [lower, upper) as fraction of max HR)
+    // Boundaries follow Strava's zone formula (#173), expressed as a percentage of max HR:
+    // bpm thresholds 109/144/161/179 scaled against Strava's reference max HR of 185.
     const val DEFAULT_MAX_HR = 190
     val HR_ZONES = listOf(
-        "Zone 1" to (0.0 to 0.60),
-        "Zone 2" to (0.60 to 0.70),
-        "Zone 3" to (0.70 to 0.80),
-        "Zone 4" to (0.80 to 0.90),
-        "Zone 5" to (0.90 to Double.MAX_VALUE)
+        "Zone 1" to (0.0 to 109.0 / 185.0),
+        "Zone 2" to (109.0 / 185.0 to 144.0 / 185.0),
+        "Zone 3" to (144.0 / 185.0 to 161.0 / 185.0),
+        "Zone 4" to (161.0 / 185.0 to 179.0 / 185.0),
+        "Zone 5" to (179.0 / 185.0 to Double.MAX_VALUE)
     )
 
     // Interval overlay

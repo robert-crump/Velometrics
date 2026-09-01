@@ -11,7 +11,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 private const val CHART_HEIGHT_DP = 80
 
@@ -68,8 +71,22 @@ fun TickedBarChart(
                     val fraction = entry.percentage / maxPct
                     val tickFraction = entry.tickPercentage?.let { it / maxPct }
 
+                    // The bar itself is drawn on a Canvas, which carries no semantics of its own —
+                    // merge the whole column into one accessible node so TalkBack announces the
+                    // bar's meaning (label, value, and comparison tick) as a single phrase.
+                    val barDescription = buildString {
+                        append(entry.label)
+                        append(": ")
+                        append(entry.percentageLabel ?: "${entry.percentage.roundToInt()}%")
+                        entry.tickPercentage?.let { tick ->
+                            append(", average ${tick.roundToInt()}%")
+                        }
+                    }
+
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics(mergeDescendants = true) { contentDescription = barDescription },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom
                     ) {

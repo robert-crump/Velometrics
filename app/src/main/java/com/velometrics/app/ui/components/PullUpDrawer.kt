@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -183,7 +183,7 @@ fun PullUpDrawer(
                 .height(with(density) { (maxHeightPx * animatedFraction.value).toDp() })
                 .background(
                     MaterialTheme.colorScheme.surface,
-                    RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                    MaterialTheme.shapes.large.copy(bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp))
                 )
         ) {
             Column(modifier = Modifier.fillMaxSize()) {

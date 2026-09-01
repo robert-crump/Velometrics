@@ -12,7 +12,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -744,7 +743,7 @@ private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
                             modifier = Modifier
                                 .border(
                                     BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)),
-                                    RoundedCornerShape(4.dp)
+                                    MaterialTheme.shapes.extraSmall
                                 )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {

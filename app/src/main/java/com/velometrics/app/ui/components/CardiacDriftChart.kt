@@ -15,11 +15,14 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.FormatUtils
+import kotlin.math.roundToInt
 
 private val bandColors = mapOf(
     CardiacDriftBand.GOOD to Color(0xFF4CAF50),        // green
@@ -106,10 +109,18 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
             // Show at most ~6 x-axis labels regardless of ride length
             val labelStride = ((maxIndex + 1) / 6).coerceAtLeast(1)
 
+            // The line/points are drawn on a Canvas, which carries no semantics of its own — the
+            // header above already announces the overall decoupling percent and band, so give the
+            // chart itself a summary of the per-bucket range a screen reader otherwise can't see.
+            val chartDescription = "Efficiency factor trend across the ride, relative to a " +
+                "first-half baseline of 100%. Ranges from ${presentValues.min().roundToInt()}% " +
+                "to ${presentValues.max().roundToInt()}%."
+
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(CHART_HEIGHT_DP.dp)
+                    .semantics { contentDescription = chartDescription }
             ) {
                 val leftPaddingPx = with(density) { 8.dp.toPx() }
                 val rightPaddingPx = with(density) { 8.dp.toPx() }

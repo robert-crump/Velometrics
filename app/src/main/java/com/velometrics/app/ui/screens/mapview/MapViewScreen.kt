@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
@@ -601,7 +600,7 @@ private fun PrototypeGroupSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(bgColor, RoundedCornerShape(8.dp))
+                            .background(bgColor, MaterialTheme.shapes.small)
                             .clickable { onIntervalTap(interval) }
                             .padding(vertical = 8.dp, horizontal = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,

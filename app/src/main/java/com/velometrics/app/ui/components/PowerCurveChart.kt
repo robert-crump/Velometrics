@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.PowerCurvePoint
 import kotlin.math.abs
@@ -114,12 +116,20 @@ fun PowerCurveChart(
             fun nearestAvailableIndex(x: Float): Int =
                 availableIndices.minByOrNull { abs(xFor(it) - x) } ?: availableIndices.first()
 
+            // The line/points are drawn on a Canvas, which carries no semantics of its own — the
+            // header above already announces the selected point, so give the chart itself a
+            // summary of the overall range a screen reader otherwise can't see.
+            val chartDescription = "Power curve. Selected: " +
+                (selected.watts?.let { "$it watts" } ?: "no data") + " at ${selected.label}. " +
+                "Range across all durations: $maxWatts watts peak."
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
                     .dragToSelectGesture(points) { x ->
                         selectedIndex = nearestAvailableIndex(x)
                     }
+                    .semantics { contentDescription = chartDescription }
             ) {
                 val labelPaint = android.graphics.Paint().apply {
                     textSize = 9.dp.toPx()

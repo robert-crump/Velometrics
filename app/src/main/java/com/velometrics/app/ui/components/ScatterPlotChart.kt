@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,10 +78,21 @@ fun ScatterPlotChart(
 
     val density = LocalDensity.current
 
+    // Drawn entirely on Canvas, which carries no semantics of its own — give the chart a summary
+    // of what it plots and its data range so TalkBack doesn't skip it silently.
+    val chartDescription = run {
+        val xValues = points.map { it.x }
+        val yValues = points.map { it.y }
+        "Scatter plot of $yLabel versus $xLabel, ${points.size} points. " +
+            "$xLabel ranges from ${xTickFormat.format(xValues.min())} to ${xTickFormat.format(xValues.max())}. " +
+            "$yLabel ranges from ${"%.0f".format(yValues.min())} to ${"%.0f".format(yValues.max())}."
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
             .height(220.dp)
+            .semantics { contentDescription = chartDescription }
     ) {
         val padLeft = 56.dp.toPx()
         val padRight = 16.dp.toPx()

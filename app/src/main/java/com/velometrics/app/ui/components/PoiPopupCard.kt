@@ -36,7 +36,9 @@ fun PoiPopupCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        // Level 3 (6dp): floats over the map, same elevation tier as MD3's other overlay
+        // surfaces (FAB, dialogs) rather than an in-between value off the standard scale.
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Row(
             modifier = Modifier

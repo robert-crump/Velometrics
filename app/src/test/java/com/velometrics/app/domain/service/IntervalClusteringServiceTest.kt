@@ -256,6 +256,73 @@ class IntervalClusteringServiceTest {
     }
 
     @Test
+    fun `a candidate with geometrically close but edge-key-disjoint edges merges via the geometric fallback (road vs bike lane, #176)`() = runTest {
+        // Longer archetype: "the road" — 5 edges (1000m).
+        val edge0 = edge(0L, 1L, 200.0, 50.7800 to 6.0800, 50.7818 to 6.0800)
+        val edge1 = edge(1L, 2L, 200.0, 50.7818 to 6.0800, 50.7836 to 6.0800)
+        val edge2 = edge(2L, 3L, 200.0, 50.7836 to 6.0800, 50.7854 to 6.0800)
+        val edge3 = edge(3L, 4L, 200.0, 50.7854 to 6.0800, 50.7872 to 6.0800)
+        val edge4 = edge(4L, 5L, 200.0, 50.7872 to 6.0800, 50.7890 to 6.0800)
+
+        // Shorter archetype: "the bike lane" running ~7m alongside the road's first 4 edges (200m
+        // each = 800m) — entirely distinct node ids, so zero (fromNode, toNode) overlap with the
+        // road, but well within INTERVAL_POINT_MATCH_RADIUS_M (20m), so it can only qualify via
+        // the #176 geometric fallback, not the edge-key test.
+        val bikeLane0 = edge(100L, 101L, 200.0, 50.7800 to 6.0801, 50.7818 to 6.0801)
+        val bikeLane1 = edge(101L, 102L, 200.0, 50.7818 to 6.0801, 50.7836 to 6.0801)
+        val bikeLane2 = edge(102L, 103L, 200.0, 50.7836 to 6.0801, 50.7854 to 6.0801)
+        val bikeLane3 = edge(103L, 104L, 200.0, 50.7854 to 6.0801, 50.7872 to 6.0801)
+
+        // Spatially far apart raw GPS tracks so the two intervals stay in separate Step-1 clusters
+        // and only Step 2's archetype-level merge test is exercised.
+        val long1 = makeInterval(id = 1, distanceM = 1000.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 6))
+        val short1 = makeInterval(id = 2, distanceM = 800.0, gpsTrack = trackJson(startLat = 50.9000, pointCount = 6))
+
+        val (service, saved, _) = buildService(listOf(long1, short1)) { track ->
+            if (track.first()[0] < 50.85) listOf(edge0, edge1, edge2, edge3, edge4)
+            else listOf(bikeLane0, bikeLane1, bikeLane2, bikeLane3)
+        }
+
+        service.runClustering()
+
+        assertEquals(1, saved.size)
+        assertEquals(setOf(1L, 2L), saved.single().intervals.map { it.id }.toSet())
+        assertEquals(listOf(edge0, edge1, edge2, edge3, edge4), saved.single().edges)
+    }
+
+    @Test
+    fun `a geometrically distant, edge-key-disjoint candidate does not merge via the geometric fallback`() = runTest {
+        val edge0 = edge(0L, 1L, 200.0, 50.7800 to 6.0800, 50.7818 to 6.0800)
+        val edge1 = edge(1L, 2L, 200.0, 50.7818 to 6.0800, 50.7836 to 6.0800)
+        val edge2 = edge(2L, 3L, 200.0, 50.7836 to 6.0800, 50.7854 to 6.0800)
+        val edge3 = edge(3L, 4L, 200.0, 50.7854 to 6.0800, 50.7872 to 6.0800)
+        val edge4 = edge(4L, 5L, 200.0, 50.7872 to 6.0800, 50.7890 to 6.0800)
+
+        // A genuinely separate parallel road ~32m away (well beyond INTERVAL_POINT_MATCH_RADIUS_M,
+        // 20m) — distinct node ids AND too far apart geometrically, so neither overlap test
+        // qualifies; must not be mistaken for the road/bike-lane case above.
+        val parallel0 = edge(100L, 101L, 200.0, 50.7800 to 6.08045, 50.7818 to 6.08045)
+        val parallel1 = edge(101L, 102L, 200.0, 50.7818 to 6.08045, 50.7836 to 6.08045)
+        val parallel2 = edge(102L, 103L, 200.0, 50.7836 to 6.08045, 50.7854 to 6.08045)
+        val parallel3 = edge(103L, 104L, 200.0, 50.7854 to 6.08045, 50.7872 to 6.08045)
+
+        val long1 = makeInterval(id = 1, distanceM = 1000.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 6))
+        val short1 = makeInterval(id = 2, distanceM = 800.0, gpsTrack = trackJson(startLat = 50.9000, pointCount = 6))
+
+        val (service, saved, _) = buildService(listOf(long1, short1)) { track ->
+            if (track.first()[0] < 50.85) listOf(edge0, edge1, edge2, edge3, edge4)
+            else listOf(parallel0, parallel1, parallel2, parallel3)
+        }
+
+        service.runClustering()
+
+        assertEquals(2, saved.size)
+        val byFrequency = saved.sortedByDescending { it.distanceM }
+        assertEquals(setOf(1L), byFrequency[0].intervals.map { it.id }.toSet())
+        assertEquals(setOf(2L), byFrequency[1].intervals.map { it.id }.toSet())
+    }
+
+    @Test
     fun `a cluster is still saved via GPS-only fallback when map-matching fails for every member`() = runTest {
         // Two GPS-similar intervals that qualify as a cluster, but the fake matcher never returns
         // road-graph edges for them (simulating a leaf-pruned/gapped road graph) — the whole cluster

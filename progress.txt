@@ -1,3 +1,51 @@
+## Issue #176 — Geometric fallback for archetype merge overlap gate (road vs. adjacent bike lane)
+Completed: 2026-09-02
+
+### What was done
+
+Follow-up to the previous session's archetype-merge work (`4a4346c`), which explicitly flagged this
+as unfixable by threshold tuning alone: `IntervalClusteringService.mergeQualifies`'s overlap gate
+compared map-matched edges by literal `(fromNode, toNode)` key equality, so the same physical ride
+recorded once on a road and once on the adjacent bike lane/cycleway — represented as two distinct
+road-graph edges — could be geometrically near-identical yet share zero edge keys, with no tolerance
+setting able to catch it.
+
+Issue #176 itself was filed `ready-for-human` with three open questions (match radius, false-merge
+risk, replace-vs-supplement) rather than `ready-for-agent`; per user direction, proceeded using
+proposed defaults for all three: reuse the existing `INTERVAL_POINT_MATCH_RADIUS_M` (20m) constant,
+accept the parallel/frontage-road false-merge risk as a documented known limitation rather than
+adding new mitigation, and have the new test run *alongside* the edge-key test (either signal
+sufficient), not replace it.
+
+**`domain/service/IntervalClusteringService.kt`** — `mergeQualifies`'s overlap gate now has a
+geometric fallback, evaluated only when the edge-key test doesn't already qualify (short-circuit,
+since decoding polylines is the pricier check): new `geometricOverlapRatio(candidate, longer)`
+decodes both archetypes' `MapEdge.geometryEncoded` polylines to point lists (each edge already
+carries its own geometry, no road-graph lookup needed), builds a `SpatialPointGrid` over `longer`'s
+points at `INTERVAL_POINT_MATCH_RADIUS_M`, and computes what fraction of `candidate`'s points have a
+neighbor within that radius — the same one-directional coverage-score pattern
+`IntervalSimilarity.qualifies` already uses for raw GPS tracks, reused here at the edge-geometry
+level per the issue's own suggested direction. `overlapOk` is now `edgeOverlapOk || geometricOverlapOk`,
+both gated against the existing `INTERVAL_SUBSET_OVERLAP_THRESHOLD` (0.8). The near-miss diagnostic
+log (from `4a4346c`) now reports both ratios (`edgeOverlap=... geometricOverlap=...`, `"skipped"` when
+short-circuited) for on-device tuning. No `Constants.kt` changes — reuses two already-defined
+constants rather than adding bike-lane-specific ones.
+
+### Tests
+Added two cases to `IntervalClusteringServiceTest`: (1) a shorter archetype whose edges use entirely
+different node ids from the longer archetype's (zero edge-key overlap) but whose decoded polylines
+run ~7m alongside it (well within the 20m radius) now merges — the road/bike-lane scenario the issue
+describes; (2) a shorter archetype similarly edge-key-disjoint but offset ~32m away (beyond the
+radius) — a genuinely separate parallel road — correctly stays unmerged, guarding against the
+fallback being too permissive. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, full
+`testDebugUnitTest`: all pass, 315 tests, zero failures/errors across the whole suite (aggregated
+test-result XML). No on-device verification this session (no real road-vs-bike-lane duplicate pair
+was available to replicate against the live DB, unlike the Camerig data pull that tuned `4a4346c`'s
+length tolerance) — flagged in the issue close-out as a residual real-data validation gap, consistent
+with the accepted-defaults scope for this pass.
+
+---
+
 ## Issue #175 — Repeat clusters silently dropped when map-matching fails (found via #174)
 Completed: 2026-09-02
 

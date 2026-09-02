@@ -189,6 +189,29 @@ class IntervalClusteringServiceTest {
     }
 
     @Test
+    fun `a cluster is still saved via GPS-only fallback when map-matching fails for every member`() = runTest {
+        // Two GPS-similar intervals that qualify as a cluster, but the fake matcher never returns
+        // road-graph edges for them (simulating a leaf-pruned/gapped road graph) — the whole cluster
+        // must not be silently dropped (#175).
+        val a = makeInterval(id = 1, distanceM = 200.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 8))
+        val b = makeInterval(id = 2, distanceM = 205.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 8))
+
+        val (service, saved, _) = buildService(listOf(a, b)) { null }
+
+        service.runClustering()
+
+        assertEquals(1, saved.size)
+        val archetype = saved.single()
+        assertEquals(setOf(1L, 2L), archetype.intervals.map { it.id }.toSet())
+        assertTrue("GPS-only fallback should have no map-matched edges", archetype.edges.isEmpty())
+        // Falls back to the median-length member's (sorted by distanceM, index size/2 = b here)
+        // own recorded distance/endpoints.
+        assertEquals(b.distanceM, archetype.distanceM, 0.001)
+        assertEquals(b.startLat, archetype.startLat, 0.0001)
+        assertEquals(b.endLat, archetype.endLat, 0.0001)
+    }
+
+    @Test
     fun `re-running preserves an existing archetype's name and id by overlapping interval-id subset`() = runTest {
         val edge0 = edge(0L, 1L, 150.0, 50.7800 to 6.0800, 50.7813 to 6.0800)
         val edge1 = edge(1L, 2L, 150.0, 50.7813 to 6.0800, 50.7826 to 6.0800)

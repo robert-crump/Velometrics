@@ -92,9 +92,12 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
         val intervals = intervalIds.mapNotNull { intervalMap[it] }
         if (intervals.isEmpty()) return null
 
+        // An empty/unresolvable edge list is not itself a reason to drop this archetype (#175):
+        // IntervalClusteringService's GPS-only fallback deliberately stores no edges when map-
+        // matching fails for every cluster member, and this archetype should still load with its
+        // name, intervals, and stats — just without road-matched route geometry to render.
         val edgeRefs = parseEdgeRefs(entity.edges)
         val edges = edgeRefs.mapNotNull { (fromNode, toNode) -> edgeMap[fromNode to toNode] }
-        if (edges.isEmpty()) return null
 
         return RepeatedInterval(
             id = entity.id,

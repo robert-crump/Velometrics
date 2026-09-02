@@ -110,6 +110,9 @@ class IntervalClusteringService @Inject constructor(
         // back to per-track matchTrack. Results are written back in component order so the downstream
         // subset-discard and name assignment are identical to matching clusters one-by-one.
         val archetypeByComponent = arrayOfNulls<CandidateArchetype>(components.size)
+        // Every index gets filled below (buildArchetype always returns; clusterBox is only null for
+        // an empty component, which connectedComponents never produces) — filterNotNull afterwards
+        // is just a defensive net, not a normal path.
         val refLat = prepared.map { it.track.minLat }.average()
         val latCell = REGION_GROUP_CELL_M / GeoUtils.METERS_PER_DEG_LAT
         val lonCell = REGION_GROUP_CELL_M / (GeoUtils.METERS_PER_DEG_LAT * cos(Math.toRadians(refLat)))
@@ -209,7 +212,7 @@ class IntervalClusteringService @Inject constructor(
     private suspend fun buildArchetype(
         intervals: List<IntervalSession>,
         match: suspend (List<List<Double>>) -> List<MapEdge>?
-    ): CandidateArchetype? {
+    ): CandidateArchetype {
         val sorted = intervals.sortedBy { it.distanceM }
         val medianIndex = sorted.size / 2
         val candidateOrder = sorted.indices.sortedBy { abs(it - medianIndex) }
@@ -231,8 +234,23 @@ class IntervalClusteringService @Inject constructor(
             )
         }
 
-        Log.w(TAG, "Could not map-match any representative for cluster of ${intervals.size}; dropping")
-        return null
+        // Map-matching failed for every representative (e.g. the matched sequence collapses to a
+        // single leaf-pruned edge, or the road graph has a gap here). Falling through to `null`
+        // would silently drop this entire cluster — including intervals that qualified by
+        // confident GPS similarity — so fall back to a GPS-only archetype instead (#175): no
+        // road-matched edge geometry, but still saved, named, and shown, using the median-length
+        // member's own recorded endpoints/distance.
+        Log.w(TAG, "Could not map-match any representative for cluster of ${intervals.size}; using GPS-only fallback")
+        val representative = sorted[medianIndex]
+        return CandidateArchetype(
+            intervals = intervals,
+            edges = emptyList(),
+            distanceM = representative.distanceM,
+            startLat = representative.startLat,
+            startLon = representative.startLon,
+            endLat = representative.endLat,
+            endLon = representative.endLon
+        )
     }
 
     /**

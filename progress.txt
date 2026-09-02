@@ -1,3 +1,51 @@
+## Issue #175 — Repeat clusters silently dropped when map-matching fails (found via #174)
+Completed: 2026-09-02
+
+### What was done
+
+Root cause confirmed by #174's on-device investigation: `IntervalClusteringService.buildArchetype()`
+returned `null` whenever `MapMatcher.match()` failed for every candidate representative in a
+similarity-confirmed cluster (a short cluster whose GPS track snaps to a single, leaf-pruned road
+edge, or a road-graph gap for that segment). Back in `runClustering()`, `.filterNotNull()` then
+silently discarded the entire cluster — including intervals that had correctly and confidently
+matched each other by GPS similarity — with no user-visible signal, only a `Log.w`.
+
+Implemented the issue's suggested fix direction: fall back to a GPS-only archetype instead of
+dropping the cluster.
+
+**`domain/service/IntervalClusteringService.kt`** — `buildArchetype()` no longer returns `null`.
+When no cluster member map-matches, it now returns a `CandidateArchetype` with `edges = emptyList()`
+and `distanceM`/`startLat`/`startLon`/`endLat`/`endLon` taken directly from the median-length
+member's own recorded `IntervalSession` fields (no road-matched geometry needed for these — they're
+already stored per-interval). `discardSubsets()` needed no change: an edges-empty candidate never
+shares edge keys with anything, so it's never mistakenly discarded as a subset.
+
+**`data/repository/RepeatedIntervalRepositoryImpl.kt`** — `entityToDomain()` had its own copy of
+the same bug: `if (edges.isEmpty()) return null` meant a GPS-only archetype (or any archetype whose
+stored edge references no longer resolve against the road graph) would vanish again on every
+subsequent load, even after being saved successfully. Removed that guard — an archetype with no
+resolvable edges now loads fine with its name, intervals, and stats; only `edges` (and therefore the
+route-line map preview, which already renders a "No GPS data available" placeholder for an empty
+point list) comes back empty.
+
+Not changed: `IntervalMatcher.archetypeTrack()` still can't match new same-route intervals against
+a GPS-only archetype incrementally (no edge geometry to compare against), so such an interval waits
+for the next full `runClustering()` pass — which re-clusters by GPS similarity from scratch and
+will pick it up correctly. This is a temporary staleness, not the reported bug (permanent loss), so
+left alone rather than inventing a synthetic edge-geometry representation to close it.
+
+### Tests
+Added `IntervalClusteringServiceTest`: a cluster whose fake matcher always returns `null` is still
+saved as one archetype (both intervals grouped, `edges` empty, `distanceM`/`startLat`/`endLat` taken
+from the median-length member) instead of disappearing. `compileDebugKotlin`,
+`compileDebugUnitTestKotlin`, `testDebugUnitTest`: all pass, 310 tests, zero failures/errors across
+the whole suite (verified via aggregated test-result XML). No on-device re-verification of the
+specific reporter clusters this session (would need the same live-DB replication #174 used); the new
+unit test reproduces the exact failure mode (map-matching failure on a similarity-confirmed cluster)
+per the issue's own suggested repro approach.
+
+---
+
 ## Issue #173 — Change heart rate zones formula
 Completed: 2026-09-01
 
@@ -156,403 +204,3 @@ Intervals are computed) rather than a bug — confirmed by reading the current `
 against that current (post-#170) rule set rather than reverting it.
 
 ---
-
-## Issue #170 — Validate & tune classifier thresholds against real ride history
-Completed: 2026-08-31 (backfilled during #171 — see note above; this entry was reconstructed from
-commit `cd6d712`'s message and diff, not written by the original session)
-
-### What was done
-
-Reviewed `RideClassifier`'s tags against the rider's 154 real imported sessions (via a new
-dev-only export tool, `RideTagDumper`) and redesigned the rule set rather than nudging the
-original thresholds:
-- Zone 2: `fatEfficiencyScore >= 75` (was zone-time-share majority)
-- Intervals: `intervalCount >= 2` (was interval-time-share >= 12%)
-- Recovery: unchanged (Zone 1 share >= 50%, or drift <= 3% + fatScore >= 70)
-- Race and Endurance removed as categories entirely — Race never fired on real data (hard efforts
-  were already claimed by the Intervals rule), and Endurance was really just "matched nothing
-  else" for 69% of rides.
-- No fallback/catch-all: `RideClassifier.classify()` now returns `RideTag?`; an unmatched ride is
-  simply untagged rather than forced to a default.
-
-Before/after tag counts on the 154 real sessions (after `reclassifyAll()`): before — Zone 2=17,
-Intervals=18, Recovery=13, Endurance=106, Race=0; after — Zone 2=29, Intervals=33, Recovery=10,
-untagged=82.
-
-UI: the tag switched from a tappable `AssistChip` to a plain label below the date on
-`SessionDetailScreen`, since at that point nothing was behind it to open (#171 gives it a
-narrative and restores the tap affordance).
-
-Also added `RideTagDumper`, a debug-only Settings-row dev tool that writes a CSV of every
-session's tag plus the signals `RideClassifier` reads, for this kind of review; a parked
-`androidTest` path for the same tool is currently unused (reproducibly uninstalled the app on the
-test device during the original investigation, per the commit message).
-
-### Tests
-(From the original commit message, not independently re-verified here.) `RideClassifierTest` and
-`RideClassificationServiceTest` were updated for the new 3-tag rule set. No migration needed —
-`tag` already existed as a nullable column from #169.
-
----
-
-## Issue #169 — Rule-based ride tagging, persisted and visible
-Completed: 2026-08-31
-
-### What was done
-
-First slice of the #167 parent (rule-based ride tagging). Auto-classifies every ride into one
-of five tags — Zone 2, Intervals, Race, Recovery, Endurance — computed at import time and
-persisted, so Session Detail can show a tag chip with no manual input. A timing subtlety in
-`FitImportService` mattered here: `SessionMetricsCalculator.compute()` always emits
-`intervalTotalTimeSec = 0` (interval detection runs afterward, power rides only), so
-classifying straight off its output would make the Intervals rule permanently dead for new
-imports. Classification now runs after interval detection, off a local `session.copy(
-intervalCount = ..., intervalTotalTimeSec = ...)` carrying that import's real interval stats —
-no extra DB round trip needed since those values are already local vars at that point.
-
-**`domain/model/RideTag.kt`** (new) — `enum class RideTag(val label: String)`, one entry per
-tag (`ZONE_2` -> `"Zone 2"`, etc.). `label`, not `name`, is what's persisted and displayed, so a
-future enum-constant rename can't silently change what's already stored.
-
-**`domain/service/RideClassifier.kt`** (new, `object`, pure — no DI, same shape as
-`BestEffortCalculator`) — `classify(session: CyclingSession): RideTag`, priority order
-Intervals -> Race -> Zone 2 -> Recovery -> Endurance (fallback), each rule a private predicate:
-- Intervals: `intervalTotalTimeSec` is >=12% of `netDurationSec`.
-- Race: zone-time majority (>=50%) in Zone 4+ *and* a steady NP:AP ("variability index") <=1.05;
-  on an HR-only ride (no power meter, NP:AP unavailable) the zone majority alone qualifies,
-  since NP:AP is a power-only signal with nothing to fall back to.
-- Zone 2: zone-time majority (>=50%) in Zone 2.
-- Recovery: zone-time majority (>=50%) in Zone 1, *or* (as a fallback when zone data doesn't
-  already say so) `cardiacDriftPercent` <=3% and `fatEfficiencyScore` >=70.
-- Endurance: everything else, including rides with no zone data at all.
-Zone-time share prefers `powerZoneDistribution` over `hrZoneDistribution` when both exist (a
-more direct effort signal); both distributions are per-datapoint counts (not percentages), so
-share = matching-zone count / total count. All thresholds are an explicit best-effort starting
-point per the issue — not validated against real ride history here, that's the follow-up
-threshold-tuning issue's job.
-
-**`domain/service/RideClassificationService.kt`** (new, `@Singleton`, injects
-`CyclingSessionRepository`) — `reclassifyAll()`: re-runs `RideClassifier` over every session,
-writing back only rows whose tag actually changed (idempotent, safe to re-run — needed by the
-same follow-up issue once thresholds change). Wired into
-`SettingsViewModel.recalculateAllStats()` alongside the existing `sessionComparator` loop, since
-that's already the app's "recompute everything across all sessions" trigger.
-
-**`data/local/entity/CyclingSessionEntity.kt`, `domain/model/CyclingSession.kt`,
-`util/EntityMappers.kt`** — new `tag: String?` field (default `null`), round-tripped through
-`toDomain()`/`toEntity()`.
-
-**`data/local/VelometricsDatabase.kt`, `di/DatabaseModule.kt`** — schema v13 -> v14;
-`MIGRATION_13_14` (`internal val`, matching `MIGRATION_11_12`'s precedent for one under test)
-does `ALTER TABLE cycling_sessions ADD COLUMN tag TEXT` — classification needs domain logic, not
-just SQL, so backfilling existing rows is `RideClassificationService.reclassifyAll()`'s job, not
-the migration's.
-
-**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl,
-`FakeCyclingSessionRepository`)** — `updateTag(sessionId, tag)`, a direct
-`UPDATE ... SET tag = :tag` matching `updateIntervalStats`'s existing partial-update shape
-(avoids a full read-modify-write for a single-column write).
-
-**`data/fitimport/FitImportService.kt`** — after interval detection (step 10) and before
-building the summary string, computes the tag off the interval-aware local session copy and
-persists it via `sessionRepository.updateTag(id, tag)`.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — new private `RideTagChip` (an
-`AssistChip` with a no-op `onClick`, matching `MapViewScreen`'s existing "Locating…" chip
-precedent for a non-interactive informational chip), rendered next to the date in
-`RideSummaryGrid`'s header row (`session.tag?.let { RideTagChip(it) }` — no chip at all for
-older, not-yet-backfilled sessions until `reclassifyAll()` runs).
-
-### Tests
-New `RideClassifierTest` (11 cases, following `BestEffortCalculatorTest`'s pattern of a plain
-constructed-fixture test, no fake repository needed since `classify` is pure): all 5 tags
-individually, plus 3 explicit priority tie-break cases (Intervals beats an otherwise-qualifying
-Race; Race beats an otherwise-qualifying Recovery fallback; Zone 2 beats an otherwise-qualifying
-Recovery fallback), a spiky-effort case that fails Race's NP:AP check, an HR-only Race case with
-no power meter, a power-vs-HR-zone preference case, and two Endurance-fallback cases (mixed zone
-spread; no zone data at all). New `RideClassificationServiceTest` (2 cases, via
-`FakeCyclingSessionRepository`): backfills tags onto pre-existing untagged sessions; re-running
-twice corrects a stale/wrong tag and stays idempotent. New
-`VelometricsMigrationTest` case (13->14): inserts a v13 row, migrates, confirms the new `tag`
-column exists and reads back `NULL`. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
-`assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass (284 tests, up from 270 — 14
-new), no regressions. No on-device verification this session (no
-new UI interaction, just a static chip render off already-covered data; the acceptance
-criteria's classification/migration/persistence logic is fully covered by the new unit and
-migration tests).
-
----
-
-## Issue #168 — Ride detail screen: More calories = better
-Completed: 2026-08-31
-
-### What was done
-
-Simple one-line polarity flip, analogous to issue #157's elevation gain polarity change. More calories burned = better workout, so the Calories metric should show an upward triangle when the current ride's calories exceed the comparison reference (last 5 or all-previous sessions). Changed `higherIsBetter = false` to `higherIsBetter = true` on the `Calories` `MetricCell` in `SessionDetailScreen.kt`.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`**
-- Line 370: Changed `higherIsBetter = false` to `higherIsBetter = true` with a comment explaining the rationale.
-
-### Tests
-No new tests needed — pure UI polarity parameter change on an existing metric cell. `compileDebugKotlin` and `testDebugUnitTest`: both pass clean, no regressions. No on-device verification needed (visual change, identical to #157's scope).
-
----
-
-## Issue #166 — Simplify: larger UI extraction (map drawer, chart drag gesture)
-Completed: 2026-08-30
-
-### What was done
-
-Sixth `Simplify:` mechanical-cleanup issue in the run (#161-#165 landed the five sessions before
-this one), same shape again: two named extractions, fully scoped in the issue body with exact
-target signatures/behaviors and an explicit non-goal called out (don't merge `MonthlyLineChart`/
-`PowerCurveChart` beyond the one shared gesture loop — they genuinely differ in axis scale,
-selection-state ownership, and a header row). Read all four named screen files before editing, no
-exploration subagent needed.
-
-**`ui/components/TrackMapWithDrawer.kt`** (new) — shared "fit track to viewport in a drawer" map
-composable extracted from `SessionDetailScreen.SessionDetailMap` and
-`RepeatedIntervalDetailScreen.RepeatedIntervalDetailMap` (both byte-identical in
-empty-state/BoxWithConstraints/re-center-on-drag/initial-camera-fit code, differing only in the
-GPS-points source, the map's track-layer id, and whether a legend overlay renders). Takes
-`points: List<LatLng>` (not a raw `gpsTrack: String?` — `RepeatedIntervalDetailScreen`'s points
-were already pre-parsed upstream, so the common denominator is the parsed list; `SessionDetailMap`
-keeps its own `remember(gpsTrack) { GpsTrackParser.parse(gpsTrack) }` above the call), `trackId`,
-`trackColor` (defaults to the `"#2196F3"` both originals hardcoded), an `onMapReady: (MapLibreMap,
-Style) -> Unit = { _, _ -> }` escape hatch, and an `overlayContent: @Composable
-BoxWithConstraintsScope.() -> Unit = {}` slot. The `onMapReady` hook exists because
-`SessionDetailScreen`'s interval-overlay *map layer* (`MapIntervalRenderer`, rendered onto the
-MapLibre `Style` itself, not a Compose overlay) needs the `Style` instance on every intervals
-change via its own `LaunchedEffect(mapStyleRef.value, intervals)` — that stays in
-`SessionDetailScreen`, hooked in through `onMapReady = { _, style -> mapStyleRef.value = style }`,
-untouched otherwise. `overlayContent` carries the session screen's Compose-UI `IntervalMapLegend`
-(passed as `{ if (intervals.isNotEmpty()) IntervalMapLegend(...) }`); `RepeatedIntervalDetailScreen`
-now calls `TrackMapWithDrawer` directly inline with no wrapper function at all, since it has
-neither a legend nor a map-style hook left once the extraction is done.
-
-**`ui/components/ChartGestures.kt`** (new) — `Modifier.dragToSelectGesture(vararg keys: Any?,
-onSelect: (Float) -> Unit)`, wrapping the byte-identical `awaitEachGesture` drag-select loop
-(select on down, re-select continuously while pressed, stop on lift) shared by
-`HomeScreen.MonthlyLineChart` and `AllTimeStatsScreen.PowerCurveChart`. Only this loop moved —
-`onSelect` is the one seam needed, since the two originals differed there: `MonthlyLineChart`
-computed an index from x and called an `onMonthSelected` callback (externally-owned selection
-state), `PowerCurveChart` computed the index and assigned directly to a local `selectedIndex` var
-(internally-owned). `vararg keys` (spread into `Modifier.pointerInput(*keys)`) preserves each
-call site's own invalidation keys unchanged — `dragToSelectGesture(monthlyData, chartWidthPx)` at
-the Home screen call site, `dragToSelectGesture(points)` at the All-Time Stats one. Per the issue's
-explicit instruction, nothing else in either chart (linear vs. log x-axis mapping, selection-state
-ownership, `PowerCurveChart`'s header row) was touched.
-
-### Tests
-No test changes, per the issue's own scope — pure structural de-duplication of two Compose-only
-UI shapes, each verified equivalent to its originals by construction (identical
-BoxWithConstraints/Canvas/gesture code, only the call-site data and one callback seam vary), same
-precedent as #161-#165 for this class of refactor. `compileDebugKotlin` and full
-`testDebugUnitTest`: both pass clean (no Compose tests exist for any of these four screens, so this
-only confirms no compile/unit-test regressions elsewhere). No on-device manual verification this
-session (issue's suggested check — map camera fit/re-centering and the interval legend on Session
-Detail and Repeated Interval Detail, drag-to-select on the Home and All-Time Stats line charts —
-has no automated equivalent in this environment; verified each extraction line-for-line against
-its pre-refactor originals at review time instead, consistent with #161-#165's precedent).
-
----
-
-## Issue #165 — Simplify: UI structural duplication (charts, dialogs, lists)
-Completed: 2026-08-30
-
-### What was done
-
-Fifth `Simplify:` mechanical-cleanup issue in the run (#161/#162/#163/#164 landed the four
-sessions before this one), same shape again but the largest yet: five separate extractions spread
-across nine files, fully scoped in the issue body with exact target signatures/behaviors and every
-deliberate non-normalization named. Read every named file before editing, no exploration subagent
-needed.
-
-**`ui/components/TickedBarChart.kt`** (new) — shared bar+tick-mark `Canvas` extracted from
-`PowerZoneChart`, `HeartRateZoneChart`, `SpeedHistogramChart` (all three were byte-identical in
-layout/canvas code, differing only in zone/bin data, colors, and two label-formatting details).
-`TickedBarEntry(label, percentage, color, percentageLabel: String?, tickPercentage: Float?)` — the
-`percentageLabel` field (not a `showLabel: Boolean`) doubles as the one real behavioral difference
-the issue called out (`PowerZoneChart`/`HeartRateZoneChart` pass `null` at 0% to hide the label,
-`SpeedHistogramChart` always passes a formatted string) *and* preserves a second, unstated
-difference the issue didn't call out but the original code had: `toInt()` (truncating) vs.
-`roundToInt()` (rounding) percentage formatting between the two chart families — each caller
-formats its own label text, so both differences survive without needing two separate flags. All
-three chart files now just build a `List<TickedBarEntry>` from their own zone/bin maps and call
-`TickedBarChart(title, entries, modifier)`; public function signatures
-(`PowerZoneChart`/`HeartRateZoneChart`/`SpeedHistogramChart`/`SpeedHistogramChartAvg`) unchanged.
-
-**`ui/components/EditableTopBarTitle.kt`** (new) — `EditableTopBarTitleState` (isEditing/editName/
-focusRequester) + `rememberEditableTopBarTitleState(name)` (re-syncs `editName` from the backing
-name whenever it changes and the user isn't mid-edit; requests focus on entering edit mode) +
-`EditableTopBarTitle` (title-slot composable, text field or plain `Text`) +
-`RowScope.EditableTopBarActions` (check/edit icon buttons, `extraActions: @Composable RowScope.()
--> Unit = {}` slot after the edit button). `EditableTopBarActions` needed a `RowScope` receiver,
-not just a plain `@Composable` — first `compileDebugKotlin` attempt failed ("No value passed for
-parameter 'p1'") because `extraActions()` (typed `RowScope.() -> Unit`) has no receiver to invoke
-against without one. `RepeatedRouteDetailScreen` passes its "Export GPX" `IconButton` (only when
-`representativeTrack` is non-empty) as `extraActions`; `RepeatedIntervalDetailScreen` passes
-nothing, matching the issue's explicit "Interval screen doesn't have it" call-out.
-
-**`SettingsScreen.kt`** (colocated, per the issue) — private `NumberEditDialog(title, label,
-currentValue, helperText, onDismiss, onConfirm: (Int) -> Unit)` replaces the FTP/Max-HR edit
-dialogs (validates trimmed input parses to a positive int different from `currentValue` before
-calling `onConfirm`, otherwise the dialog just stays open — same as before extraction); private
-`ConfirmDialog(title, text, confirmLabel, onConfirm, onDismiss)` replaces the FTP-change/Max-HR-
-change/recalculate confirmations. Dropbox-folder dialog left untouched (confirmed byte-identical
-post-edit) — different shape (text vs. number validation), single use, as the issue specified.
-
-**`ui/components/RefreshableList.kt`** (new, generic `<T>`) — replaces
-`RepeatedRoutesContent`/`RepeatedIntervalsContent` in `RepeatedRoutesScreen.kt`: pull-to-refresh +
-loading spinner + empty-state (title/subtitle) + `LazyColumn` shape, parameterized by `entries`,
-`key`, `emptyTitle`/`emptySubtitle`, and an `itemContent` slot. Named the list parameter `entries`
-rather than `items` deliberately — a parameter literally named `items` shadows
-`androidx.compose.foundation.lazy.items` inside the same composable, which would break the
-`items(entries, key = key) { ... }` call inside `LazyColumn`. Also added a private, colocated
-`<T : Enum<T>> SortDropdownItems(dimensions, currentOrder, onSelect)` in `RepeatedRoutesScreen.kt`
-itself (per the issue: "in the same file") replacing the two duplicated enum-sort `DropdownMenu`
-bodies (route dimensions vs. interval dimensions) — generic over any enum whose ASC/DESC variants
-follow the existing `_ASC`/`_DESC` naming convention the arrow-glyph logic already relied on.
-
-**`ui/components/LoadingBox.kt`** (new) — `LoadingBox(modifier)` and `NotFoundBox(text, modifier,
-style, color)`, both internally `Modifier.fillMaxSize().then(modifier)` so a call site's own
-modifier (e.g. `Modifier.padding(padding)`) composes onto the *same* chain position the original
-inline `Box(Modifier.fillMaxSize().padding(padding), ...)` used — verified this reproduces each of
-the 4 screens' pre-existing modifier exactly, including the one deliberate inconsistency called out
-in the issue: `RepeatedRouteDetailScreen`/`RepeatedIntervalDetailScreen`'s loading spinner omits
-`.padding(padding)` (both now call bare `LoadingBox()`) while `AllTimeStatsScreen`/
-`SessionDetailScreen`'s include it (`LoadingBox(modifier = Modifier.padding(padding))`) — left
-as-is, not fixed, per the issue. `NotFoundBox`'s `style`/`color` default to `LocalTextStyle.current`/
-`Color.Unspecified` (plain `Text()`'s own defaults) so the three literal "X not found" call sites
-(Session/Route/Interval) are unchanged; `AllTimeStatsScreen`'s distinctly-styled "No rides recorded
-yet" empty state (`titleMedium`/`onSurfaceVariant`, not a literal "not found" case but the same
-Box+Text shape) passes those explicitly to preserve its different look.
-
-### Tests
-No test changes — pure structural/mechanical de-duplication across 5 extractions, each verified
-equivalent to its originals by construction (identical Canvas/dialog/list/box code, only the
-call-site data varies) rather than by new test coverage, matching #161-#164's precedent for this
-class of refactor. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full
-`testDebugUnitTest`: all pass clean, zero regressions (no Compose tests exist for any of these
-screens, so this only confirms no compile/unit-test regressions elsewhere, per the issue's own
-acceptance criteria). No on-device manual verification this session (issue's suggested check —
-charts render identically, rename flow works on both detail screens including GPX export, all 4
-Settings dialogs behave identically, Routes/Intervals lists/refresh/empty-states/sort menus behave
-identically — has no automated equivalent in this environment; each extraction's call-site
-equivalence was verified line-for-line against the pre-refactor originals at review time instead,
-consistent with #161-#164's precedent).
-
----
-
-## Issue #164 — Simplify: domain logic consolidation
-Completed: 2026-08-30
-
-### What was done
-
-Third `Simplify:` mechanical-cleanup issue in a row (#161/#162/#163 landed the three sessions
-before this one), same shape again: fully scoped in the issue body with exact target
-signatures/behaviors named, so went straight to reading every named file before editing, no
-exploration subagent needed.
-
-**`domain/service/RankedMetricEvaluator.kt`** (new, `object`) — extracted the ranking machinery
-`RideMilestoneEvaluator` (#159) and `PowerCurveAchievementEvaluator` (#160) each duplicated
-verbatim: `rankCandidate` (count-greater-than -> rank -> candidate-if-top-3), `startOfYear`, and
-the ordinal-headline construction ("Xxx"/"2nd-Xxx"/"3rd-Xxx" + noun + "ever"/"this year"). The two
-originals' headline vocab wasn't quite identical text (`RideMilestoneEvaluator` varies its base
-word per metric — "longest"/"most"/"fastest"; `PowerCurveAchievementEvaluator` always uses "best")
-but the *shape* was identical, so `Metric<T>` carries a per-metric `ordinalWord` field — ride
-milestones pass their own varying word, power-curve metrics all pass the literal `"best"` — and
-`rank(metrics, yearStart, family): List<RideRevealCandidate>` is generic over the metric's value
-type (`Double` for ride milestones, `Int` for power-curve watts) so both evaluators' `countGreater`
-lambda signatures still typecheck without a cast. Both evaluators now just build their own
-metric-and-query list and call `RankedMetricEvaluator.rank(...)`; verified byte-identical headline
-output for both by construction (same interpolated template, same word-selection logic, just
-lifted to a shared function) rather than by re-deriving it from scratch.
-
-**`SessionMetricsCalculator.compute()`** — the 6 separate `if (hasPower) ... else null` guards for
-`powerZoneDistribution`/`averagePower`/`normalizedPower`/`fatBurnedGrams`/`carbsBurnedGrams`/
-`fatEfficiencyHistogram`/`fatEfficiencyScore` (7 fields, `effectivePowers` itself an 8th
-power-gated local feeding 4 of them) collapsed into one `computePowerMetrics(datapoints, ftp):
-PowerMetrics` call behind a single `if (hasPower)`, returning a private `PowerMetrics` data class
-with the same nullability each field's compute function already had (`averagePower`/
-`normalizedPower`/`fatEfficiencyScore` stay `Int?`, since e.g. `computeAveragePower` can itself
-return null on an empty power list; the rest are non-null). `powerQualityPercent`'s
-`hasPower && datapoints.isNotEmpty()` and `cardiacDrift`'s `hasPower && avgHeartRate != null`
-guards left untouched per the issue's explicit call-out — genuinely different conditions, folding
-them in would change behavior. Also renamed `computePowerZones`'s shadowed `val ftp =
-ftp.toDouble()` local to `ftpDouble` (pure rename, the shadowing warning is gone but the logic is
-unchanged).
-
-**`FitImportService.filterGpsQuality`** — replaced the 5 parallel `var discardSpeed`/
-`discardPower`/`discardZero`/`discardLeap`/`discardImplied` counters with one
-`mutableMapOf("zero" to 0, "speed" to 0, "power" to 0, "leap" to 0, "implied" to 0)`, incremented
-via `discardCounts["key"] = discardCounts.getValue("key") + 1` at each of the 5 discard sites. The
-final `Log.d` line's format string is untouched byte-for-byte (same `discardZero=$x,
-discardSpeed=$x, ...` label text and ordering), just reading `discardCounts.getValue("zero")` etc.
-instead of the old individual vars.
-
-### Tests
-No test modifications, per the issue's own acceptance criteria — `RideMilestoneEvaluatorTest`,
-`PowerCurveAchievementEvaluatorTest`, and `SessionMetricsCalculatorTest` all stayed green as-is
-against the refactored code, confirming byte-identical behavior. `./gradlew testDebugUnitTest`
-(targeted run against the three named test classes, then the full suite): both pass clean, no
-regressions. `git diff --stat -- '*Test.kt'` confirms zero test files touched. No automated
-coverage exists for `FitImportService` (pre-existing, not introduced here) so the issue's suggested
-manual check (import a real FIT file, diff the discard-count debug log line before/after) wasn't
-run in this environment — covered instead by the code-level argument above: the log line's format
-string and variable-read sequence are unchanged, only the storage (5 vars -> 1 map) changed.
-
----
-
-## Issue #163 — Simplify: trivial UI mechanical fixes
-Completed: 2026-08-29
-
-### What was done
-
-Three small, purely mechanical clean-ups, fully scoped in the issue body with exact target
-signatures/behaviors named — no exploration subagent needed, went straight to reading every named
-file before editing.
-
-**Manual ARGB construction → `Color.copy(alpha = ...).toArgb()`** — replaced all 5 sites (matching
-the pattern already used correctly in `ScatterPlotChart.kt`):
-- `CardiacDriftChart.kt`: the minute-label paint's fixed 0.6 alpha.
-- `HomeScreen.kt` (`MonthlyLineChart`): the y-axis label paint's fixed 0.5 alpha, and the per-point
-  month-label paint whose alpha toggled between full (255) and half (0.5) by selection state —
-  collapsed the `val textAlpha = if (isSelected) 255 else (0.5f*255).toInt()` local into an inline
-  `onSurface.copy(alpha = if (isSelected) 1f else 0.5f)`.
-- `AllTimeStatsScreen.kt` (`PowerCurveChart`): the same two shapes (fixed 0.5 alpha tick labels;
-  full/half alpha per-point labels by selection).
-All 5 needed a new `androidx.compose.ui.graphics.toArgb` import (each file already imported
-`Color` for other uses, but not `toArgb`).
-
-**`FormatUtils.formatWithThousandsSeparator(value: Int): String`** — added the period-grouped
-helper (`"1.234"`, not `"1,234"` — a different, pre-existing separator style used elsewhere by
-`formatDistanceRounded`/etc., which the issue explicitly said not to switch to). Replaced its two
-hand-rolled duplicates: `SessionEnergy.withThousandsSeparator` (private companion fun, deleted,
-`formatTotalKcal()` now calls `FormatUtils.formatWithThousandsSeparator` directly) and
-`HomeScreen.kt`'s inline `km.toString().reversed().chunked(3).joinToString(".").reversed()` in the
-monthly "Total km" stat cell.
-
-**Deleted `YearStatCell` (`AllTimeStatsScreen.kt`) and `MetricStatCell`
-(`RepeatedRouteDetailScreen.kt`)** — both byte-for-byte duplicates of `ui/components/MetricCell.kt`
-(same `labelSmall`/onSurfaceVariant label + `bodyMedium` value styling). `MetricCell` itself takes
-no `modifier` parameter (callers wrap it in a weighted `Column` instead, per its existing use in
-`SessionDetailScreen`/`RepeatedIntervalDetailScreen`), so every repointed call site changed from
-`YearStatCell(label, value, Modifier.weight(1f))` / `MetricStatCell(label=, value=,
-modifier=Modifier.weight(1f))` to `Column(modifier = Modifier.weight(1f)) { MetricCell(label =,
-value =) }` — 4 call sites in `AllTimeStatsScreen.kt`'s `YearBreakdownSection`, 7 in
-`RepeatedRouteDetailScreen.kt`'s stats grid. `MonthStatCell` (`HomeScreen.kt`) deliberately left
-untouched per the issue's explicit warning — it renders values in `headlineSmall`, not
-`MetricCell`'s `bodyMedium`, so merging it would visibly shrink Home-screen text.
-
-### Tests
-New `formatWithThousandsSeparator` cases in `FormatUtilsTest` (below-1000 passthrough, single
-separator, multiple separators). No other new tests — the ARGB and duplicate-cell changes are pure
-mechanical equivalents (verified alpha/color values match the originals exactly) with no new
-branching logic. `./gradlew testDebugUnitTest` and `assembleDebug`: both pass clean, no
-regressions. `grep`-verified zero remaining `android.graphics.Color.argb(` construction from a
-Compose `Color` anywhere under `ui/`, and zero remaining `YearStatCell`/`MetricStatCell`
-references. No on-device manual check this session (issue's suggested check — Home, All-Time
-Stats, Session Detail's cardiac drift chart, and Repeated Route Detail should look pixel-identical
-— has no automated equivalent in this environment; each replacement was checked against its
-original for exact color/style equivalence at review time instead).

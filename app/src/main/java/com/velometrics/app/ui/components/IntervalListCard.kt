@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.util.FormatUtils
@@ -17,7 +18,8 @@ import java.time.Duration
 @Composable
 fun IntervalListCard(
     intervals: List<IntervalSession>,
-    onIntervalClick: (IntervalSession) -> Unit
+    onIntervalClick: (IntervalSession) -> Unit,
+    repeatedIntervalNames: Map<Long, String> = emptyMap()
 ) {
     Card(
         modifier = Modifier
@@ -78,6 +80,16 @@ fun IntervalListCard(
                     Text(
                         text = "${interval.avgPower} W",
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                repeatedIntervalNames[interval.id]?.let { name ->
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 36.dp, bottom = 4.dp)
                     )
                 }
 

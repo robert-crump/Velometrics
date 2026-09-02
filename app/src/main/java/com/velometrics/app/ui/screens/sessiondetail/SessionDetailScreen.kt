@@ -45,6 +45,7 @@ fun SessionDetailScreen(
 ) {
     val session by viewModel.session.collectAsState()
     val intervals by viewModel.intervals.collectAsState()
+    val repeatedIntervalNames by viewModel.repeatedIntervalNames.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
     val tagNarrative by viewModel.tagNarrative.collectAsState()
     val powerCurve by viewModel.powerCurve.collectAsState()
@@ -165,7 +166,8 @@ fun SessionDetailScreen(
                     if (s.hasPower && intervals.isNotEmpty()) {
                         IntervalListCard(
                             intervals = intervals,
-                            onIntervalClick = {}
+                            onIntervalClick = {},
+                            repeatedIntervalNames = repeatedIntervalNames
                         )
                     }
 

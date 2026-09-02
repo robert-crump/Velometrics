@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.cache.GlobalAverageCache
+import com.velometrics.app.data.cache.RepeatedIntervalsCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
@@ -26,7 +27,8 @@ class SessionDetailViewModel @Inject constructor(
     private val intervalRepository: IntervalRepository,
     private val bestEffortRepository: BestEffortRepository,
     private val sessionComparator: SessionComparator,
-    globalAverageCache: GlobalAverageCache
+    globalAverageCache: GlobalAverageCache,
+    repeatedIntervalsCache: RepeatedIntervalsCache
 ) : ViewModel() {
 
     val powerZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.powerZoneAverages
@@ -65,6 +67,19 @@ class SessionDetailViewModel @Inject constructor(
 
     val intervals: StateFlow<List<IntervalSession>> = intervalRepository.getIntervalsForSession(sessionId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Repeated-interval name for each of this session's intervals that has been grouped into (or
+     * manually assigned to) a Repeated Interval, keyed by interval id (#174). Intervals with no
+     * entry here are ungrouped.
+     */
+    val repeatedIntervalNames: StateFlow<Map<Long, String>> = repeatedIntervalsCache.repeatedIntervals
+        .map { repeatedIntervals ->
+            repeatedIntervals
+                .flatMap { repeated -> repeated.intervals.map { it.id to repeated.name } }
+                .toMap()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     init {
         viewModelScope.launch {

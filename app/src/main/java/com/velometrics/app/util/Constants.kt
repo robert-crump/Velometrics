@@ -165,6 +165,14 @@ object CyclingConstants {
     const val INTERVAL_POINT_MATCH_RADIUS_M = 20.0
     const val INTERVAL_SUBSET_OVERLAP_THRESHOLD = 0.8
 
+    // Archetype-merge length gate (Step 2 of IntervalClusteringService): looser than
+    // INTERVAL_LENGTH_TOLERANCE_M above (which governs raw-interval clustering/matching) because
+    // it's comparing two already-map-matched archetypes, not noisy raw GPS. Scales with route
+    // length so short routes aren't merged too liberally: max(floor, pct * the longer archetype's
+    // distance).
+    const val INTERVAL_MERGE_LENGTH_TOLERANCE_FLOOR_M = 500.0
+    const val INTERVAL_MERGE_LENGTH_TOLERANCE_PCT = 0.20
+
     // Navigation / POI
     const val POI_CIRCLE_COLOR = "#37474F"
     const val POI_MARKER_RADIUS = 16f

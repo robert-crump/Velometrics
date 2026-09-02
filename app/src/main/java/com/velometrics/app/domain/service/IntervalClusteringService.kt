@@ -7,6 +7,8 @@ import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.util.CyclingConstants.INTERVAL_EDGE_SNAP_RADIUS_M
+import com.velometrics.app.util.CyclingConstants.INTERVAL_MERGE_LENGTH_TOLERANCE_FLOOR_M
+import com.velometrics.app.util.CyclingConstants.INTERVAL_MERGE_LENGTH_TOLERANCE_PCT
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
@@ -27,7 +29,12 @@ import javax.inject.Singleton
  * Condenses raw [IntervalSession]s into deduped [RepeatedInterval] archetypes (#10/#25):
  * single-linkage clusters raw intervals by length + GPS-point overlap, picks each cluster's
  * median-length interval, map-matches it onto the road graph via [MapMatcher] for its edge
- * geometry, then discards archetypes whose edges are mostly a subset of a longer archetype's.
+ * geometry, then merges archetypes whose edges are mostly a subset of a longer, length-similar
+ * archetype's into that archetype — folding in their raw intervals rather than discarding them,
+ * so a route that clustered into two near-duplicate archetypes (map-matching noise, a GPS
+ * track that just misses the point-overlap threshold) still counts as one repeated interval,
+ * while a deliberately different-length variant of the same road (a short version of a climb vs.
+ * one extended onto a follow-up road) stays a separate archetype.
  */
 @Singleton
 class IntervalClusteringService @Inject constructor(
@@ -144,17 +151,24 @@ class IntervalClusteringService @Inject constructor(
         val candidates = archetypeByComponent.filterNotNull()
         val tMatched = System.nanoTime()
 
-        // ─── Step 2: discard archetypes that are mostly a subset of a longer archetype ───
-        val finalArchetypes = discardSubsets(candidates)
+        // ─── Step 2: merge archetypes that are mostly a subset of a longer, length-similar archetype ───
+        val finalArchetypes = mergeSimilarArchetypes(candidates)
 
         // ─── Step 3: preserve names by matching overlapping raw-interval-ID subsets ───
+        // Since Step 2 can now fold two previously-separate archetypes into one, more than one
+        // existing entry may qualify as "a subset of" the same new archetype (e.g. a curated
+        // "Schlangenweg" and an auto-numbered near-duplicate that just got merged into it). Picking
+        // by most prior intervals (ties broken by lowest id, for determinism) favors the
+        // established archetype's name/id over the newly-absorbed one's.
         val existing = repeatedIntervalRepository.getAllRepeatedIntervalsList()
         val newEntries = finalArchetypes.map { archetype ->
             val intervalIdSet = archetype.intervals.map { it.id }.toSet()
-            val matchedExisting = existing.firstOrNull { existingEntry ->
-                val existingSet = existingEntry.intervals.map { it.id }.toSet()
-                existingSet.isNotEmpty() && existingSet.all { id -> id in intervalIdSet }
-            }
+            val matchedExisting = existing
+                .filter { existingEntry ->
+                    val existingSet = existingEntry.intervals.map { it.id }.toSet()
+                    existingSet.isNotEmpty() && existingSet.all { id -> id in intervalIdSet }
+                }
+                .maxWithOrNull(compareBy({ it.intervals.size }, { -it.id }))
             Triple(archetype, matchedExisting?.name ?: "", matchedExisting?.id ?: 0L)
         }
 
@@ -254,25 +268,69 @@ class IntervalClusteringService @Inject constructor(
     }
 
     /**
-     * Discards an archetype if the summed length of its edges that overlap with a longer
-     * (already-kept) archetype's edges is ≥ [INTERVAL_SUBSET_OVERLAP_THRESHOLD] of its own
-     * total [CandidateArchetype.distanceM].
+     * Folds an archetype into a longer, length-similar (already-kept) archetype it's mostly a
+     * subset of, instead of keeping it as a separate entry. Merges when, against some already-kept
+     * `longer`, BOTH hold:
+     *  - length gate: `|longer.distanceM - candidate.distanceM| <= max(
+     *    [INTERVAL_MERGE_LENGTH_TOLERANCE_FLOOR_M], [INTERVAL_MERGE_LENGTH_TOLERANCE_PCT] *
+     *    max(longer.distanceM, candidate.distanceM))` — looser than the raw-interval tolerance
+     *    ([IntervalSimilarity.qualifies]) since these are two already-map-matched archetypes, not
+     *    noisy GPS; scaled by length so short routes aren't merged too liberally. This is what
+     *    keeps a deliberately different-length variant of the same road (e.g. a short version of a
+     *    climb vs. one extended much further onto a follow-up road) from merging — those differ
+     *    well beyond the tolerance and stay separate archetypes.
+     *  - overlap gate: the summed length of `candidate`'s edges that also appear in `longer`'s
+     *    edges is ≥ [INTERVAL_SUBSET_OVERLAP_THRESHOLD] of `candidate`'s own total
+     *    [CandidateArchetype.distanceM] — i.e. `candidate` is basically the same route. A route
+     *    that shares only a common start with `longer` before diverging onto a different road (a
+     *    fork, not a shorter/longer variant of the same road) fails this even when lengths are
+     *    close, and is logged as a near-miss below to make that distinction visible.
+     *
+     * The candidate's raw intervals are appended to the matched archetype's; its own edges/name/
+     * geometry are discarded in favor of the (longer, already-kept) archetype's.
      */
-    private fun discardSubsets(archetypes: List<CandidateArchetype>): List<CandidateArchetype> {
+    private fun mergeSimilarArchetypes(archetypes: List<CandidateArchetype>): List<CandidateArchetype> {
         val byDescendingLength = archetypes.sortedByDescending { it.distanceM }
         val kept = mutableListOf<CandidateArchetype>()
         for (candidate in byDescendingLength) {
             if (candidate.distanceM <= 0.0) continue
-            val isSubset = kept.any { longer ->
-                val longerEdgeKeys = longer.edges.map { it.fromNode to it.toNode }.toSet()
-                val sharedLength = candidate.edges
-                    .filter { (it.fromNode to it.toNode) in longerEdgeKeys }
-                    .sumOf { it.lengthM }
-                sharedLength / candidate.distanceM >= INTERVAL_SUBSET_OVERLAP_THRESHOLD
+            val mergeTargetIndex = kept.indexOfFirst { longer -> mergeQualifies(candidate, longer, logNearMisses = true) }
+            if (mergeTargetIndex >= 0) {
+                val target = kept[mergeTargetIndex]
+                kept[mergeTargetIndex] = target.copy(intervals = target.intervals + candidate.intervals)
+            } else {
+                kept.add(candidate)
             }
-            if (!isSubset) kept.add(candidate)
         }
         return kept
+    }
+
+    /** True if [candidate] should merge into [longer]; when [logNearMisses], logs pairs where exactly one gate passed. */
+    private fun mergeQualifies(candidate: CandidateArchetype, longer: CandidateArchetype, logNearMisses: Boolean): Boolean {
+        val lengthDelta = abs(longer.distanceM - candidate.distanceM)
+        val lengthTolerance = max(
+            INTERVAL_MERGE_LENGTH_TOLERANCE_FLOOR_M,
+            INTERVAL_MERGE_LENGTH_TOLERANCE_PCT * max(longer.distanceM, candidate.distanceM)
+        )
+        val lengthOk = lengthDelta <= lengthTolerance
+
+        val longerEdgeKeys = longer.edges.map { it.fromNode to it.toNode }.toSet()
+        val sharedLength = candidate.edges
+            .filter { (it.fromNode to it.toNode) in longerEdgeKeys }
+            .sumOf { it.lengthM }
+        val overlapRatio = if (candidate.distanceM > 0.0) sharedLength / candidate.distanceM else 0.0
+        val overlapOk = overlapRatio >= INTERVAL_SUBSET_OVERLAP_THRESHOLD
+
+        if (logNearMisses && lengthOk != overlapOk) {
+            Log.d(
+                TAG,
+                "merge near-miss: candidate(${candidate.distanceM.toInt()}m, ids=${candidate.intervals.map { it.id }}) " +
+                    "vs longer(${longer.distanceM.toInt()}m) | lengthDelta=${lengthDelta.toInt()}m " +
+                    "tolerance=${lengthTolerance.toInt()}m lengthOk=$lengthOk | " +
+                    "overlap=${"%.2f".format(overlapRatio)} threshold=$INTERVAL_SUBSET_OVERLAP_THRESHOLD overlapOk=$overlapOk"
+            )
+        }
+        return lengthOk && overlapOk
     }
 
     private fun parseGpsTrack(json: String): List<List<Double>> =

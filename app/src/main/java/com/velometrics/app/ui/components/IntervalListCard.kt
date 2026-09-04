@@ -81,6 +81,18 @@ fun IntervalListCard(
                         text = "${interval.avgPower} W",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    interval.hrr60?.let { hrr60 ->
+                        val truncated = (interval.restBeforeNextIntervalSec ?: Int.MAX_VALUE) < 60
+                        Text(
+                            text = if (truncated) "-$hrr60 bpm*" else "-$hrr60 bpm",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (truncated) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    }
                 }
 
                 repeatedIntervalNames[interval.id]?.let { name ->

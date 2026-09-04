@@ -1,3 +1,43 @@
+## Issue #179 — Show HRR60 per interval in IntervalListCard, flag truncated recovery windows
+Completed: 2026-09-04
+
+### What was done
+
+Second (and last) child of parent #177, unblocked by #178/#178-followup landing HRR60 on
+`IntervalSession`. Pure UI change: `IntervalListCard` now renders `hrr60` on each interval row
+computed by #178.
+
+**`ui/components/IntervalListCard.kt`** — the row's existing power `Text` is followed by an
+`interval.hrr60?.let { ... }`, rendered only when non-null (per the issue's null-fallback
+requirement, this simply adds nothing to the row — no placeholder, no crash). Displayed as
+"-X bpm" per the issue's own example. Truncation check reuses the same field #178 introduced for
+exactly this purpose: `restBeforeNextIntervalSec != null && < 60` marks the reading as measured
+before a full recovery window elapsed (next rep started early); flagged two ways at once — a
+trailing `*` on the text and `onSurfaceVariant` (muted) instead of `onSurface` — rather than
+picking only one, since the issue only said "distinguish," and a muted color alone doesn't survive
+grayscale/accessibility contexts as reliably as an inline glyph. Last-interval rows (where
+`restBeforeNextIntervalSec` is itself null, meaning no next rep at all) are correctly treated as
+*not* truncated, not accidentally flagged. Existing row content (duration, distance, power,
+repeated-interval name below) untouched.
+
+### Tests
+No dedicated test added: this project has no Compose UI test harness (confirmed — no
+`*ComposeTest*`/`*ScreenTest*` files anywhere in `app/src`), and the immediately-prior UI feature
+in this same card (#174, repeated-interval names) shipped the same way, UI-only with no test file.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 325 tests, zero failures/errors across the whole suite (aggregated test-result XML) —
+unchanged from #178-followup's count, confirming this UI-only change didn't touch anything under
+existing test coverage. No on-device verification this session (no emulator/device attached);
+flagged as a residual visual-verification gap in the issue close-out, same as prior UI-only passes
+in this repo's history.
+
+With this, parent #177 (Heart Rate Recovery after interval) has both its children (#178, #179)
+closed — the import-time computation and the on-screen display are both in place. The parent issue
+itself stays open: it also poses open research questions (what cycling science says about HRR, and
+whether "recovery" is even the right term) that neither child issue scoped or answered.
+
+---
+
 ## Issue #178 follow-up — avgPower30sAfter per interval (user request, no issue filed)
 Completed: 2026-09-04
 
@@ -191,33 +231,3 @@ the whole suite (verified via aggregated test-result XML). No on-device re-verif
 specific reporter clusters this session (would need the same live-DB replication #174 used); the new
 unit test reproduces the exact failure mode (map-matching failure on a similarity-confirmed cluster)
 per the issue's own suggested repro approach.
-
----
-
-## Issue #173 — Change heart rate zones formula
-Completed: 2026-09-01
-
-### What was done
-
-Replaced the HR zone boundaries with Strava's formula: Zone 1|Endurance 0-109 bpm, Zone 2|Moderate
-109-144, Zone 3|Tempo 144-161, Zone 4|Threshold 161-179, Zone 5|Anaerobic 179+, all against Strava's
-185 bpm reference max HR. As requested, these are expressed as fractions of max HR (0%-100% scale)
-rather than hardcoded bpm, so they keep working with each rider's own configured max HR setting
-(`UserSettingsRepository.maxHr`), not just 185. No database bump: `hrZoneDistribution` is computed
-once at import time (`SessionMetricsCalculator.computeHrZones`) and stored per-session, so already-
-imported rides keep their old distribution untouched — only rides imported after this change get the
-new boundaries, satisfying the issue's "new imports only" requirement with no migration needed.
-
-**`util/Constants.kt`** — `CyclingConstants.HR_ZONES` boundaries changed from the old ad-hoc
-60/70/80/90% splits to 109/185, 144/185, 161/185, 179/185 (Strava's bpm thresholds scaled by its
-185 reference max HR). Zone labels ("Zone 1".."Zone 5") and `DEFAULT_MAX_HR` unchanged — only the
-fraction cutoffs moved, so no other file (HR zone chart colors/labels, DB schema, JSON keys)
-needed touching.
-
-### Tests
-Added `SessionMetricsCalculatorTest`: new test asserts `hrZoneDistribution` buckets bpm readings
-at and just past each Strava boundary (108/109/143/144/160/161/178/179 with `maxHr = 185`) into the
-expected zone. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `testDebugUnitTest`: all pass,
-309 tests, zero failures/errors across the whole suite (verified via aggregated test-result XML).
-
----

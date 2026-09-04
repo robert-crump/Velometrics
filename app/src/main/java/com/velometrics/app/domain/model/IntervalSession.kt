@@ -24,6 +24,7 @@ data class IntervalSession(
     val hrr60: Int? = null,
     val hrr30: Int? = null,
     val avgPower60sAfter: Int? = null,
+    val avgPower30sAfter: Int? = null,
     // Actual seconds of rest before the next detected interval starts in this session; null if
     // this is the last interval. hrr60/hrr30/avgPower60sAfter are always computed over their full
     // fixed window regardless of this value -- this is how a truncated (contaminated) recovery

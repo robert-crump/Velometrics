@@ -36,5 +36,6 @@ data class IntervalSessionEntity(
     val hrr60: Int? = null,              // Import-time HR recovery metrics (#178)
     val hrr30: Int? = null,
     val avgPower60sAfter: Int? = null,
+    val avgPower30sAfter: Int? = null,
     val restBeforeNextIntervalSec: Int? = null
 )

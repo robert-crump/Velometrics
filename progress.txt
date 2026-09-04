@@ -1,3 +1,38 @@
+## Issue #178 follow-up — avgPower30sAfter per interval (user request, no issue filed)
+Completed: 2026-09-04
+
+### What was done
+
+User follow-up right after #178 landed: also wanted `avgPower30sAfter`, mirroring
+`avgPower60sAfter` but over the 30s window, alongside the existing hrr30/hrr60 pair.
+
+**`domain/model/IntervalSession.kt`** / **`data/local/entity/IntervalSessionEntity.kt`** /
+**`util/EntityMappers.kt`** — new nullable `avgPower30sAfter: Int? = null`, mapped both
+directions, same shape as the four #178 fields.
+
+**`domain/service/IntervalDetector.kt`** — extracted the #178 60s-window averaging logic out of
+`computeRecoveryMetrics` into a new private `avgPowerOverWindow(datapoints, endIdx, windowSec)`,
+called once per window (30s and 60s) instead of duplicating the loop. Same independence rules as
+before: only counted once a datapoint at/past the target offset is reached (session-end
+truncation still nulls it), never nulled just because the next interval started early
+(rest-truncation).
+
+**`data/local/VelometricsDatabase.kt`** (v16→17) + **`di/DatabaseModule.kt`** — `MIGRATION_16_17`:
+single nullable `INTEGER` column on `interval_sessions`, same no-backfill precedent as the rest of
+#178.
+
+### Tests
+`IntervalDetectorTest`: added avgPower30sAfter assertions to the existing full-window,
+truncated-rest, and missing-HR-data cases; new dedicated case proving avgPower30sAfter is
+populated independently of avgPower60sAfter when the session ends between the two windows (30s
+window completes, 60s window doesn't). `VelometricsMigrationTest` (+1): migrate 16→17 defaults
+avgPower30sAfter to null. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
+full `testDebugUnitTest`: all pass, 325 tests, zero failures/errors across the whole suite
+(aggregated test-result XML). No on-device verification this session, same rationale as #178
+itself (pure domain/DAO-projection and Room-migration logic, fully covered by tests).
+
+---
+
 ## Issue #178 — Import-time HR recovery metrics: hasHR flag + HRR60/HRR30/avgPower60sAfter per interval
 Completed: 2026-09-04
 
@@ -184,54 +219,5 @@ Added `SessionMetricsCalculatorTest`: new test asserts `hrZoneDistribution` buck
 at and just past each Strava boundary (108/109/143/144/160/161/178/179 with `maxHr = 185`) into the
 expected zone. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `testDebugUnitTest`: all pass,
 309 tests, zero failures/errors across the whole suite (verified via aggregated test-result XML).
-
----
-
-## Ride tag narrative — tag-specific "main value" (user feedback, no issue filed)
-Completed: 2026-08-31
-
-### What was done
-
-Follow-up to #171's tag-scoped narrative. User feedback: the sentence shouldn't just lead with
-whichever KPI deviated most this ride — each tag has one specific metric that actually defines it,
-and the sentence should always lead with that when it's available: Zone 2 → fat efficiency vs.
-typical (median) fat efficiency (already existed from #171, now pinned rather than one candidate
-among several); Intervals → number of intervals vs. typical number of intervals (new); Recovery →
-time spent in Power Zone 1 vs. typical time in Zone 1 (new). Falls back to #171's original
-deviation-ranked candidate list when the tag's main value isn't available for this ride or its
-comparison pool (e.g. a Recovery ride with no power data), so there's still always a sentence
-whenever there's enough tag-scoped history at all.
-
-**`domain/model/SessionMetricSample.kt` / `data/local/dao/CyclingSessionDao.kt`
-(`SessionMetricSampleEntity` + all 4 metric-sample queries) / `util/EntityMappers.kt` /
-`FakeCyclingSessionRepository.kt`** — the shared metric-sample projection gained `intervalCount`
-(plain column, already existed on `cycling_sessions`) and `powerZone1Sec` (read from the
-`powerZoneDistribution` JSON column via `json_extract(powerZoneDistribution, '$."Zone 1"')`,
-following `MapEdgeDao`'s existing json_extract precedent — no schema change, no new column).
-
-**`domain/service/SessionComparator.kt`** — `PoolMedians`/`SessionComparison` gained
-`medianIntervalCountLast5`/`AllPrevious` and `medianPowerZone1SecLast5`/`AllPrevious`, computed the
-same way as the existing median fields (`intervalCount` unconditionally like duration/distance;
-`powerZone1Sec` from power-having sessions only, like the other power metrics).
-
-**`domain/service/TagComparisonNarrative.kt`** — new `mainValueCandidate(session, tag,
-comparison)` maps each `RideTag` label to its designated candidate function
-(`fatEfficiencyCandidate` / new `intervalCountCandidate` / new `powerZone1Candidate`, the latter
-formatted via `FormatUtils.formatDuration`) and `generate()` returns it directly when non-null,
-before falling through to the original deviation-ranked candidate list.
-
-### Tests
-Extended `TagComparisonNarrativeTest` (+4 cases): Zone 2 leads with fat efficiency even when
-another candidate (cardiac drift) deviates more; Intervals leads with interval count when
-available; Intervals falls back to deviation ranking when the interval-count median is
-unavailable; Recovery leads with formatted Zone 1 time when available. Extended
-`SessionComparatorTest` (+1 case): median interval count and median Zone 1 time computed correctly
-from tag-scoped-style history. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
-`testDebugUnitTest`: all pass, zero regressions (verified via test-result XML `failures="0"
-errors="0"` across the whole suite, not just the two touched files). No on-device check this
-session — pure domain/DAO-projection logic, fully covered by the unit tests above; the
-`json_extract` SQL path itself isn't unit-testable in this environment (no Room in-memory DB test
-infra exists in this codebase yet) but mirrors `MapEdgeDao`'s already-shipped, working usage of the
-same SQLite JSON1 function and path-quoting style.
 
 ---

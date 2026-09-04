@@ -158,6 +158,7 @@ fun IntervalSessionEntity.toDomain(): IntervalSession {
         hrr60 = hrr60,
         hrr30 = hrr30,
         avgPower60sAfter = avgPower60sAfter,
+        avgPower30sAfter = avgPower30sAfter,
         restBeforeNextIntervalSec = restBeforeNextIntervalSec
     )
 }
@@ -182,6 +183,7 @@ fun IntervalSession.toEntity(): IntervalSessionEntity {
         hrr60 = hrr60,
         hrr30 = hrr30,
         avgPower60sAfter = avgPower60sAfter,
+        avgPower30sAfter = avgPower30sAfter,
         restBeforeNextIntervalSec = restBeforeNextIntervalSec
     )
 }

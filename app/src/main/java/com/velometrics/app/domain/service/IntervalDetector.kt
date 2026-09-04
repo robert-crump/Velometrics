@@ -187,6 +187,7 @@ class IntervalDetector @Inject constructor() {
             hrr60 = recovery.hrr60,
             hrr30 = recovery.hrr30,
             avgPower60sAfter = recovery.avgPower60sAfter,
+            avgPower30sAfter = recovery.avgPower30sAfter,
             restBeforeNextIntervalSec = restBeforeNextIntervalSec
         )
     }
@@ -194,7 +195,8 @@ class IntervalDetector @Inject constructor() {
     private data class RecoveryMetrics(
         val hrr60: Int?,
         val hrr30: Int?,
-        val avgPower60sAfter: Int?
+        val avgPower60sAfter: Int?,
+        val avgPower30sAfter: Int?
     )
 
     /**
@@ -202,10 +204,10 @@ class IntervalDetector @Inject constructor() {
      * never by how soon the next interval starts) to compute HR recovery and post-interval power.
      * hrr60/hrr30 are the HR drop between the interval's last reading and the reading nearest
      * [CyclingConstants.INTERVAL_HRR60_WINDOW_SEC]/[CyclingConstants.INTERVAL_HRR30_WINDOW_SEC]
-     * later; avgPower60sAfter is the mean power over that same 60s window. Any of the three is
-     * null when the datapoints list runs out before the target offset is reached (session ended
-     * too soon for a true fixed-duration reading) or the needed HR sample(s) are missing/zero --
-     * "insufficient data", independent of the session-level hasHR flag.
+     * later; avgPower60sAfter/avgPower30sAfter are the mean power over those same windows. Any of
+     * the four is null when the datapoints list runs out before the target offset is reached
+     * (session ended too soon for a true fixed-duration reading) or the needed HR sample(s) are
+     * missing/zero -- "insufficient data", independent of the session-level hasHR flag.
      */
     private fun computeRecoveryMetrics(datapoints: List<Datapoint>, endIdx: Int): RecoveryMetrics {
         val endDp = datapoints[endIdx]
@@ -216,24 +218,30 @@ class IntervalDetector @Inject constructor() {
         val hrr60 = if (hrAtEnd != null && hr60 != null) hrAtEnd - hr60 else null
         val hrr30 = if (hrAtEnd != null && hr30 != null) hrAtEnd - hr30 else null
 
-        // Average power over the 60s window -- only counted once a datapoint at/past the target
-        // offset is actually reached, so a session that ends mid-window yields null, not a
-        // partial-window average masquerading as the full 60s figure.
+        val avgPower60sAfter = avgPowerOverWindow(datapoints, endIdx, CyclingConstants.INTERVAL_HRR60_WINDOW_SEC)
+        val avgPower30sAfter = avgPowerOverWindow(datapoints, endIdx, CyclingConstants.INTERVAL_HRR30_WINDOW_SEC)
+
+        return RecoveryMetrics(hrr60, hrr30, avgPower60sAfter, avgPower30sAfter)
+    }
+
+    /**
+     * Mean power over the [windowSec] immediately after [endIdx] -- only counted once a
+     * datapoint at/past the target offset is actually reached, so a session that ends mid-window
+     * yields null, not a partial-window average masquerading as the full-duration figure.
+     */
+    private fun avgPowerOverWindow(datapoints: List<Datapoint>, endIdx: Int, windowSec: Long): Int? {
+        val endTime = datapoints[endIdx].timestamp
         var reachedWindowEnd = false
         val windowPowers = mutableListOf<Int>()
         var j = endIdx + 1
         while (j < datapoints.size) {
-            val elapsedSec = Duration.between(endDp.timestamp, datapoints[j].timestamp).seconds
-            if (elapsedSec > CyclingConstants.INTERVAL_HRR60_WINDOW_SEC) break
+            val elapsedSec = Duration.between(endTime, datapoints[j].timestamp).seconds
+            if (elapsedSec > windowSec) break
             windowPowers.add(datapoints[j].power ?: 0)
-            if (elapsedSec >= CyclingConstants.INTERVAL_HRR60_WINDOW_SEC) reachedWindowEnd = true
+            if (elapsedSec >= windowSec) reachedWindowEnd = true
             j++
         }
-        val avgPower60sAfter = if (reachedWindowEnd && windowPowers.isNotEmpty()) {
-            windowPowers.average().roundToInt()
-        } else null
-
-        return RecoveryMetrics(hrr60, hrr30, avgPower60sAfter)
+        return if (reachedWindowEnd && windowPowers.isNotEmpty()) windowPowers.average().roundToInt() else null
     }
 
     /**

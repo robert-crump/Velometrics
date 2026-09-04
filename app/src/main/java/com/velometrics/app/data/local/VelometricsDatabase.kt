@@ -15,7 +15,7 @@ import com.velometrics.app.data.local.entity.*
         RepeatedIntervalEntity::class,
         SessionBestEffortEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

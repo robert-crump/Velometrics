@@ -17,5 +17,16 @@ data class IntervalSession(
     val startLon: Double,
     val endLat: Double,
     val endLon: Double,
-    val gpsTrack: String
+    val gpsTrack: String,
+    // Import-time HR recovery metrics (#178), computed by IntervalDetector by reading forward up
+    // to 60s past this interval's end (bounded by session end). Null when HR data is missing or
+    // insufficient for the recovery window -- independent of the session-level hasHR flag.
+    val hrr60: Int? = null,
+    val hrr30: Int? = null,
+    val avgPower60sAfter: Int? = null,
+    // Actual seconds of rest before the next detected interval starts in this session; null if
+    // this is the last interval. hrr60/hrr30/avgPower60sAfter are always computed over their full
+    // fixed window regardless of this value -- this is how a truncated (contaminated) recovery
+    // reading gets flagged downstream, not by nulling the metric.
+    val restBeforeNextIntervalSec: Int? = null
 )

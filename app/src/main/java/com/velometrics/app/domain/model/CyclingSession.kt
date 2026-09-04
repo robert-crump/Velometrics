@@ -44,5 +44,8 @@ data class CyclingSession(
     // FTP, power-having rides only. Computed once at import time from raw per-second power (no
     // backfill path for pre-existing rides, same as fatEfficiencyScore/cardiacDriftPercent) — the
     // metric the Recovery tag-comparison narrative leads with.
-    val timeBelowSixtyPercentFtpSec: Int? = null
+    val timeBelowSixtyPercentFtpSec: Int? = null,
+    // Coverage flag for HR data quality (#178), mirroring hasPower's coverage-threshold pattern.
+    // Informational only -- does not gate per-interval HRR computation in IntervalDetector.
+    val hasHR: Boolean = false
 )

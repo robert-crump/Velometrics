@@ -221,6 +221,20 @@ object DatabaseModule {
         }
     }
 
+    // Import-time HR recovery metrics (#178): hasHR coverage flag on cycling_sessions, mirroring
+    // hasPower; hrr60/hrr30/avgPower60sAfter/restBeforeNextIntervalSec on interval_sessions,
+    // computed by IntervalDetector. Same no-backfill-for-existing-rows precedent as MIGRATION_13_14
+    // and MIGRATION_14_15 -- new imports only.
+    internal val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE cycling_sessions ADD COLUMN hasHR INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE interval_sessions ADD COLUMN hrr60 INTEGER")
+            database.execSQL("ALTER TABLE interval_sessions ADD COLUMN hrr30 INTEGER")
+            database.execSQL("ALTER TABLE interval_sessions ADD COLUMN avgPower60sAfter INTEGER")
+            database.execSQL("ALTER TABLE interval_sessions ADD COLUMN restBeforeNextIntervalSec INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -229,7 +243,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
             .fallbackToDestructiveMigration()
             .build()
     }

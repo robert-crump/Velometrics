@@ -1,3 +1,68 @@
+## Issue #178 — Import-time HR recovery metrics: hasHR flag + HRR60/HRR30/avgPower60sAfter per interval
+Completed: 2026-09-04
+
+### What was done
+
+First of two children of parent #177 (the second, #179, is blocked on this one and displays what
+this issue computes). At import time, extends interval detection to measure heart-rate recovery
+after each interval, and adds a session-level HR coverage flag.
+
+**`domain/model/CyclingSession.kt`** — new `hasHR: Boolean = false`, mirroring `hasPower`'s
+coverage-threshold pattern; informational only, does not gate per-interval HRR computation.
+
+**`data/fitimport/SessionMetricsCalculator.kt`** — new private `computeHasHR(datapoints)`: true
+when at least `POWER_DATA_COVERAGE_THRESHOLD` (10%, reused rather than adding a new HR-specific
+constant) of datapoints carry a heart rate reading at all — unlike `computeAvgHeartRate`, a zero
+reading still counts as "the sensor reported," matching `hasPower`'s own non-null-only check.
+Computed and set directly inside `compute()` (no new parameter needed — unlike `hasPower`, HR
+isn't interpolated upstream in `FitImportService`, so the raw datapoints passed to `compute()`
+are all `computeHasHR` needs).
+
+**`domain/model/IntervalSession.kt`** — four new nullable fields: `hrr60`/`hrr30`/
+`avgPower60sAfter: Int?` and `restBeforeNextIntervalSec: Int?`, all defaulting to null.
+
+**`domain/service/IntervalDetector.kt`** — `buildIntervalSession` now takes the full `datapoints`
+list plus `startIdx`/`endIdx`/`nextStartIdx` (rather than a pre-sliced list), so it can read past
+an interval's own end. New `computeRecoveryMetrics(datapoints, endIdx)`: reads forward from
+`endIdx` bounded only by session end (never by how soon the next interval starts, per the issue's
+explicit requirement) — `hrr60`/`hrr30` are the HR drop between the interval's last reading and
+the reading nearest 60s/30s later (new `INTERVAL_HRR60_WINDOW_SEC`/`INTERVAL_HRR30_WINDOW_SEC`
+constants); `avgPower60sAfter` is mean power over that same 60s window, only counted once a
+datapoint at/past the 60s offset is actually reached (so a session ending mid-window yields null,
+not a partial-window average passed off as the full figure). `restBeforeNextIntervalSec` is the
+actual timestamp gap to `nextStartIdx` (null for the last interval) — truncation is recorded here,
+never by nulling the recovery metrics themselves, exactly as the issue specifies for back-to-back
+reps with under 60s of rest.
+
+**`data/local/entity/{CyclingSessionEntity,IntervalSessionEntity}.kt`**, **`util/EntityMappers.kt`**
+— new columns/fields mapped both directions, all defaulting to false/null so no other construction
+site (16 `SessionMetricsCalculator.compute()` call sites, several `IntervalSession(...)` test
+sites) needed updating.
+
+**`data/local/VelometricsDatabase.kt`** (v15→16) + **`di/DatabaseModule.kt`** — `MIGRATION_15_16`:
+`ALTER TABLE` adds `hasHR INTEGER NOT NULL DEFAULT 0` on `cycling_sessions` and four nullable
+`INTEGER` columns on `interval_sessions`. New imports only, no backfill — same precedent as
+`MIGRATION_13_14`/`MIGRATION_14_15`.
+
+### Tests
+`IntervalDetectorTest` (+5): full-window computation with exact hrr60/hrr30/avgPower60sAfter values
+(derived the interval's deterministic `endIdx` from the rolling-window finalize math, then placed
+HR readings at exactly the +30s/+60s offsets); recovery window still populated (not nulled) when
+the next interval starts before the window completes, using the "long dip splits into two
+intervals" shape; hrr60/hrr30 null with avgPower60sAfter still populated when HR data is entirely
+missing; all four fields null when the session ends before the window can complete (session-end
+truncation, distinct from the intentionally-never-nulled rest-truncation case).
+`SessionMetricsCalculatorTest` (+3): hasHR true/false at the coverage threshold boundary (mirroring
+the existing avgHeartRate tests' shape); hasHR true on all-zero HR readings while avgHeartRate is
+null for the same data, demonstrating the two are deliberately different checks.
+`VelometricsMigrationTest` (+1): migrate 15→16 defaults `hasHR` to false and all four interval
+recovery columns to null on a pre-existing row. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
+`assembleDebug`, full `testDebugUnitTest`: all pass, 323 tests, zero failures/errors across the
+whole suite (aggregated test-result XML). No on-device verification this session (pure
+domain/DAO-projection and Room-migration logic, fully covered by the unit/migration tests above).
+
+---
+
 ## Issue #176 — Geometric fallback for archetype merge overlap gate (road vs. adjacent bike lane)
 Completed: 2026-09-02
 
@@ -168,87 +233,5 @@ session — pure domain/DAO-projection logic, fully covered by the unit tests ab
 `json_extract` SQL path itself isn't unit-testable in this environment (no Room in-memory DB test
 infra exists in this codebase yet) but mirrors `MapEdgeDao`'s already-shipped, working usage of the
 same SQLite JSON1 function and path-quoting style.
-
----
-
-## Issue #171 — Tag-scoped comparison narrative on the ride detail screen
-Completed: 2026-08-31
-
-### What was done
-
-Gives the tag label added in #169 (and reshaped by #170's threshold-tuning pass, see the
-backfilled entry below) an expandable narrative: tapping it now shows a templated sentence
-comparing this ride to the rider's own tag-scoped history, e.g. "Your cardiac drift was 2.0%,
-lower than your typical 4.0% for Zone 2 rides." Also restores the label's tap affordance that
-#170 dropped when it stopped being a tappable `AssistChip` (there was nothing behind it to open
-at the time) — a small chevron next to the label now rotates 90° to read as an expand/collapse
-control.
-
-**`data/local/dao/CyclingSessionDao.kt` (+ `CyclingSessionRepository`/Impl,
-`FakeCyclingSessionRepository`)** — tag-filtered siblings of `getSessionMetricSamplesBeforeDate`/
-`getAllSessionMetricSamplesBeforeDate`: `getSessionMetricSamplesBeforeDateForTag`/
-`getAllSessionMetricSamplesBeforeDateForTag`, same projection and ordering, additionally filtered
-by `tag = :tag`. Also added `cardiacDriftPercent` to the shared `SessionMetricSampleEntity`/
-`SessionMetricSample` projection (needed for the narrative's drift comparison) — no schema
-change, the column already existed on `cycling_sessions`.
-
-**`domain/service/SessionComparator.kt`** — `computeComparison` gained an optional
-`tag: String? = null` parameter; when set, both reference pools (last-5 / all-previous) query the
-tag-filtered DAO methods instead, otherwise behavior is byte-identical to before (default `null`,
-all existing call sites and tests unaffected). `PoolMedians`/`SessionComparison` gained two new
-metrics: `cardiacDriftPercent` (median of `SessionMetricSample.cardiacDriftPercent`) and
-`npToApRatio` (median of per-ride normalizedPower/averagePower, mirroring the existing
-`cardiacEfficiency` ratio-of-per-sample-values pattern) — both needed as narrative candidate
-KPIs.
-
-**`domain/service/TagComparisonNarrative.kt`** (new, pure `object`) — `generate(session, tag,
-comparison)`: if the tag-scoped last-5 pool has fewer than 2 prior rides, returns "Not enough
-history for {tag} rides yet." Otherwise builds up to 5 candidate KPI sentences (cardiac drift,
-NP:AP ratio/power steadiness, fat efficiency score, average power, and — the one candidate never
-gated on power/HR data, guaranteeing a sentence whenever there's any tag-scoped history at all —
-distance) and returns whichever deviates most from its tag-scoped median by *relative* deviation
-(`|current - median| / median`), so metrics on different scales (a percentage, a ratio near 1.0,
-watts, km) compare fairly and the leading KPI isn't a hardcoded order.
-
-**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — computes a second, tag-scoped
-`sessionComparator.computeComparison(loaded, tag)` alongside the existing untagged one when the
-session has a tag, feeds it through `TagComparisonNarrative.generate`, exposes the result as
-`tagNarrative: StateFlow<String?>`. Computed eagerly in `init` alongside the existing untagged
-`comparison`, matching that flow's own precedent rather than lazily on first expand.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `RideTagLabel` is now clickable
-(`Modifier.clickable`) with an `Icons.AutoMirrored.Filled.KeyboardArrowRight` chevron that rotates
-90° when expanded (the "tilted >" affordance the user asked for mid-session), toggling a local
-`tagExpanded` boolean; the narrative text renders below the date/tag row only while expanded and
-a narrative is actually available.
-
-### Tests
-New `TagComparisonNarrativeTest` (8 cases): not-enough-history for 0 and 1 prior same-tag rides;
-leads with cardiac drift/average power/fat efficiency/NP:AP steadiness respectively when each
-deviates most; falls back to the always-available distance candidate for a ride with no power or
-heart-rate data; falls back to the not-enough-history text when every per-metric median is still
-null despite a nonzero session count. Extended `SessionComparatorTest` (+3 cases): tag-scoped
-comparison pools only same-tag sessions (verified against a mix of same-tag/other-tag/untagged
-rides); a same-tag pool with only 1 prior ride still yields null medians; passing no tag is
-unaffected by other tags existing in the pool. `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
-`assembleDebug`, full `testDebugUnitTest --rerun-tasks`: all pass (294 tests, 11 new), no
-regressions. Caught and fixed a real locale bug during testing: the narrative's `String.format`
-calls need explicit `Locale.US` (matching this codebase's existing `FormatUtils` convention) —
-without it, a device set to a comma-decimal locale (e.g. German, already used elsewhere in this
-app for date formatting) would render "2,0%" instead of "2.0%". No on-device verification this
-session (pure narrative-generation/DAO-filter logic fully covered by the new unit tests; the new
-chevron/expand UI is a small, visually-inspectable Compose change with no automated equivalent in
-this environment).
-
-### Note on issue #170
-While picking this issue up, found that #170's commit (`cd6d712`) never appended an entry to
-`progress.txt` — the file went straight from #169's entry to nothing, even though #170 is the
-most recent commit on `main` before this session. Backfilled a reconstructed entry below from the
-commit message and diff alone (that session's actual test-run details aren't recoverable this
-way). Separately, per the user's own flag at the start of this session: #170 deliberately
-redesigned the tag rule set (dropped Race/Endurance as categories, changed how Zone 2 and
-Intervals are computed) rather than a bug — confirmed by reading the current `RideClassifier`/
-`RideTag` code and doc comments, which describe this as intentional, so this issue was built
-against that current (post-#170) rule set rather than reverting it.
 
 ---

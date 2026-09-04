@@ -78,6 +78,10 @@ class SessionMetricsCalculator @Inject constructor() {
             computeCardiacDrift(datapoints, sessionStart, totalDurationSec, ftp)
         } else null
 
+        // 16. HR coverage flag (#178), mirroring hasPower's coverage-threshold pattern. Purely
+        // informational -- does not gate IntervalDetector's per-interval HRR computation.
+        val hasHR = computeHasHR(datapoints)
+
         return CyclingSession(
             fileName = fileName,
             fileSha1 = fileSha1,
@@ -106,7 +110,8 @@ class SessionMetricsCalculator @Inject constructor() {
             hrZoneDistribution = hrZoneDistribution,
             cardiacDriftBuckets = cardiacDrift?.buckets,
             cardiacDriftPercent = cardiacDrift?.decouplingPercent,
-            timeBelowSixtyPercentFtpSec = powerMetrics?.timeBelowSixtyPercentFtpSec
+            timeBelowSixtyPercentFtpSec = powerMetrics?.timeBelowSixtyPercentFtpSec,
+            hasHR = hasHR
         )
     }
 
@@ -120,6 +125,19 @@ class SessionMetricsCalculator @Inject constructor() {
         val hasHeartRate = hrValues.size >= (datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD)
         if (!hasHeartRate) return null
         return hrValues.average().roundToInt()
+    }
+
+    /**
+     * Coverage flag for HR data quality (#178), mirroring [hasPower]'s own
+     * [CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD] coverage-threshold pattern: true when at
+     * least that fraction of the ride's datapoints carry a heart rate reading at all (unlike
+     * [computeAvgHeartRate], zero readings still count as present here -- coverage is about
+     * whether the sensor reported, not whether the value is physiologically valid).
+     */
+    private fun computeHasHR(datapoints: List<Datapoint>): Boolean {
+        if (datapoints.isEmpty()) return false
+        val hrCount = datapoints.count { it.heartRate != null }
+        return hrCount >= (datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD)
     }
 
     private fun computeHrZones(datapoints: List<Datapoint>, maxHr: Int): Map<String, Int> {

@@ -32,5 +32,9 @@ data class IntervalSessionEntity(
     val startLon: Double,
     val endLat: Double,
     val endLon: Double,
-    val gpsTrack: String                 // JSON: [[lat,lon],[lat,lon],...]
+    val gpsTrack: String,                // JSON: [[lat,lon],[lat,lon],...]
+    val hrr60: Int? = null,              // Import-time HR recovery metrics (#178)
+    val hrr30: Int? = null,
+    val avgPower60sAfter: Int? = null,
+    val restBeforeNextIntervalSec: Int? = null
 )

@@ -103,6 +103,64 @@ class SessionMetricsCalculatorTest {
     }
 
     @Test
+    fun `hasHR is true when HR sample coverage clears the threshold`() {
+        // 10 datapoints, all with an HR reading -> coverage 100% >= 10%, same threshold as hasPower.
+        val datapoints = (0 until 10).map { datapoint(it, heartRate = 120 + it) }
+
+        val session = calculator.compute(
+            fileName = "test.fit",
+            fileSha1 = "sha1",
+            datapoints = datapoints,
+            hasPower = false,
+            timerEvents = emptyList(),
+            rawRecordCount = 10,
+            originalPowerCount = 0
+        )
+
+        assertTrue(session.hasHR)
+    }
+
+    @Test
+    fun `hasHR is false when HR sample coverage is below the threshold`() {
+        // 100 datapoints, only 1 has an HR reading -> coverage 1% < 10%
+        val datapoints = (0 until 100).map {
+            datapoint(it, heartRate = if (it == 0) 150 else null)
+        }
+
+        val session = calculator.compute(
+            fileName = "test.fit",
+            fileSha1 = "sha1",
+            datapoints = datapoints,
+            hasPower = false,
+            timerEvents = emptyList(),
+            rawRecordCount = 100,
+            originalPowerCount = 0
+        )
+
+        assertFalse(session.hasHR)
+    }
+
+    @Test
+    fun `hasHR counts zero readings as present, unlike avgHeartRate`() {
+        // Coverage is about whether the sensor reported at all, mirroring hasPower's own
+        // non-null-only check -- distinct from avgHeartRate, which excludes zero as invalid.
+        val datapoints = (0 until 10).map { datapoint(it, heartRate = 0) }
+
+        val session = calculator.compute(
+            fileName = "test.fit",
+            fileSha1 = "sha1",
+            datapoints = datapoints,
+            hasPower = false,
+            timerEvents = emptyList(),
+            rawRecordCount = 10,
+            originalPowerCount = 0
+        )
+
+        assertTrue(session.hasHR)
+        assertNull(session.avgHeartRate)
+    }
+
+    @Test
     fun `hrZoneDistribution buckets bpm using Strava's zone formula scaled to maxHr`() {
         // Strava reference (#173, max HR 185): Z1 0-109, Z2 109-144, Z3 144-161, Z4 161-179, Z5 179+.
         // One datapoint at (and just past) each boundary bpm, maxHr passed through unchanged as 185.

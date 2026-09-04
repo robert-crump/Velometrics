@@ -62,7 +62,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         cardiacDriftBuckets = cardiacDrift,
         cardiacDriftPercent = cardiacDriftPercent,
         tag = tag,
-        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+        hasHR = hasHR
     )
 }
 
@@ -99,7 +100,8 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         cardiacDriftBuckets = cardiacDriftBuckets?.toJsonString(),
         cardiacDriftPercent = cardiacDriftPercent,
         tag = tag,
-        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+        hasHR = hasHR
     )
 }
 
@@ -152,7 +154,11 @@ fun IntervalSessionEntity.toDomain(): IntervalSession {
         startLon = startLon,
         endLat = endLat,
         endLon = endLon,
-        gpsTrack = gpsTrack
+        gpsTrack = gpsTrack,
+        hrr60 = hrr60,
+        hrr30 = hrr30,
+        avgPower60sAfter = avgPower60sAfter,
+        restBeforeNextIntervalSec = restBeforeNextIntervalSec
     )
 }
 
@@ -172,6 +178,10 @@ fun IntervalSession.toEntity(): IntervalSessionEntity {
         startLon = startLon,
         endLat = endLat,
         endLon = endLon,
-        gpsTrack = gpsTrack
+        gpsTrack = gpsTrack,
+        hrr60 = hrr60,
+        hrr30 = hrr30,
+        avgPower60sAfter = avgPower60sAfter,
+        restBeforeNextIntervalSec = restBeforeNextIntervalSec
     )
 }

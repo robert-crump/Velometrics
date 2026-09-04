@@ -17,6 +17,11 @@ object CyclingConstants {
     const val INTERVAL_ALLOWED_REST_SEC = 15
     const val INTERVAL_ROLLING_WINDOW = 15           // seconds
 
+    // Import-time HR recovery metrics (#178): fixed clinical HRR windows, read forward from each
+    // interval's endIdx regardless of when the next interval starts (see IntervalDetector).
+    const val INTERVAL_HRR60_WINDOW_SEC = 60L
+    const val INTERVAL_HRR30_WINDOW_SEC = 30L
+
     // Speed thresholds
     const val MAX_REALISTIC_SPEED_KMH = 110.0
 

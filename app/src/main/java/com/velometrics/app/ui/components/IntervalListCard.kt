@@ -30,7 +30,7 @@ fun IntervalListCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Intervals (${intervals.size})",
+                text = "Intervals",
                 style = MaterialTheme.typography.titleMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -68,13 +68,6 @@ fun IntervalListCard(
                         text = FormatUtils.formatDuration(interval.durationSec),
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    if (interval.durationNormalizedSec != interval.durationSec) {
-                        Text(
-                            text = "(norm: ${FormatUtils.formatDuration(interval.durationNormalizedSec)})",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                     Text(
                         text = "%.2f km".format(interval.distanceM / 1000.0),
                         style = MaterialTheme.typography.bodyMedium

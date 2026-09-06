@@ -114,7 +114,7 @@ fun RepeatedIntervalDetailScreen(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
-                                    FormatUtils.formatDuration(interval.durationNormalizedSec),
+                                    FormatUtils.formatDuration(interval.durationSec),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

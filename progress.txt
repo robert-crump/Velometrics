@@ -1,3 +1,59 @@
+## Issue #181 — Interval Card decluttering, drop normalized time & interval count from header
+Completed: 2026-09-06
+
+### What was done
+
+Pure display-consistency fix: `durationNormalizedSec` (FTP-normalized duration) was being shown or
+used for coloring in several places that read as if they were reporting plain elapsed time, which
+was misleading (and, for the map legend vs. actual rendered color, an outright mismatch since the
+two could disagree once an interval's FTP-normalized duration diverged from its raw one).
+
+**`ui/components/IntervalListCard.kt`** — removed the "(norm: …)" secondary `Text` per interval
+row entirely (was only shown when `durationNormalizedSec != durationSec`). Header changed from
+`"Intervals (${intervals.size})"` to plain `"Intervals"`; the footer summary line ("Total: … in N
+intervals, avg…") already carried the count separately and is untouched.
+
+**`ui/screens/repeatedintervaldetail/RepeatedIntervalDetailScreen.kt`** — the History row's
+duration column (previously the *only* duration shown there, unlabeled, and silently normalized)
+now reads `interval.durationSec` instead of `interval.durationNormalizedSec`.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`** (`IntervalMapLegend`) — the four duration
+bucket predicates ("< 3:30 min", "3:30–5 min", "5–6:30 min", "> 6:30 min") now test
+`it.durationSec` instead of `it.durationNormalizedSec`, so a bucket's presence reflects what its
+label actually says.
+
+**`ui/components/MapIntervalRenderer.kt`** (`renderUngroupedIntervals`) — the per-interval map
+line color now comes from `MapOverlayUtils.normalizedDurationToColor(interval.durationSec)`
+instead of `interval.durationNormalizedSec`, so the legend (which pairs with this exact renderer,
+confirmed by both being driven from the same `LaunchedEffect` in `SessionDetailScreen`) and the
+actual rendered line color agree.
+
+Left alone, per the issue's explicit scope: `MapViewScreen`'s interval-tap popup (still shows raw
++ normalized in parens); `MapIntervalRenderer.renderRepeatedIntervals` and
+`MapOverlayUtils.avgDurationNormalizedSec` (archetype/grouped rendering used by `MapViewScreen`,
+not paired with this legend); `RepeatedRoutesScreen`'s own `avgDurationNormalizedSec` usage. None
+of these were named in the issue's acceptance criteria and each lives in a different screen context
+than the legend/renderer pair being fixed.
+
+A mid-task user note suggested the map legend should derive its bucketing from the user's FTP
+setting rather than fixed thresholds; confirmed with the user this was out of scope for this issue
+(the whole point of #181 is that these labels describe *plain* duration, not an FTP-normalized
+figure) and proceeded with the issue as written.
+
+### Tests
+No dedicated test added: this is a UI-only display/color-source swap (which field a `Text`/map
+color reads from), matching the precedent of every prior UI-only pass in this repo's history
+(#174, #179, #183) — no Compose UI test harness exists in this project. `MapOverlayUtilsIntervalTest`
+already covers `normalizedDurationToColor` itself (unchanged function, only its call sites moved to
+a different field) so no changes needed there.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 327 tests, zero failures/errors across the whole suite (aggregated test-result XML) —
+unchanged count from #183, confirming this display-only change didn't touch anything under existing
+test coverage. No on-device verification this session (no emulator/device attached); flagged as a
+residual visual-verification gap, same as prior UI-only passes in this repo's history.
+
+---
+
 ## Issue #183 — Clicking a repeated-interval name opens its detail screen
 Completed: 2026-09-06
 

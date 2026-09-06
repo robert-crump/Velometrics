@@ -41,7 +41,7 @@ object MapIntervalRenderer {
             val lineString = LineString.fromLngLats(geoPoints)
             val feature = Feature.fromGeometry(lineString)
 
-            feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(interval.durationNormalizedSec))
+            feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(interval.durationSec))
             feature.addStringProperty("intervalId", interval.id.toString())
             feature.addStringProperty("date", FormatUtils.formatDate(interval.startTimestamp))
             feature.addStringProperty("duration", FormatUtils.formatDuration(interval.durationSec))

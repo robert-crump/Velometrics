@@ -249,10 +249,10 @@ private fun hexToComposeColor(hex: String): Color {
 private fun IntervalMapLegend(intervals: List<IntervalSession>, modifier: Modifier = Modifier) {
     // (label, representative duration for color, presence predicate) — ascending duration order
     val bands = listOf(
-        Triple("< 3:30 min", 165, intervals.any { it.durationNormalizedSec < 210 }),
-        Triple("3:30–5 min",  255, intervals.any { it.durationNormalizedSec in 210..299 }),
-        Triple("5–6:30 min",  345, intervals.any { it.durationNormalizedSec in 300..389 }),
-        Triple("> 6:30 min",  435, intervals.any { it.durationNormalizedSec >= 390 })
+        Triple("< 3:30 min", 165, intervals.any { it.durationSec < 210 }),
+        Triple("3:30–5 min",  255, intervals.any { it.durationSec in 210..299 }),
+        Triple("5–6:30 min",  345, intervals.any { it.durationSec in 300..389 }),
+        Triple("> 6:30 min",  435, intervals.any { it.durationSec >= 390 })
     ).filter { it.third }
 
     if (bands.isEmpty()) return

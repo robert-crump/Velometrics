@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.util.FormatUtils
 import java.time.Duration
 
@@ -19,7 +20,8 @@ import java.time.Duration
 fun IntervalListCard(
     intervals: List<IntervalSession>,
     onIntervalClick: (IntervalSession) -> Unit,
-    repeatedIntervalNames: Map<Long, String> = emptyMap()
+    repeatedIntervalNames: Map<Long, RepeatedIntervalRef> = emptyMap(),
+    onRepeatedIntervalClick: (Long) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -95,13 +97,15 @@ fun IntervalListCard(
                     }
                 }
 
-                repeatedIntervalNames[interval.id]?.let { name ->
+                repeatedIntervalNames[interval.id]?.let { ref ->
                     Text(
-                        text = name,
+                        text = ref.name,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 36.dp, bottom = 4.dp)
+                        modifier = Modifier
+                            .padding(start = 36.dp, bottom = 4.dp)
+                            .clickable { onRepeatedIntervalClick(ref.repeatedIntervalId) }
                     )
                 }
 

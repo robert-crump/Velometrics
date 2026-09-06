@@ -41,6 +41,7 @@ import java.util.Locale
 @Composable
 fun SessionDetailScreen(
     onNavigateBack: () -> Unit = {},
+    onNavigateToRepeatedInterval: (Long) -> Unit = {},
     viewModel: SessionDetailViewModel = hiltViewModel()
 ) {
     val session by viewModel.session.collectAsState()
@@ -167,7 +168,8 @@ fun SessionDetailScreen(
                         IntervalListCard(
                             intervals = intervals,
                             onIntervalClick = {},
-                            repeatedIntervalNames = repeatedIntervalNames
+                            repeatedIntervalNames = repeatedIntervalNames,
+                            onRepeatedIntervalClick = onNavigateToRepeatedInterval
                         )
                     }
 

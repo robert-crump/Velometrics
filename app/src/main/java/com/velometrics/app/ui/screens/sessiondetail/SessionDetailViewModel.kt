@@ -8,6 +8,7 @@ import com.velometrics.app.data.cache.RepeatedIntervalsCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
+import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
@@ -69,14 +70,16 @@ class SessionDetailViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * Repeated-interval name for each of this session's intervals that has been grouped into (or
-     * manually assigned to) a Repeated Interval, keyed by interval id (#174). Intervals with no
-     * entry here are ungrouped.
+     * Repeated-interval name (and the [RepeatedInterval]'s own id, for navigation — #183) for
+     * each of this session's intervals that has been grouped into (or manually assigned to) a
+     * Repeated Interval, keyed by interval id (#174). Intervals with no entry here are ungrouped.
      */
-    val repeatedIntervalNames: StateFlow<Map<Long, String>> = repeatedIntervalsCache.repeatedIntervals
+    val repeatedIntervalNames: StateFlow<Map<Long, RepeatedIntervalRef>> = repeatedIntervalsCache.repeatedIntervals
         .map { repeatedIntervals ->
             repeatedIntervals
-                .flatMap { repeated -> repeated.intervals.map { it.id to repeated.name } }
+                .flatMap { repeated ->
+                    repeated.intervals.map { it.id to RepeatedIntervalRef(repeated.id, repeated.name) }
+                }
                 .toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())

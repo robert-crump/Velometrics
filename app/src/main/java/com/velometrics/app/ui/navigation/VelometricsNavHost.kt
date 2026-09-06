@@ -57,7 +57,10 @@ fun VelometricsNavHost(
             arguments = listOf(navArgument("sessionId") { type = NavType.LongType })
         ) {
             SessionDetailScreen(
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToRepeatedInterval = { repeatedIntervalId ->
+                    navController.navigate(Screen.RepeatedIntervalDetail.createRoute(repeatedIntervalId))
+                }
             )
         }
 

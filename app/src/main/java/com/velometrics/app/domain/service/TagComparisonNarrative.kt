@@ -1,6 +1,7 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RideTag
 import com.velometrics.app.util.FormatUtils
 import java.util.Locale
@@ -24,21 +25,33 @@ import kotlin.math.abs
  *
  * For [RideTag.INTERVALS], a second sentence is appended naming the total time spent in
  * intervals against the pool's median, whenever that median is available (older rides that
- * predate [CyclingSession.intervalTotalTimeSec]'s tracking may not have one).
+ * predate [CyclingSession.intervalTotalTimeSec]'s tracking may not have one), and a third (#186)
+ * flags how many of this ride's rest gaps between intervals ([IntervalSession.restBeforeNextIntervalSec])
+ * fell outside the recommended 2-3min recovery band, whenever there are at least 2 intervals (i.e.
+ * at least one gap to evaluate).
  */
 object TagComparisonNarrative {
 
     /** Below this many tag-scoped prior rides, there's nothing meaningful to compare against. */
     private const val MIN_TAG_SCOPED_SAMPLES = 2
 
+    /** Recommended recovery band (#186): gaps outside [MIN_REST_GAP_SEC, MAX_REST_GAP_SEC] are flagged. */
+    private const val MIN_REST_GAP_SEC = 120
+    private const val MAX_REST_GAP_SEC = 180
+
     private class Candidate(val relativeDeviation: Double, val sentence: String)
 
-    fun generate(session: CyclingSession, tag: String, comparison: SessionComparison): String {
+    fun generate(
+        session: CyclingSession,
+        tag: String,
+        comparison: SessionComparison,
+        intervals: List<IntervalSession> = emptyList()
+    ): String {
         if (comparison.last5SessionCount < MIN_TAG_SCOPED_SAMPLES) {
             return "Not enough history for $tag rides yet."
         }
 
-        val mainValue = mainValueCandidate(session, tag, comparison)
+        val mainValue = mainValueCandidate(session, tag, comparison, intervals)
         if (mainValue != null) return mainValue.sentence
 
         val candidates = listOfNotNull(
@@ -55,20 +68,31 @@ object TagComparisonNarrative {
 
     /** The one KPI that defines each tag (see class doc) — null when that tag has no ride data
      *  for it yet, or isn't [RideTag]-recognized, so [generate] falls back to deviation ranking. */
-    private fun mainValueCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? =
+    private fun mainValueCandidate(
+        session: CyclingSession,
+        tag: String,
+        comparison: SessionComparison,
+        intervals: List<IntervalSession>
+    ): Candidate? =
         when (tag) {
             RideTag.ZONE_2.label -> fatEfficiencyCandidate(session, tag, comparison)
-            RideTag.INTERVALS.label -> intervalCountCandidate(session, tag, comparison)
+            RideTag.INTERVALS.label -> intervalCountCandidate(session, tag, comparison, intervals)
             RideTag.RECOVERY.label -> timeBelowSixtyPercentFtpCandidate(session, tag, comparison)
             else -> null
         }
 
-    private fun intervalCountCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun intervalCountCandidate(
+        session: CyclingSession,
+        tag: String,
+        comparison: SessionComparison,
+        intervals: List<IntervalSession>
+    ): Candidate? {
         val current = session.intervalCount
         val median = comparison.medianIntervalCountLast5 ?: return null
         val direction = if (current > median) "more" else "fewer"
         var sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
         timeInIntervalsSentence(session, comparison)?.let { sentence = "$sentence $it" }
+        restGapSentence(intervals)?.let { sentence = "$sentence $it" }
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
@@ -77,6 +101,32 @@ object TagComparisonNarrative {
         val median = comparison.medianIntervalTotalTimeSecLast5 ?: return null
         return "You spent ${FormatUtils.formatDuration(current)} in intervals " +
             "(median: ${FormatUtils.formatDuration(median)})."
+    }
+
+    /**
+     * Flags rest gaps between intervals (#186) that fall outside the recommended 2-3min recovery
+     * band, in either direction. Needs at least 2 intervals (i.e. at least one gap to evaluate) —
+     * null below that — and also returns null when every gap is within the band (nothing to flag).
+     */
+    private fun restGapSentence(intervals: List<IntervalSession>): String? {
+        if (intervals.size < 2) return null
+        val gaps = intervals.mapNotNull { it.restBeforeNextIntervalSec }
+        if (gaps.isEmpty()) return null
+
+        val tooShort = gaps.count { it < MIN_REST_GAP_SEC }
+        val tooLong = gaps.count { it > MAX_REST_GAP_SEC }
+        if (tooShort == 0 && tooLong == 0) return null
+
+        val total = gaps.size
+        return when {
+            tooShort > 0 && tooLong > 0 ->
+                "$tooShort of $total rest gaps were shorter than the recommended 2-3min, " +
+                    "$tooLong ${if (tooLong == 1) "was" else "were"} longer."
+            tooShort > 0 ->
+                "$tooShort of $total rest gaps were shorter than the recommended 2-3min."
+            else ->
+                "$tooLong of $total rest gaps were longer than the recommended 2-3min."
+        }
     }
 
     private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {

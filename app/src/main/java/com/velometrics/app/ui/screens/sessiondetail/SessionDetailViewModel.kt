@@ -97,7 +97,9 @@ class SessionDetailViewModel @Inject constructor(
                 val tag = loaded.tag
                 if (tag != null) {
                     val tagScopedComparison = sessionComparator.computeComparison(loaded, tag)
-                    _tagNarrative.value = TagComparisonNarrative.generate(loaded, tag, tagScopedComparison)
+                    val sessionIntervals = intervalRepository.getIntervalsForSession(sessionId).first()
+                    _tagNarrative.value =
+                        TagComparisonNarrative.generate(loaded, tag, tagScopedComparison, sessionIntervals)
                 }
             }
         }

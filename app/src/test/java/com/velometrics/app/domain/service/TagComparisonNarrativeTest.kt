@@ -1,7 +1,9 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.IntervalSession
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -47,6 +49,25 @@ class TagComparisonNarrativeTest {
             timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
         )
     }
+
+    /** Only [IntervalSession.restBeforeNextIntervalSec] matters for these tests; the rest are filler. */
+    private fun makeInterval(restBeforeNextIntervalSec: Int?) = IntervalSession(
+        cyclingSessionId = 1,
+        startTimestamp = Instant.now(),
+        durationSec = 300,
+        durationNormalizedSec = 300,
+        distanceM = 2000.0,
+        avgPower = 200,
+        avgSpeedKmh = 30.0,
+        avgSpeedNormalizedKmh = 30.0,
+        direction = "N",
+        startLat = 0.0,
+        startLon = 0.0,
+        endLat = 0.0,
+        endLon = 0.0,
+        gpsTrack = "",
+        restBeforeNextIntervalSec = restBeforeNextIntervalSec
+    )
 
     /** Only the fields [TagComparisonNarrative] reads need real values; the rest default to null/0. */
     private fun makeComparison(
@@ -336,5 +357,82 @@ class TagComparisonNarrativeTest {
         val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
 
         assertTrue(result.startsWith("Not enough history"))
+    }
+
+    // --- #186: rest-gap recovery feedback appended to the interval-count sentence ---
+
+    @Test
+    fun `rest gaps all within the recommended band are not flagged`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 4)
+        val comparison = makeComparison(medianIntervalCountLast5 = 4, medianDistanceKmLast5 = 30.0)
+        val intervals = listOf(
+            makeInterval(150), makeInterval(160), makeInterval(170), makeInterval(null)
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison, intervals)
+
+        assertEquals("You did 4 intervals, fewer than your typical 4 for Intervals rides.", result)
+        assertFalse(result.contains("rest gap"))
+    }
+
+    @Test
+    fun `rest gaps all shorter than recommended are flagged as too short`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 4)
+        val comparison = makeComparison(medianIntervalCountLast5 = 4, medianDistanceKmLast5 = 30.0)
+        val intervals = listOf(
+            makeInterval(90), makeInterval(100), makeInterval(110), makeInterval(null)
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison, intervals)
+
+        assertEquals(
+            "You did 4 intervals, fewer than your typical 4 for Intervals rides. " +
+                "3 of 3 rest gaps were shorter than the recommended 2-3min.",
+            result
+        )
+    }
+
+    @Test
+    fun `rest gaps all longer than recommended are flagged as too long`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 3)
+        val comparison = makeComparison(medianIntervalCountLast5 = 3, medianDistanceKmLast5 = 30.0)
+        val intervals = listOf(makeInterval(200), makeInterval(210), makeInterval(null))
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison, intervals)
+
+        assertEquals(
+            "You did 3 intervals, fewer than your typical 3 for Intervals rides. " +
+                "2 of 2 rest gaps were longer than the recommended 2-3min.",
+            result
+        )
+    }
+
+    @Test
+    fun `a mix of too-short and too-long rest gaps are both reported`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 5)
+        val comparison = makeComparison(medianIntervalCountLast5 = 4, medianDistanceKmLast5 = 30.0)
+        val intervals = listOf(
+            makeInterval(90), makeInterval(100), makeInterval(200), makeInterval(150), makeInterval(null)
+        )
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison, intervals)
+
+        assertEquals(
+            "You did 5 intervals, more than your typical 4 for Intervals rides. " +
+                "2 of 4 rest gaps were shorter than the recommended 2-3min, 1 was longer.",
+            result
+        )
+    }
+
+    @Test
+    fun `a single interval has no rest gap to evaluate`() {
+        val session = makeSession(tag = "Intervals", intervalCount = 1)
+        val comparison = makeComparison(medianIntervalCountLast5 = 2, medianDistanceKmLast5 = 30.0)
+        val intervals = listOf(makeInterval(null))
+
+        val result = TagComparisonNarrative.generate(session, "Intervals", comparison, intervals)
+
+        assertEquals("You did 1 intervals, fewer than your typical 2 for Intervals rides.", result)
+        assertFalse(result.contains("rest gap"))
     }
 }

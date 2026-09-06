@@ -1,3 +1,44 @@
+## Issue #186 — Recovery-time feedback in tag-scoped narrative for Intervals rides
+Completed: 2026-09-06
+
+### What was done
+
+Extended `TagComparisonNarrative`'s `RideTag.INTERVALS` handling with a third appended sentence,
+after the existing interval-count and time-in-intervals ones, reporting on rest-gap recovery using
+`IntervalSession.restBeforeNextIntervalSec` (computed at import time by #178) against a recommended
+2-3min recovery band.
+
+**`domain/service/TagComparisonNarrative.kt`** — `generate()` gained a new `intervals: List<IntervalSession>
+= emptyList()` parameter (default keeps every pre-existing call site/test compiling unchanged),
+threaded through `mainValueCandidate` into `intervalCountCandidate`, which now appends the new
+`restGapSentence(intervals)` after `timeInIntervalsSentence`. `restGapSentence` returns null below 2
+intervals (nothing to evaluate), counts gaps `< 120s` (too short) and `> 180s` (too long) via
+`IntervalSession.restBeforeNextIntervalSec` (`mapNotNull`, so the last interval's null entry drops out
+naturally), and returns null again when both counts are zero (all gaps in-band — nothing to flag).
+Renders as "X of N rest gaps were shorter than the recommended 2-3min[, Y was/were longer]." — either
+clause alone when only one direction is flagged, both joined when a ride has both. Only ever produced
+alongside the interval-count sentence (the `INTERVALS` main-value candidate), matching the issue's
+"appended after the existing... sentences" framing.
+
+**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — `generate()`'s call site now awaits
+`intervalRepository.getIntervalsForSession(sessionId).first()` (the session's intervals, needed
+synchronously at narrative-build time, distinct from the lazily-collected `intervals` `StateFlow`
+already exposed for other consumers) and passes it through.
+
+### Tests
+Five new cases in `TagComparisonNarrativeTest`, all via `TagComparisonNarrative.generate(...,
+intervals = ...)` with a new `makeInterval(restBeforeNextIntervalSec)` fixture builder: all gaps
+in-band (no flag, sentence unchanged from the plain interval-count form), all-too-short, all-too-long,
+a mix of both (matching the issue's own example sentence verbatim), and a single-interval ride (no
+gap to evaluate, no rest-gap text at all). `compileDebugKotlin`, `compileDebugUnitTestKotlin`,
+`assembleDebug`, full `testDebugUnitTest`: all pass, 332 tests, zero failures/errors across the whole
+suite (aggregated test-result XML) — 327 prior + 5 new, confirming nothing else regressed. No
+on-device verification this session (no emulator/device attached); this change has real branching
+logic but it's fully exercised by the new unit tests, so the residual gap is just the composable
+rendering the string, same as this narrative's own prior sessions (#171 and its predecessors).
+
+---
+
 ## Issue #182 — Spin out HRR60 into its own card, with power figure + info overlay
 Completed: 2026-09-06
 
@@ -195,43 +236,3 @@ pass, 327 tests, zero failures/errors (aggregated test-result XML; 325 prior + 2
 verification this session (no emulator/device attached) — this is pure in-memory naming/sorting
 logic over mocked repositories, fully covered by the new tests, so the residual gap is the same
 kind already accepted for prior sessions in this file (e.g. #178/#179/#176).
-
----
-
-## Issue #179 — Show HRR60 per interval in IntervalListCard, flag truncated recovery windows
-Completed: 2026-09-04
-
-### What was done
-
-Second (and last) child of parent #177, unblocked by #178/#178-followup landing HRR60 on
-`IntervalSession`. Pure UI change: `IntervalListCard` now renders `hrr60` on each interval row
-computed by #178.
-
-**`ui/components/IntervalListCard.kt`** — the row's existing power `Text` is followed by an
-`interval.hrr60?.let { ... }`, rendered only when non-null (per the issue's null-fallback
-requirement, this simply adds nothing to the row — no placeholder, no crash). Displayed as
-"-X bpm" per the issue's own example. Truncation check reuses the same field #178 introduced for
-exactly this purpose: `restBeforeNextIntervalSec != null && < 60` marks the reading as measured
-before a full recovery window elapsed (next rep started early); flagged two ways at once — a
-trailing `*` on the text and `onSurfaceVariant` (muted) instead of `onSurface` — rather than
-picking only one, since the issue only said "distinguish," and a muted color alone doesn't survive
-grayscale/accessibility contexts as reliably as an inline glyph. Last-interval rows (where
-`restBeforeNextIntervalSec` is itself null, meaning no next rep at all) are correctly treated as
-*not* truncated, not accidentally flagged. Existing row content (duration, distance, power,
-repeated-interval name below) untouched.
-
-### Tests
-No dedicated test added: this project has no Compose UI test harness (confirmed — no
-`*ComposeTest*`/`*ScreenTest*` files anywhere in `app/src`), and the immediately-prior UI feature
-in this same card (#174, repeated-interval names) shipped the same way, UI-only with no test file.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 325 tests, zero failures/errors across the whole suite (aggregated test-result XML) —
-unchanged from #178-followup's count, confirming this UI-only change didn't touch anything under
-existing test coverage. No on-device verification this session (no emulator/device attached);
-flagged as a residual visual-verification gap in the issue close-out, same as prior UI-only passes
-in this repo's history.
-
-With this, parent #177 (Heart Rate Recovery after interval) has both its children (#178, #179)
-closed — the import-time computation and the on-screen display are both in place. The parent issue
-itself stays open: it also poses open research questions (what cycling science says about HRR, and
-whether "recovery" is even the right term) that neither child issue scoped or answered.

@@ -1,3 +1,57 @@
+## Issue #184 — Fix Repeated Interval auto-numbering collisions (self-healing renumber)
+Completed: 2026-09-06
+
+### What was done
+
+Bug-fix pass on `IntervalClusteringService.runClustering()`'s default-name assignment. Root cause:
+the naming counter for archetypes that don't match an existing entry (`counter = 1`) reset to 1 on
+every run — a run's *own* unmatched archetypes stayed sequential within that run, but two different
+runs, each starting from 1, could hand out the same number to two different archetypes over many
+pull-to-refreshes, and never converged back to something sequential. Matched production symptom:
+duplicate/scattered default names like "Repeated Interval 36", "28", "27", "22".
+
+**`domain/service/IntervalClusteringService.kt`** — restructured the naming section into two
+pieces, both keyed off a new `DEFAULT_NAME_PATTERN = Regex("""^Repeated Interval (\d+)$""")` /
+`defaultNameNumber()` helper that tells a default-assigned name apart from a custom one (e.g.
+"Schlangenweg"):
+- **Self-heal, unconditional, every run:** before any name is carried forward from `existing`,
+  every default-named row already in the DB is renumbered — sorted by its *current* (possibly
+  colliding/scattered) number ascending, reassigned sequential 1, 2, 3, ... via a
+  `healedNameById` map keyed by row id. Custom names never match the pattern, so they're excluded
+  from the sort and left completely untouched. This runs whether or not a collision is currently
+  present, so default names stay clean going forward rather than only once damage is detected.
+- **Anti-collision counter seed:** the counter used for a genuinely new (unmatched) archetype now
+  starts at `defaultOrderedExistingIds.size + 1` (one past the post-heal max) instead of a
+  hardcoded `1`, so a fresh archetype can never reuse a number the self-heal pass (or an earlier
+  run) already assigned to something else.
+- `newEntries`'s existing-match step now looks up `healedNameById[matchedExisting.id]` instead of
+  `matchedExisting.name` directly, so a carried-over archetype's name reflects the healed number,
+  not the raw (possibly colliding) DB value.
+
+### Tests
+Two new cases added to `IntervalClusteringServiceTest`, both driving the full `runClustering()`
+pipeline (mocked repositories) rather than a unit-isolated helper, matching this file's existing
+style:
+- `a genuinely new archetype's default name is seeded above the existing max, not restarted at 1`
+  — existing DB has two already-clean default entries (1, 2); one is carried forward this run, the
+  other goes stale (its interval no longer present); a third, genuinely new interval produces an
+  unmatched archetype. Asserts the carried entry keeps "Repeated Interval 1" and the new one gets
+  "Repeated Interval 3" — the old bug would have handed the new one "Repeated Interval 1" too,
+  colliding with the still-live carried entry.
+- `pre-existing scattered or colliding default names are self-healed into a clean sequential
+  renumbering` — reproduces the production symptom directly: three carried-forward default rows
+  named "27", "22", "22" (an outright duplicate) plus one custom-named row ("Schlangenweg").
+  Asserts the three default rows come out as a clean "1", "2", "3" (ordered by their prior number,
+  ties broken by original list order) and the custom row is completely unchanged.
+
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 327 tests, zero failures/errors (aggregated test-result XML; 325 prior + 2 new). No on-device
+verification this session (no emulator/device attached) — this is pure in-memory naming/sorting
+logic over mocked repositories, fully covered by the new tests, so the residual gap is the same
+kind already accepted for prior sessions in this file (e.g. #178/#179/#176).
+
+---
+
 ## Issue #179 — Show HRR60 per interval in IntervalListCard, flag truncated recovery windows
 Completed: 2026-09-04
 
@@ -184,50 +238,3 @@ was available to replicate against the live DB, unlike the Camerig data pull tha
 length tolerance) — flagged in the issue close-out as a residual real-data validation gap, consistent
 with the accepted-defaults scope for this pass.
 
----
-
-## Issue #175 — Repeat clusters silently dropped when map-matching fails (found via #174)
-Completed: 2026-09-02
-
-### What was done
-
-Root cause confirmed by #174's on-device investigation: `IntervalClusteringService.buildArchetype()`
-returned `null` whenever `MapMatcher.match()` failed for every candidate representative in a
-similarity-confirmed cluster (a short cluster whose GPS track snaps to a single, leaf-pruned road
-edge, or a road-graph gap for that segment). Back in `runClustering()`, `.filterNotNull()` then
-silently discarded the entire cluster — including intervals that had correctly and confidently
-matched each other by GPS similarity — with no user-visible signal, only a `Log.w`.
-
-Implemented the issue's suggested fix direction: fall back to a GPS-only archetype instead of
-dropping the cluster.
-
-**`domain/service/IntervalClusteringService.kt`** — `buildArchetype()` no longer returns `null`.
-When no cluster member map-matches, it now returns a `CandidateArchetype` with `edges = emptyList()`
-and `distanceM`/`startLat`/`startLon`/`endLat`/`endLon` taken directly from the median-length
-member's own recorded `IntervalSession` fields (no road-matched geometry needed for these — they're
-already stored per-interval). `discardSubsets()` needed no change: an edges-empty candidate never
-shares edge keys with anything, so it's never mistakenly discarded as a subset.
-
-**`data/repository/RepeatedIntervalRepositoryImpl.kt`** — `entityToDomain()` had its own copy of
-the same bug: `if (edges.isEmpty()) return null` meant a GPS-only archetype (or any archetype whose
-stored edge references no longer resolve against the road graph) would vanish again on every
-subsequent load, even after being saved successfully. Removed that guard — an archetype with no
-resolvable edges now loads fine with its name, intervals, and stats; only `edges` (and therefore the
-route-line map preview, which already renders a "No GPS data available" placeholder for an empty
-point list) comes back empty.
-
-Not changed: `IntervalMatcher.archetypeTrack()` still can't match new same-route intervals against
-a GPS-only archetype incrementally (no edge geometry to compare against), so such an interval waits
-for the next full `runClustering()` pass — which re-clusters by GPS similarity from scratch and
-will pick it up correctly. This is a temporary staleness, not the reported bug (permanent loss), so
-left alone rather than inventing a synthetic edge-geometry representation to close it.
-
-### Tests
-Added `IntervalClusteringServiceTest`: a cluster whose fake matcher always returns `null` is still
-saved as one archetype (both intervals grouped, `edges` empty, `distanceM`/`startLat`/`endLat` taken
-from the median-length member) instead of disappearing. `compileDebugKotlin`,
-`compileDebugUnitTestKotlin`, `testDebugUnitTest`: all pass, 310 tests, zero failures/errors across
-the whole suite (verified via aggregated test-result XML). No on-device re-verification of the
-specific reporter clusters this session (would need the same live-DB replication #174 used); the new
-unit test reproduces the exact failure mode (map-matching failure on a similarity-confirmed cluster)
-per the issue's own suggested repro approach.

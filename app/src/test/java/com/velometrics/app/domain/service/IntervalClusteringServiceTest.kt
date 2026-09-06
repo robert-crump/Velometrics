@@ -423,4 +423,109 @@ class IntervalClusteringServiceTest {
         assertEquals(setOf(1L, 2L, 3L), result.intervals.map { it.id }.toSet())
         assertEquals(listOf(99L), deleted.flatten())
     }
+
+    // ─── #184: default-name counter seeding + self-healing renumber ───
+
+    @Test
+    fun `a genuinely new archetype's default name is seeded above the existing max, not restarted at 1`() = runTest {
+        val edgeCarried = edge(0L, 1L, 150.0, 50.7800 to 6.0800, 50.7813 to 6.0800)
+        val edgeNew = edge(10L, 11L, 150.0, 50.9000 to 6.0800, 50.9013 to 6.0800)
+
+        // Two existing default-named entries, already clean (1 and 2) -- one of which (id 9) is
+        // carried forward unchanged this run by matching its raw interval id.
+        val carried = makeInterval(id = 9, distanceM = 300.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 6))
+        val existingCarried = RepeatedInterval(
+            id = 60L, name = "Repeated Interval 1",
+            intervals = listOf(makeInterval(id = 9, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeCarried),
+            startLat = 50.7800, startLon = 6.0800, endLat = 50.7813, endLon = 6.0800,
+            distanceM = 150.0
+        )
+        val existingOther = RepeatedInterval(
+            id = 61L, name = "Repeated Interval 2",
+            intervals = listOf(makeInterval(id = 8, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeCarried),
+            startLat = 50.7800, startLon = 6.0800, endLat = 50.7813, endLon = 6.0800,
+            distanceM = 150.0
+        )
+        // A genuinely new, spatially distinct interval unrelated to either existing entry.
+        val fresh = makeInterval(id = 20, distanceM = 300.0, gpsTrack = trackJson(startLat = 50.9000, pointCount = 6))
+
+        val (service, saved, _) = buildService(
+            listOf(carried, fresh),
+            existing = listOf(existingCarried, existingOther)
+        ) { track ->
+            if (track.first()[0] < 50.85) listOf(edgeCarried) else listOf(edgeNew)
+        }
+
+        service.runClustering()
+
+        assertEquals(2, saved.size)
+        // The old bug would have named the fresh archetype "Repeated Interval 1" too (counter
+        // hardcoded to restart at 1), colliding with the still-present existingCarried entry.
+        assertTrue("carried-over entry keeps its clean number", saved.any { it.name == "Repeated Interval 1" && it.id == 60L })
+        assertTrue("fresh archetype is seeded past the existing max, not restarted at 1", saved.any { it.name == "Repeated Interval 3" })
+        assertEquals(setOf("Repeated Interval 1", "Repeated Interval 3"), saved.map { it.name }.toSet())
+    }
+
+    @Test
+    fun `pre-existing scattered or colliding default names are self-healed into a clean sequential renumbering`() = runTest {
+        val edgeA = edge(0L, 1L, 150.0, 50.7800 to 6.0800, 50.7813 to 6.0800)
+        val edgeB = edge(10L, 11L, 150.0, 50.9000 to 6.0800, 50.9013 to 6.0800)
+        val edgeC = edge(20L, 21L, 150.0, 51.0000 to 6.0800, 51.0013 to 6.0800)
+        val edgeD = edge(30L, 31L, 150.0, 51.1000 to 6.0800, 51.1013 to 6.0800)
+
+        // Simulates production damage (#184): three carried-forward default names, scattered and
+        // out of order, one of them an outright duplicate.
+        val i1 = makeInterval(id = 1, distanceM = 300.0, gpsTrack = trackJson(startLat = 50.7800, pointCount = 6))
+        val i2 = makeInterval(id = 2, distanceM = 300.0, gpsTrack = trackJson(startLat = 50.9000, pointCount = 6))
+        val i3 = makeInterval(id = 3, distanceM = 300.0, gpsTrack = trackJson(startLat = 51.0000, pointCount = 6))
+        val existing27 = RepeatedInterval(
+            id = 71L, name = "Repeated Interval 27",
+            intervals = listOf(makeInterval(id = 1, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeA), startLat = 50.7800, startLon = 6.0800, endLat = 50.7813, endLon = 6.0800, distanceM = 150.0
+        )
+        // Two separate entries sharing the same (colliding) default name, as the bug could produce.
+        val existing22a = RepeatedInterval(
+            id = 72L, name = "Repeated Interval 22",
+            intervals = listOf(makeInterval(id = 2, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeB), startLat = 50.9000, startLon = 6.0800, endLat = 50.9013, endLon = 6.0800, distanceM = 150.0
+        )
+        val existing22b = RepeatedInterval(
+            id = 73L, name = "Repeated Interval 22",
+            intervals = listOf(makeInterval(id = 3, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeC), startLat = 51.0000, startLon = 6.0800, endLat = 51.0013, endLon = 6.0800, distanceM = 150.0
+        )
+        // A custom-renamed entry must never be touched by the renumbering. Spatially distinct from
+        // i1 so it clusters separately rather than merging into the same archetype.
+        val existingCustom = RepeatedInterval(
+            id = 74L, name = "Schlangenweg",
+            intervals = listOf(makeInterval(id = 4, distanceM = 300.0, gpsTrack = "[]")),
+            edges = listOf(edgeD), startLat = 51.1000, startLon = 6.0800, endLat = 51.1013, endLon = 6.0800, distanceM = 150.0
+        )
+        val i4 = makeInterval(id = 4, distanceM = 300.0, gpsTrack = trackJson(startLat = 51.1000, pointCount = 6))
+
+        val (service, saved, _) = buildService(
+            listOf(i1, i2, i3, i4),
+            existing = listOf(existing27, existing22a, existing22b, existingCustom)
+        ) { track ->
+            when {
+                track.first()[0] < 50.85 -> listOf(edgeA)
+                track.first()[0] < 50.95 -> listOf(edgeB)
+                track.first()[0] < 51.05 -> listOf(edgeC)
+                else -> listOf(edgeD)
+            }
+        }
+
+        service.runClustering()
+
+        assertEquals(4, saved.size)
+        // Custom name is untouched.
+        assertTrue(saved.any { it.name == "Schlangenweg" && it.id == 74L })
+        // The two former "22"s and the one "27" are renumbered sequentially by their old number
+        // ascending (22, 22, 27 -> 1, 2, 3), never left duplicated or scattered.
+        val defaultNames = saved.filter { it.name != "Schlangenweg" }.map { it.name }
+        assertEquals(setOf("Repeated Interval 1", "Repeated Interval 2", "Repeated Interval 3"), defaultNames.toSet())
+        assertTrue("id 71 (was 27, the highest) ends up last", saved.first { it.id == 71L }.name == "Repeated Interval 3")
+    }
 }

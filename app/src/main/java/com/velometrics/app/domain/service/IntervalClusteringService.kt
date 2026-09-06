@@ -58,7 +58,15 @@ class IntervalClusteringService @Inject constructor(
         // graph Region. Large enough to amortize the graph load across many nearby clusters, small
         // enough that a cell's union bounding box stays within MapMatcher's edge cap in dense areas.
         private const val REGION_GROUP_CELL_M = 5_000.0
+
+        // Matches the auto-assigned default name (#184) so it can be told apart from a
+        // custom-renamed entry (e.g. "Schlangenweg") and its number extracted/reassigned.
+        private val DEFAULT_NAME_PATTERN = Regex("""^Repeated Interval (\d+)$""")
     }
+
+    /** The `N` in a "Repeated Interval N" default name, or null if [name] was custom-renamed. */
+    private fun defaultNameNumber(name: String): Int? =
+        DEFAULT_NAME_PATTERN.matchEntire(name)?.groupValues?.get(1)?.toIntOrNull()
 
     // ─── Shared data structures ───
 
@@ -161,12 +169,33 @@ class IntervalClusteringService @Inject constructor(
         val finalArchetypes = mergeSimilarArchetypes(candidates)
 
         // ─── Step 3: preserve names by matching overlapping raw-interval-ID subsets ───
+        val existing = repeatedIntervalRepository.getAllRepeatedIntervalsList()
+
+        // ─── #184 self-heal: repair default-name collisions/scattering already in the DB ───
+        // Root cause of the original bug: the below counter used to hardcode `1` on every run.
+        // Archetypes that match an existing entry (below) keep that entry's name regardless, but a
+        // genuinely new/unmatched archetype got "Repeated Interval 1" every time, and a second
+        // unmatched archetype in a *later* run also started counting from 1 -- producing collisions
+        // and scattered numbers across many refreshes (duplicate/non-sequential "36", "28", "27",
+        // "22" observed in production). Fixed unconditionally, every run, rather than only once a
+        // collision is detected: every default-named row already in the DB is renumbered
+        // sequentially (1, 2, 3, ...) by its *current* (possibly colliding/scattered) number
+        // ascending, before its (possibly healed) name is used below. Custom-renamed entries never
+        // match the pattern and are left untouched.
+        val defaultOrderedExistingIds = existing.indices
+            .filter { defaultNameNumber(existing[it].name) != null }
+            .sortedBy { defaultNameNumber(existing[it].name) }
+        val healedNameById = existing.associate { it.id to it.name }.toMutableMap()
+        defaultOrderedExistingIds.forEachIndexed { seq, idx ->
+            healedNameById[existing[idx].id] = "Repeated Interval ${seq + 1}"
+        }
+
         // Since Step 2 can now fold two previously-separate archetypes into one, more than one
         // existing entry may qualify as "a subset of" the same new archetype (e.g. a curated
         // "Schlangenweg" and an auto-numbered near-duplicate that just got merged into it). Picking
         // by most prior intervals (ties broken by lowest id, for determinism) favors the
-        // established archetype's name/id over the newly-absorbed one's.
-        val existing = repeatedIntervalRepository.getAllRepeatedIntervalsList()
+        // established archetype's name/id over the newly-absorbed one's. The name carried forward
+        // is the (possibly self-healed) name computed above, not necessarily the raw DB value.
         val newEntries = finalArchetypes.map { archetype ->
             val intervalIdSet = archetype.intervals.map { it.id }.toSet()
             val matchedExisting = existing
@@ -175,10 +204,13 @@ class IntervalClusteringService @Inject constructor(
                     existingSet.isNotEmpty() && existingSet.all { id -> id in intervalIdSet }
                 }
                 .maxWithOrNull(compareBy({ it.intervals.size }, { -it.id }))
-            Triple(archetype, matchedExisting?.name ?: "", matchedExisting?.id ?: 0L)
+            val healedName = matchedExisting?.let { healedNameById.getValue(it.id) } ?: ""
+            Triple(archetype, healedName, matchedExisting?.id ?: 0L)
         }
 
-        var counter = 1
+        // Seed the counter for genuinely new (unmatched) archetypes above the post-heal max, so a
+        // fresh entry can never collide with a default name that already exists.
+        var counter = defaultOrderedExistingIds.size + 1
         val finalEntries = newEntries.map { (archetype, name, existingId) ->
             RepeatedInterval(
                 id = existingId,

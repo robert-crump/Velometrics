@@ -159,7 +159,9 @@ fun IntervalSessionEntity.toDomain(): IntervalSession {
         hrr30 = hrr30,
         avgPower60sAfter = avgPower60sAfter,
         avgPower30sAfter = avgPower30sAfter,
-        restBeforeNextIntervalSec = restBeforeNextIntervalSec
+        restBeforeNextIntervalSec = restBeforeNextIntervalSec,
+        achievementRank = achievementRank,
+        achievementScope = achievementScope?.let { AchievementScope.valueOf(it) }
     )
 }
 
@@ -184,6 +186,8 @@ fun IntervalSession.toEntity(): IntervalSessionEntity {
         hrr30 = hrr30,
         avgPower60sAfter = avgPower60sAfter,
         avgPower30sAfter = avgPower30sAfter,
-        restBeforeNextIntervalSec = restBeforeNextIntervalSec
+        restBeforeNextIntervalSec = restBeforeNextIntervalSec,
+        achievementRank = achievementRank,
+        achievementScope = achievementScope?.name
     )
 }

@@ -18,6 +18,7 @@ private const val TEST_DB_14 = "migration_13_14_test.db"
 private const val TEST_DB_15 = "migration_14_15_test.db"
 private const val TEST_DB_16 = "migration_15_16_test.db"
 private const val TEST_DB_17 = "migration_16_17_test.db"
+private const val TEST_DB_18 = "migration_17_18_test.db"
 
 /**
  * Speed histogram buckets narrowed from 8 to 5 in #148; MIGRATION_11_12 must merge each existing
@@ -212,6 +213,43 @@ class VelometricsMigrationTest {
         cursor.use {
             assertEquals(true, it.moveToFirst())
             assertEquals(true, it.isNull(0))
+        }
+    }
+
+    @Test
+    fun `migrate 17 to 18 adds nullable achievementRank and achievementScope columns defaulting to null`() {
+        helper.createDatabase(TEST_DB_18, 17).apply {
+            execSQL(
+                """
+                INSERT INTO cycling_sessions
+                    (id, fileName, fileSha1, sessionStart, sessionEnd, totalDurationSec,
+                     pauseDurationSec, netDurationSec, distanceKm, speedHistogram, intervalCount,
+                     intervalTotalTimeSec, gpsQualityPercent, hasPower, sprintCount, hasHR)
+                VALUES
+                    (1, 'ride.fit', 'sha1', 0, 3600, 3600, 0, 3600, 30.0, '{}', 0, 0, 100.0, 0, 0, 0)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO interval_sessions
+                    (id, cyclingSessionId, startTimestamp, durationSec, durationNormalizedSec,
+                     distanceM, avgPower, avgSpeedKmh, avgSpeedNormalizedKmh, direction, startLat,
+                     startLon, endLat, endLon, gpsTrack)
+                VALUES
+                    (1, 1, 0, 200, 200, 1000.0, 310, 30.0, 30.0, 'north', 50.78, 6.07, 50.79, 6.08, '[]')
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB_18, 18, true, DatabaseModule.MIGRATION_17_18)
+
+        val cursor = migrated.query("SELECT achievementRank, achievementScope FROM interval_sessions WHERE id = 1")
+        cursor.use {
+            assertEquals(true, it.moveToFirst())
+            for (col in 0 until it.columnCount) {
+                assertEquals(true, it.isNull(col))
+            }
         }
     }
 }

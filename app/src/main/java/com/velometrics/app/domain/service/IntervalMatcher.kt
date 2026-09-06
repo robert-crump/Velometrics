@@ -3,6 +3,7 @@ package com.velometrics.app.domain.service
 import android.util.Log
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.util.JsonSafeParser
 import com.velometrics.app.util.PolylineDecoder
@@ -18,7 +19,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class IntervalMatcher @Inject constructor(
-    private val repeatedIntervalRepository: RepeatedIntervalRepository
+    private val repeatedIntervalRepository: RepeatedIntervalRepository,
+    private val intervalRepository: IntervalRepository
 ) {
 
     companion object {
@@ -27,8 +29,10 @@ class IntervalMatcher @Inject constructor(
 
     /**
      * Matches [intervals] against the persisted archetypes and appends each match to its
-     * archetype's [RepeatedInterval.intervals], persisting the updated archetypes. Returns
-     * [intervals] unchanged — the assignment lives on the archetype, not the raw interval.
+     * archetype's [RepeatedInterval.intervals], persisting the updated archetypes. Also computes
+     * and persists each newly-matched interval's [IntervalAchievementEvaluator] snapshot (#185),
+     * ranked against its archetype's now-complete rep list. Returns [intervals] unchanged — the
+     * archetype assignment lives on the archetype, not the raw interval.
      */
     suspend fun matchToRepeatedIntervals(intervals: List<IntervalSession>): List<IntervalSession> {
         if (intervals.isEmpty()) return intervals
@@ -40,9 +44,16 @@ class IntervalMatcher @Inject constructor(
             .mapNotNull { (interval, archetype) -> archetype?.let { it to interval } }
             .groupBy({ (archetype, _) -> archetype }, { (_, interval) -> interval })
             .forEach { (archetype, matched) ->
-                repeatedIntervalRepository.saveRepeatedInterval(
-                    archetype.copy(intervals = archetype.intervals + matched)
-                )
+                val updatedReps = archetype.intervals + matched
+                matched.forEach { interval ->
+                    val achievement = IntervalAchievementEvaluator.evaluate(interval, updatedReps)
+                    if (achievement != null) {
+                        intervalRepository.updateInterval(
+                            interval.copy(achievementRank = achievement.rank, achievementScope = achievement.scope)
+                        )
+                    }
+                }
+                repeatedIntervalRepository.saveRepeatedInterval(archetype.copy(intervals = updatedReps))
             }
 
         return intervals

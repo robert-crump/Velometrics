@@ -3,6 +3,7 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.google.gson.Gson
 import io.mockk.mockk
@@ -14,7 +15,10 @@ import java.time.Instant
 class IntervalMatcherTest {
 
     private val gson = Gson()
-    private val matcher = IntervalMatcher(mockk<RepeatedIntervalRepository>(relaxed = true))
+    private val matcher = IntervalMatcher(
+        mockk<RepeatedIntervalRepository>(relaxed = true),
+        mockk<IntervalRepository>(relaxed = true)
+    )
 
     // ─── Polyline encoding (inverse of PolylineDecoder.decode) — for building MapEdge.geometryEncoded ───
 

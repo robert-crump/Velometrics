@@ -29,5 +29,12 @@ data class IntervalSession(
     // this is the last interval. hrr60/hrr30/avgPower60sAfter are always computed over their full
     // fixed window regardless of this value -- this is how a truncated (contaminated) recovery
     // reading gets flagged downstream, not by nulling the metric.
-    val restBeforeNextIntervalSec: Int? = null
+    val restBeforeNextIntervalSec: Int? = null,
+    // Import-time repeated-interval achievement snapshot (#185): this rep's rank among its own
+    // RepeatedInterval archetype's reps, by raw avgSpeedKmh. Computed once, right after
+    // IntervalMatcher.matchToRepeatedIntervals groups the new interval -- never recomputed, so a
+    // later rep changing an earlier one's rank doesn't retroactively update it. Null when the rep
+    // isn't matched to an archetype, the archetype has fewer than 3 total reps, or it isn't top-3.
+    val achievementRank: Int? = null,
+    val achievementScope: AchievementScope? = null
 )

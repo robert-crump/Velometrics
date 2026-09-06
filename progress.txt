@@ -1,3 +1,69 @@
+## Issue #185 — Repeated-interval achievement badge in the name row
+Completed: 2026-09-06
+
+### What was done
+
+New import-time achievement snapshot, scoped to one `RepeatedInterval`'s own reps (never against
+other archetypes or plain rides), surfaced in the repeated-interval name row.
+
+**`domain/model/IntervalAchievement.kt`** (new) — `AchievementScope` enum (`ALL_TIME`/`THIS_YEAR`)
+and `IntervalAchievement(rank, scope, year)`, per the issue's illustrative shape.
+
+**`domain/service/IntervalAchievementEvaluator.kt`** (new) — `evaluate(interval, reps)`, where
+`reps` is the archetype's full, already-updated rep list (including `interval` itself). Ranks by
+raw `avgSpeedKmh` via the same count-strictly-greater-then-+1 shape `RankedMetricEvaluator` uses for
+ride-level achievements, but over the in-memory rep list rather than a repository query. Gates on
+`reps.size < 3` (total reps, not year-scoped) before evaluating either scope. Tries `ALL_TIME`
+first (over all reps) and only falls back to `THIS_YEAR` (reps whose `startTimestamp` falls in the
+same calendar year, system default zone) when `ALL_TIME` isn't top-3 — so a rep qualifying in both
+is recorded as `ALL_TIME`, matching the issue's precedence rule. Returns `null` past 3rd place in
+both scopes.
+
+**`domain/model/IntervalSession.kt`** / **`data/local/entity/IntervalSessionEntity.kt`** — new
+nullable `achievementRank: Int?` / `achievementScope: AchievementScope?` (entity: `String?`, the
+enum's `.name`) fields. **`util/EntityMappers.kt`** — mapped both directions
+(`AchievementScope.valueOf(...)` / `.name`). **`data/local/VelometricsDatabase.kt`** — version 17 →
+18. **`di/DatabaseModule.kt`** — `MIGRATION_17_18` (two nullable `ALTER TABLE ADD COLUMN`s, same
+shape as `MIGRATION_15_16`/`MIGRATION_16_17`), added to `addMigrations(...)`.
+
+**`domain/service/IntervalMatcher.kt`** — now also takes `IntervalRepository`. Right after grouping
+each import batch's newly-matched intervals under their archetype and building `updatedReps =
+archetype.intervals + matched` (the archetype's full, current rep list), each matched interval is
+run through `IntervalAchievementEvaluator.evaluate(interval, updatedReps)`; a non-null result is
+persisted via `intervalRepository.updateInterval(interval.copy(achievementRank = ...,
+achievementScope = ...))` before the archetype itself is saved. This is the "compute once, right
+after `matchToRepeatedIntervals` groups the new interval" snapshot the issue calls for — it's never
+recomputed afterward, so a later rep beating an earlier one doesn't retroactively change the
+earlier snapshot. Historical intervals (matched before this change) simply never went through this
+path, so they're left with null achievement fields — no backfill, matching the HRR60/#178
+precedent.
+
+**`ui/components/IntervalListCard.kt`** — new private `achievementLabel(interval)` helper: returns
+`"3rd best 2026"` / `"3rd best all-time"` (or `null` when the interval carries no achievement
+snapshot) — the year is derived from `interval.startTimestamp`'s own calendar year at render time,
+not persisted separately, since a past rep's year never changes. The name row now renders
+`"${ref.name} | ${achievementLabel}"` when a snapshot exists, else the plain `ref.name` unchanged.
+
+### Tests
+`IntervalAchievementEvaluatorTest` (new, 6 cases): the minimum-reps gate (2 reps records nothing
+even for the fastest), the exact rank-3/rank-4 boundary among 5 reps, ties (two reps tied for
+fastest both rank 1st, a third ranks 3rd — not 2nd), a rep qualifying in both scopes at once
+recording `ALL_TIME`, a rep that only qualifies `THIS_YEAR` recording that scope + the correct
+literal year, and a rep beaten too many times in both scopes getting nothing.
+`VelometricsMigrationTest` gained `migrate 17 to 18 adds nullable achievementRank and
+achievementScope columns defaulting to null`, mirroring the 16→17 test shape.
+`IntervalMatcherTest`'s constructor call updated for `IntervalMatcher`'s new `IntervalRepository`
+parameter (mocked, relaxed) — its own tests only exercise the pure `matchIntervals` function, so no
+behavior there needed changing.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 339 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 332
+prior + 7 new (6 evaluator + 1 migration). No on-device verification this session (no
+emulator/device attached); the ranking/persistence logic is fully covered by the new unit tests, and
+the name-row rendering is a small pure-string helper with no Compose UI test harness in this
+project (same residual gap as every prior UI-touching pass in this repo's history).
+
+---
+
 ## Issue #186 — Recovery-time feedback in tag-scoped narrative for Intervals rides
 Completed: 2026-09-06
 
@@ -182,57 +248,3 @@ pass, 327 tests, zero failures/errors across the whole suite (aggregated test-re
 count from #184, confirming this UI-only change didn't touch anything under existing test coverage.
 No on-device verification this session (no emulator/device attached); flagged as a residual
 visual-verification gap in the issue close-out, same as prior UI-only passes in this repo's history.
-
----
-
-## Issue #184 — Fix Repeated Interval auto-numbering collisions (self-healing renumber)
-Completed: 2026-09-06
-
-### What was done
-
-Bug-fix pass on `IntervalClusteringService.runClustering()`'s default-name assignment. Root cause:
-the naming counter for archetypes that don't match an existing entry (`counter = 1`) reset to 1 on
-every run — a run's *own* unmatched archetypes stayed sequential within that run, but two different
-runs, each starting from 1, could hand out the same number to two different archetypes over many
-pull-to-refreshes, and never converged back to something sequential. Matched production symptom:
-duplicate/scattered default names like "Repeated Interval 36", "28", "27", "22".
-
-**`domain/service/IntervalClusteringService.kt`** — restructured the naming section into two
-pieces, both keyed off a new `DEFAULT_NAME_PATTERN = Regex("""^Repeated Interval (\d+)$""")` /
-`defaultNameNumber()` helper that tells a default-assigned name apart from a custom one (e.g.
-"Schlangenweg"):
-- **Self-heal, unconditional, every run:** before any name is carried forward from `existing`,
-  every default-named row already in the DB is renumbered — sorted by its *current* (possibly
-  colliding/scattered) number ascending, reassigned sequential 1, 2, 3, ... via a
-  `healedNameById` map keyed by row id. Custom names never match the pattern, so they're excluded
-  from the sort and left completely untouched. This runs whether or not a collision is currently
-  present, so default names stay clean going forward rather than only once damage is detected.
-- **Anti-collision counter seed:** the counter used for a genuinely new (unmatched) archetype now
-  starts at `defaultOrderedExistingIds.size + 1` (one past the post-heal max) instead of a
-  hardcoded `1`, so a fresh archetype can never reuse a number the self-heal pass (or an earlier
-  run) already assigned to something else.
-- `newEntries`'s existing-match step now looks up `healedNameById[matchedExisting.id]` instead of
-  `matchedExisting.name` directly, so a carried-over archetype's name reflects the healed number,
-  not the raw (possibly colliding) DB value.
-
-### Tests
-Two new cases added to `IntervalClusteringServiceTest`, both driving the full `runClustering()`
-pipeline (mocked repositories) rather than a unit-isolated helper, matching this file's existing
-style:
-- `a genuinely new archetype's default name is seeded above the existing max, not restarted at 1`
-  — existing DB has two already-clean default entries (1, 2); one is carried forward this run, the
-  other goes stale (its interval no longer present); a third, genuinely new interval produces an
-  unmatched archetype. Asserts the carried entry keeps "Repeated Interval 1" and the new one gets
-  "Repeated Interval 3" — the old bug would have handed the new one "Repeated Interval 1" too,
-  colliding with the still-live carried entry.
-- `pre-existing scattered or colliding default names are self-healed into a clean sequential
-  renumbering` — reproduces the production symptom directly: three carried-forward default rows
-  named "27", "22", "22" (an outright duplicate) plus one custom-named row ("Schlangenweg").
-  Asserts the three default rows come out as a clean "1", "2", "3" (ordered by their prior number,
-  ties broken by original list order) and the custom row is completely unchanged.
-
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 327 tests, zero failures/errors (aggregated test-result XML; 325 prior + 2 new). No on-device
-verification this session (no emulator/device attached) — this is pure in-memory naming/sorting
-logic over mocked repositories, fully covered by the new tests, so the residual gap is the same
-kind already accepted for prior sessions in this file (e.g. #178/#179/#176).

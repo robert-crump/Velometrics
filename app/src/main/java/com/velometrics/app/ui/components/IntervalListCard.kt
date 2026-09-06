@@ -11,10 +11,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.velometrics.app.domain.model.AchievementScope
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.util.FormatUtils
 import java.time.Duration
+import java.time.ZoneId
 
 @Composable
 fun IntervalListCard(
@@ -79,8 +81,9 @@ fun IntervalListCard(
                 }
 
                 repeatedIntervalNames[interval.id]?.let { ref ->
+                    val displayName = achievementLabel(interval)?.let { "${ref.name} | $it" } ?: ref.name
                     Text(
-                        text = ref.name,
+                        text = displayName,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary,
@@ -110,4 +113,27 @@ fun IntervalListCard(
             }
         }
     }
+}
+
+/**
+ * Renders an import-time repeated-interval achievement snapshot (#185) as "3rd best 2026" /
+ * "3rd best all-time", or `null` when [interval] carries no achievement. The year is derived from
+ * [IntervalSession.startTimestamp] rather than persisted separately -- it's the calendar year the
+ * rep itself happened in, and that never changes, so it stays correct as a permanent snapshot.
+ */
+private fun achievementLabel(interval: IntervalSession): String? {
+    val rank = interval.achievementRank ?: return null
+    val scope = interval.achievementScope ?: return null
+    val ordinal = when (rank) {
+        1 -> "1st"
+        2 -> "2nd"
+        3 -> "3rd"
+        else -> "${rank}th"
+    }
+    val scopeText = if (scope == AchievementScope.ALL_TIME) {
+        "all-time"
+    } else {
+        interval.startTimestamp.atZone(ZoneId.systemDefault()).year.toString()
+    }
+    return "$ordinal best $scopeText"
 }

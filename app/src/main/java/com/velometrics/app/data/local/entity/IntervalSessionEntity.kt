@@ -37,5 +37,7 @@ data class IntervalSessionEntity(
     val hrr30: Int? = null,
     val avgPower60sAfter: Int? = null,
     val avgPower30sAfter: Int? = null,
-    val restBeforeNextIntervalSec: Int? = null
+    val restBeforeNextIntervalSec: Int? = null,
+    val achievementRank: Int? = null,     // Repeated-interval achievement snapshot (#185)
+    val achievementScope: String? = null  // AchievementScope.name, e.g. "ALL_TIME"/"THIS_YEAR"
 )

@@ -171,6 +171,7 @@ fun SessionDetailScreen(
                             repeatedIntervalNames = repeatedIntervalNames,
                             onRepeatedIntervalClick = onNavigateToRepeatedInterval
                         )
+                        Hrr60Card(intervals = intervals)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))

@@ -1,3 +1,45 @@
+## Issue #182 — Spin out HRR60 into its own card, with power figure + info overlay
+Completed: 2026-09-06
+
+### What was done
+
+Split heart-rate recovery display out of the Interval Card into a dedicated card, and surfaced
+`avgPower60sAfter` (persisted since #178 but never shown anywhere).
+
+**`ui/components/Hrr60Card.kt`** (new) — `Hrr60Card(intervals)` composable. Returns immediately
+(renders nothing, no empty-state placeholder) when no interval has a non-null `hrr60`. One row per
+interval with a non-null `hrr60`: interval number, `-N bpm` HRR60, and `avgPower60sAfter` in W (or
+"—" if that field is null for some reason while hrr60 isn't). Both figures get the identical
+truncation marker (asterisk + `onSurfaceVariant` color) when `restBeforeNextIntervalSec < 60`,
+since they're computed over the same forward-looking window — previously only HRR60 carried the
+marker. Title row has an "i" `IconButton` (`Icons.Filled.Info`) that opens an `AlertDialog`
+(same pattern as `HomeScreen`'s small-file-warning dialog) explaining what HRR60 measures (HR drop
+in the 60s after an interval, bigger = better parasympathetic recovery) and what the accompanying
+power figure means (near-zero suggests coasting, elevated suggests continued/soft-pedaling effort)
+plus what the asterisk means. `hrr30`/`avgPower30sAfter` are not referenced anywhere in this card —
+left unsurfaced per the issue's explicit scope.
+
+**`ui/components/IntervalListCard.kt`** — removed the inline `interval.hrr60?.let { ... }` `Text`
+block (moved, not duplicated) from the per-interval row.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `Hrr60Card(intervals = intervals)` added
+directly after `IntervalListCard`, inside the same `s.hasPower && intervals.isNotEmpty()` guard
+(consistent with the interval list itself only ever showing for power-having sessions); the card's
+own internal "any interval has hrr60" check is what actually decides whether it renders anything.
+
+### Tests
+No dedicated test added: this is a UI-only pass (a `Text` block moved from one composable into a
+new one, plus a title-row info dialog) with no branching logic to unit-test in isolation, matching
+the precedent of every prior UI-only change to this card (#174, #179, #181, #183) in a project with
+no Compose UI test harness. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
+full `testDebugUnitTest`: all pass, 327 tests, zero failures/errors across the whole suite
+(aggregated test-result XML) — unchanged count from #181, confirming this display-only move didn't
+touch anything under existing test coverage. No on-device verification this session (no
+emulator/device attached); flagged as a residual visual-verification gap, same as prior UI-only
+passes in this repo's history.
+
+---
+
 ## Issue #181 — Interval Card decluttering, drop normalized time & interval count from header
 Completed: 2026-09-06
 
@@ -193,40 +235,3 @@ With this, parent #177 (Heart Rate Recovery after interval) has both its childre
 closed — the import-time computation and the on-screen display are both in place. The parent issue
 itself stays open: it also poses open research questions (what cycling science says about HRR, and
 whether "recovery" is even the right term) that neither child issue scoped or answered.
-
----
-
-## Issue #178 follow-up — avgPower30sAfter per interval (user request, no issue filed)
-Completed: 2026-09-04
-
-### What was done
-
-User follow-up right after #178 landed: also wanted `avgPower30sAfter`, mirroring
-`avgPower60sAfter` but over the 30s window, alongside the existing hrr30/hrr60 pair.
-
-**`domain/model/IntervalSession.kt`** / **`data/local/entity/IntervalSessionEntity.kt`** /
-**`util/EntityMappers.kt`** — new nullable `avgPower30sAfter: Int? = null`, mapped both
-directions, same shape as the four #178 fields.
-
-**`domain/service/IntervalDetector.kt`** — extracted the #178 60s-window averaging logic out of
-`computeRecoveryMetrics` into a new private `avgPowerOverWindow(datapoints, endIdx, windowSec)`,
-called once per window (30s and 60s) instead of duplicating the loop. Same independence rules as
-before: only counted once a datapoint at/past the target offset is reached (session-end
-truncation still nulls it), never nulled just because the next interval started early
-(rest-truncation).
-
-**`data/local/VelometricsDatabase.kt`** (v16→17) + **`di/DatabaseModule.kt`** — `MIGRATION_16_17`:
-single nullable `INTEGER` column on `interval_sessions`, same no-backfill precedent as the rest of
-#178.
-
-### Tests
-`IntervalDetectorTest`: added avgPower30sAfter assertions to the existing full-window,
-truncated-rest, and missing-HR-data cases; new dedicated case proving avgPower30sAfter is
-populated independently of avgPower60sAfter when the session ends between the two windows (30s
-window completes, 60s window doesn't). `VelometricsMigrationTest` (+1): migrate 16→17 defaults
-avgPower30sAfter to null. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
-full `testDebugUnitTest`: all pass, 325 tests, zero failures/errors across the whole suite
-(aggregated test-result XML). No on-device verification this session, same rationale as #178
-itself (pure domain/DAO-projection and Room-migration logic, fully covered by tests).
-
----

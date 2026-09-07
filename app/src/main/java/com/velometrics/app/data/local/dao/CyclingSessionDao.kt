@@ -49,6 +49,20 @@ interface CyclingSessionDao {
     @Delete
     suspend fun delete(session: CyclingSessionEntity)
 
+    @Query("DELETE FROM cycling_sessions WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /**
+     * Bulk delete for Home's multiselect (#194): deletes each id individually, wrapped in one
+     * transaction so a failure partway through rolls back the whole batch rather than leaving a
+     * partial deletion. FK `ON DELETE CASCADE` already removes each deleted session's
+     * `interval_sessions`/`session_best_efforts` rows, same as the existing single-session [delete].
+     */
+    @Transaction
+    suspend fun deleteSessions(ids: List<Long>) {
+        ids.forEach { deleteById(it) }
+    }
+
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC")
     fun getAllSessions(): Flow<List<CyclingSessionEntity>>
 

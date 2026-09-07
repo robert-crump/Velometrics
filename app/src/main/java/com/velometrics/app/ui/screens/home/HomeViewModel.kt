@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -126,6 +127,62 @@ class HomeViewModel @Inject constructor(
 
     fun selectMonthIndex(index: Int) {
         _selectedMonthIndex.value = index.coerceIn(0, 11)
+    }
+
+    // --- Multiselect bulk delete (#194) ---
+
+    private val _selectionMode = MutableStateFlow(false)
+    val selectionMode: StateFlow<Boolean> = _selectionMode.asStateFlow()
+
+    private val _selectedSessionIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedSessionIds: StateFlow<Set<Long>> = _selectedSessionIds.asStateFlow()
+
+    private val _deleteError = MutableStateFlow<String?>(null)
+    val deleteError: StateFlow<String?> = _deleteError.asStateFlow()
+
+    /** Long-press on a Home ride card: enters selection mode with that card pre-selected. */
+    fun enterSelectionMode(sessionId: Long) {
+        _selectionMode.value = true
+        _selectedSessionIds.value = setOf(sessionId)
+    }
+
+    /** Tapping a card while in selection mode: multiselect toggle, not single-select. */
+    fun toggleSessionSelected(sessionId: Long) {
+        if (!_selectionMode.value) return
+        _selectedSessionIds.update { current ->
+            if (sessionId in current) current - sessionId else current + sessionId
+        }
+    }
+
+    /** Close (X) or back: exits selection mode and clears all selections. */
+    fun exitSelectionMode() {
+        _selectionMode.value = false
+        _selectedSessionIds.value = emptySet()
+    }
+
+    fun clearDeleteError() {
+        _deleteError.value = null
+    }
+
+    /**
+     * Deletes every selected session atomically (via [CyclingSessionRepository.deleteSessions]).
+     * On success, exits selection mode; the Home list updates on its own via the existing
+     * Flow-backed query. On failure, leaves selection mode active with the same items selected
+     * (so the user can retry) and surfaces [deleteError]. No recluster here, per #187/#192 — that
+     * stays on the lazy pull-to-refresh path.
+     */
+    fun deleteSelectedSessions() {
+        val ids = _selectedSessionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                sessionRepository.deleteSessions(ids)
+                exitSelectionMode()
+            } catch (e: Exception) {
+                Log.e(TAG, "Bulk delete failed", e)
+                _deleteError.value = "Couldn't delete rides"
+            }
+        }
     }
 
     // --- Import ---

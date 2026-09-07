@@ -6,11 +6,14 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -23,6 +26,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
@@ -56,6 +62,7 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import kotlin.math.roundToInt
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.RideRevealContent
+import com.velometrics.app.ui.components.ConfirmDialog
 import com.velometrics.app.ui.components.dragToSelectGesture
 import com.velometrics.app.util.FormatUtils
 import java.time.format.DateTimeFormatter
@@ -110,13 +117,19 @@ fun HomeScreen(
     val isInitialLoading by viewModel.isInitialLoading.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val dropboxSyncMessage by viewModel.dropboxSyncMessage.collectAsState()
+    val selectionMode by viewModel.selectionMode.collectAsState()
+    val selectedSessionIds by viewModel.selectedSessionIds.collectAsState()
+    val deleteError by viewModel.deleteError.collectAsState()
 
     var overflowMenuExpanded by remember { mutableStateOf(false) }
+    var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     var isSnackbarVisible by remember { mutableStateOf(false) }
     var snackbarHeightPx by remember { mutableStateOf(0) }
     val density = LocalDensity.current
+
+    BackHandler(enabled = selectionMode) { viewModel.exitSelectionMode() }
 
     LaunchedEffect(dropboxSyncMessage) {
         dropboxSyncMessage?.let { message ->
@@ -124,6 +137,13 @@ fun HomeScreen(
             snackbarHostState.showSnackbar(message)
             isSnackbarVisible = false
             viewModel.clearDropboxSyncMessage()
+        }
+    }
+
+    LaunchedEffect(deleteError) {
+        deleteError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearDeleteError()
         }
     }
 
@@ -156,39 +176,58 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Velometrics")
-                        if (sessionCount > 0) {
-                            Text(
-                                text = "$sessionCount rides",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+            if (selectionMode) {
+                TopAppBar(
+                    title = { Text("${selectedSessionIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.exitSelectionMode() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
                         }
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { overflowMenuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                        }
-                        DropdownMenu(
-                            expanded = overflowMenuExpanded,
-                            onDismissRequest = { overflowMenuExpanded = false }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { showBulkDeleteConfirm = true },
+                            enabled = selectedSessionIds.isNotEmpty()
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("All-time stats") },
-                                onClick = {
-                                    overflowMenuExpanded = false
-                                    onNavigateToAllTimeStats()
-                                }
-                            )
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected rides")
                         }
                     }
-                }
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("Velometrics")
+                            if (sessionCount > 0) {
+                                Text(
+                                    text = "$sessionCount rides",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { overflowMenuExpanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = overflowMenuExpanded,
+                                onDismissRequest = { overflowMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("All-time stats") },
+                                    onClick = {
+                                        overflowMenuExpanded = false
+                                        onNavigateToAllTimeStats()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                )
+            }
         },
         snackbarHost = {
             SnackbarHost(
@@ -297,7 +336,20 @@ fun HomeScreen(
     
                                 // Session list
                                 items(sessions) { session ->
-                                    SessionCard(session = session, onClick = { onSessionClick(session.id) })
+                                    SessionCard(
+                                        session = session,
+                                        selected = session.id in selectedSessionIds,
+                                        onClick = {
+                                            if (selectionMode) {
+                                                viewModel.toggleSessionSelected(session.id)
+                                            } else {
+                                                onSessionClick(session.id)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (!selectionMode) viewModel.enterSelectionMode(session.id)
+                                        }
+                                    )
                                 }
                             }
                             ScrollBarOverlay(
@@ -322,6 +374,20 @@ fun HomeScreen(
             }
         }
 
+
+        // Bulk-delete confirmation for Home's multiselect (#194)
+        if (showBulkDeleteConfirm) {
+            ConfirmDialog(
+                title = "Delete rides?",
+                text = "Delete ${selectedSessionIds.size} rides? This can't be undone.",
+                confirmLabel = "Delete",
+                onConfirm = {
+                    showBulkDeleteConfirm = false
+                    viewModel.deleteSelectedSessions()
+                },
+                onDismiss = { showBulkDeleteConfirm = false }
+            )
+        }
 
         // Small-file warning dialog: shown when an imported file has fewer than 60 GPS points
         val currentState = importState
@@ -711,16 +777,27 @@ private fun MonthlyLineChart(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
+private fun SessionCard(
+    session: CyclingSessionSummary,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        onClick = onClick
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = if (selected) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -728,10 +805,21 @@ private fun SessionCard(session: CyclingSessionSummary, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = FormatUtils.formatDate(session.sessionStart),
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selected) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Selected",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = FormatUtils.formatDate(session.sessionStart),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
                 // Tag (if any) sits left of the power icon, vertically centered against it; the
                 // 16.dp gap between them matches the Column's own 16.dp padding to the card's
                 // right border, so the tag-to-icon gap equals the icon-to-border gap.

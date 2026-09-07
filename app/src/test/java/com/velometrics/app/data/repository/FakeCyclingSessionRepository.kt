@@ -56,6 +56,10 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         sessions.removeAll { it.id == session.id }
     }
 
+    override suspend fun deleteSessions(ids: List<Long>) {
+        sessions.removeAll { it.id in ids }
+    }
+
     override suspend fun getSessionCount(): Int = sessions.size
 
     override suspend fun getMaxSessionStart(): Instant? = sessions.maxOfOrNull { it.sessionStart }

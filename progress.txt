@@ -1,3 +1,73 @@
+## Issue #194 — Bulk delete rides from Home (multiselect)
+Completed: 2026-09-07
+
+### What was done
+
+Third slice of #187: multiselect bulk delete on the Home ride list, reusing #193's shared
+`ConfirmDialog` and the same "no recluster here" rule #192/#193 established for single-ride delete.
+
+**`data/local/dao/CyclingSessionDao.kt`** — new `deleteById(id)` (`@Query DELETE ... WHERE id =
+:id`) and `deleteSessions(ids: List<Long>)`, a `@Transaction`-annotated default method that loops
+`ids.forEach { deleteById(it) }`. Room wraps the whole loop in one transaction, so a failure
+partway through rolls back every delete already issued in that call, rather than leaving some
+sessions deleted and others not. FK `ON DELETE CASCADE` (already in place for #193's single-session
+delete) removes each deleted session's `interval_sessions`/`session_best_efforts` rows the same way.
+**`domain/repository/CyclingSessionRepository.kt`** / **`data/repository/CyclingSessionRepositoryImpl.kt`**
+— new `deleteSessions(ids: List<Long>)`, a thin pass-through to the DAO method.
+**`data/repository/FakeCyclingSessionRepository.kt`** (test) — matching fake implementation
+(`sessions.removeAll { it.id in ids }`).
+
+**`ui/screens/home/HomeViewModel.kt`** — new selection-state surface: `selectionMode:
+StateFlow<Boolean>`, `selectedSessionIds: StateFlow<Set<Long>>`, `deleteError: StateFlow<String?>`.
+`enterSelectionMode(sessionId)` (long-press: turns on selection mode with just that card selected),
+`toggleSessionSelected(sessionId)` (add/remove from the set; no-ops outside selection mode),
+`exitSelectionMode()` (close/back: clears both the mode flag and the selection), `clearDeleteError()`.
+`deleteSelectedSessions()` calls `sessionRepository.deleteSessions(ids)` on
+`Dispatchers.IO`: on success calls `exitSelectionMode()` (Home's list updates on its own via the
+existing Flow-backed `getAllSessionSummaries()` query); on a caught `Exception` sets `deleteError =
+"Couldn't delete rides"` and leaves selection mode + the selection untouched so the user can retry.
+Deliberately does **not** call `recluster()` — out of scope per the issue, matching #193's
+single-delete precedent; that stays on #192's lazy pull-to-refresh path.
+
+**`ui/screens/home/HomeScreen.kt`** — `BackHandler(enabled = selectionMode) {
+viewModel.exitSelectionMode() }`. `Scaffold`'s `topBar` now branches on `selectionMode`: the normal
+title/overflow `TopAppBar` unchanged, or a contextual bar (close/X `navigationIcon`, "N selected"
+title, trash-can `actions` icon disabled when nothing is selected) while selecting. Tapping the
+trash icon opens the shared `ConfirmDialog` ("Delete rides?" / "Delete N rides? This can't be
+undone." / "Delete"); confirming calls `deleteSelectedSessions()`. A new `LaunchedEffect(deleteError)`
+shows it on the existing `snackbarHostState` (same shape as the pre-existing `dropboxSyncMessage`
+effect) and clears it after. `SessionCard` gained `selected`/`onLongClick` params: the card's
+`onClick` shorthand was replaced with `Modifier.combinedClickable(onClick, onLongClick)` (needed for
+long-press), a selected card gets a `secondaryContainer`-tinted background plus a leading
+`Icons.Filled.CheckCircle`, and the list's `onClick` now toggles selection in selection mode instead
+of navigating. Out of scope, per the issue: recluster-on-delete, undo, and hiding the import FAB
+while selecting.
+
+### Tests
+New `CyclingSessionDaoTest` (Robolectric, native SQLite, real `VelometricsDatabase` — same setup as
+`CyclingAssetDatabaseFixtureTest`/`VelometricsMigrationTest`, not a fake): `deleteSessions` cascades
+`interval_sessions`/`session_best_efforts` for every id in a mixed batch while leaving an
+unselected session untouched; a second case exercises the same `db.withTransaction` + `deleteById`
+mechanism `@Transaction` relies on directly (no seam exists to inject a failure inside the
+interface's own generated loop) and confirms a `RuntimeException` thrown after two deletes have
+already been issued rolls both back, proving the underlying rollback guarantee `deleteSessions`
+depends on.
+Five new cases in `HomeViewModelTest`: `enterSelectionMode`/`toggleSessionSelected` (add, remove,
+no-op outside selection mode)/`exitSelectionMode` state transitions, and `deleteSelectedSessions`
+on both a `LatchedDeleteSessionsRepository` success (sessions removed, selection mode exits, no
+error) and forced-failure path (error message set, selection mode + selected ids left untouched for
+retry) — same real-`Dispatchers.IO`-with-`CountDownLatch` pattern `syncDropbox`'s tests already use,
+since `deleteSelectedSessions` also dispatches off the test dispatcher.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 358 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 351
+prior + 7 new (2 DAO + 5 HomeViewModel). No on-device verification this session (no emulator/device
+attached); the selection/delete/error branching is fully covered by the new unit tests, and the
+long-press/contextual-TopAppBar/dialog wiring is otherwise-standard Compose plumbing with no Compose
+UI test harness in this project (same residual gap as every prior UI-touching pass in this repo's
+history).
+
+---
+
 ## Issue #192 — Cluster hygiene: keep Repeated Routes/Intervals correct after ride deletion
 Completed: 2026-09-07
 
@@ -220,45 +290,3 @@ suite (aggregated test-result XML) — 327 prior + 5 new, confirming nothing els
 on-device verification this session (no emulator/device attached); this change has real branching
 logic but it's fully exercised by the new unit tests, so the residual gap is just the composable
 rendering the string, same as this narrative's own prior sessions (#171 and its predecessors).
-
----
-
-## Issue #182 — Spin out HRR60 into its own card, with power figure + info overlay
-Completed: 2026-09-06
-
-### What was done
-
-Split heart-rate recovery display out of the Interval Card into a dedicated card, and surfaced
-`avgPower60sAfter` (persisted since #178 but never shown anywhere).
-
-**`ui/components/Hrr60Card.kt`** (new) — `Hrr60Card(intervals)` composable. Returns immediately
-(renders nothing, no empty-state placeholder) when no interval has a non-null `hrr60`. One row per
-interval with a non-null `hrr60`: interval number, `-N bpm` HRR60, and `avgPower60sAfter` in W (or
-"—" if that field is null for some reason while hrr60 isn't). Both figures get the identical
-truncation marker (asterisk + `onSurfaceVariant` color) when `restBeforeNextIntervalSec < 60`,
-since they're computed over the same forward-looking window — previously only HRR60 carried the
-marker. Title row has an "i" `IconButton` (`Icons.Filled.Info`) that opens an `AlertDialog`
-(same pattern as `HomeScreen`'s small-file-warning dialog) explaining what HRR60 measures (HR drop
-in the 60s after an interval, bigger = better parasympathetic recovery) and what the accompanying
-power figure means (near-zero suggests coasting, elevated suggests continued/soft-pedaling effort)
-plus what the asterisk means. `hrr30`/`avgPower30sAfter` are not referenced anywhere in this card —
-left unsurfaced per the issue's explicit scope.
-
-**`ui/components/IntervalListCard.kt`** — removed the inline `interval.hrr60?.let { ... }` `Text`
-block (moved, not duplicated) from the per-interval row.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `Hrr60Card(intervals = intervals)` added
-directly after `IntervalListCard`, inside the same `s.hasPower && intervals.isNotEmpty()` guard
-(consistent with the interval list itself only ever showing for power-having sessions); the card's
-own internal "any interval has hrr60" check is what actually decides whether it renders anything.
-
-### Tests
-No dedicated test added: this is a UI-only pass (a `Text` block moved from one composable into a
-new one, plus a title-row info dialog) with no branching logic to unit-test in isolation, matching
-the precedent of every prior UI-only change to this card (#174, #179, #181, #183) in a project with
-no Compose UI test harness. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
-full `testDebugUnitTest`: all pass, 327 tests, zero failures/errors across the whole suite
-(aggregated test-result XML) — unchanged count from #181, confirming this display-only move didn't
-touch anything under existing test coverage. No on-device verification this session (no
-emulator/device attached); flagged as a residual visual-verification gap, same as prior UI-only
-passes in this repo's history.

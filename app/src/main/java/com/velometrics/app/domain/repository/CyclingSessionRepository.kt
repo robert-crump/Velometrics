@@ -18,6 +18,8 @@ interface CyclingSessionRepository {
     suspend fun insertSession(session: CyclingSession): Long
     suspend fun updateSession(session: CyclingSession)
     suspend fun deleteSession(session: CyclingSession)
+    /** Atomic bulk delete for Home's multiselect (#194): all-or-nothing on a failure partway through. */
+    suspend fun deleteSessions(ids: List<Long>)
     suspend fun getSessionCount(): Int
     /** Latest [CyclingSession.sessionStart] persisted, or null if the table is empty. */
     suspend fun getMaxSessionStart(): Instant?

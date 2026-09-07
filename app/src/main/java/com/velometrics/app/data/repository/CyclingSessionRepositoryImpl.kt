@@ -65,6 +65,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         dao.delete(session.toEntity())
     }
 
+    override suspend fun deleteSessions(ids: List<Long>) {
+        dao.deleteSessions(ids)
+    }
+
     override suspend fun getSessionCount(): Int {
         return dao.getSessionCount()
     }

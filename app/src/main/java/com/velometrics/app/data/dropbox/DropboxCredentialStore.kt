@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.dropbox.core.oauth.DbxCredential
+import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,7 +17,7 @@ import javax.inject.Singleton
 @Singleton
 class DropboxCredentialStore @Inject constructor(
     @ApplicationContext context: Context
-) {
+) : DropboxSyncCursorRepository {
     companion object {
         private const val PREFS_FILE_NAME = "dropbox_credentials"
         private const val KEY_ACCESS_TOKEN = "access_token"
@@ -79,6 +80,13 @@ class DropboxCredentialStore @Inject constructor(
     fun getSyncCursor(folder: String): String? {
         if (prefs.getString(KEY_SYNC_CURSOR_FOLDER, null) != folder) return null
         return prefs.getString(KEY_SYNC_CURSOR, null)
+    }
+
+    override fun invalidateSyncCursor() {
+        prefs.edit()
+            .remove(KEY_SYNC_CURSOR)
+            .remove(KEY_SYNC_CURSOR_FOLDER)
+            .apply()
     }
 
     /** Marks (or clears) the connection as needing the user to reconnect Dropbox. */

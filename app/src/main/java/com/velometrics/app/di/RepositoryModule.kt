@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.di
 
+import com.velometrics.app.data.dropbox.DropboxCredentialStore
 import com.velometrics.app.data.repository.BestEffortRepositoryImpl
 import com.velometrics.app.data.repository.CyclingSessionRepositoryImpl
 import com.velometrics.app.data.repository.IntervalRepositoryImpl
@@ -8,6 +9,7 @@ import com.velometrics.app.data.repository.RepeatedIntervalRepositoryImpl
 import com.velometrics.app.data.repository.RepeatedRouteRepositoryImpl
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
@@ -57,4 +59,10 @@ abstract class RepositoryModule {
     abstract fun bindBestEffortRepository(
         impl: BestEffortRepositoryImpl
     ): BestEffortRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDropboxSyncCursorRepository(
+        impl: DropboxCredentialStore
+    ): DropboxSyncCursorRepository
 }

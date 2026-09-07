@@ -11,6 +11,7 @@ import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.service.SessionComparator
@@ -75,13 +76,15 @@ class SessionDetailViewModelTest {
     private fun buildViewModel(
         sessionRepository: CyclingSessionRepository,
         sessionId: Long,
-        scope: CoroutineScope
+        scope: CoroutineScope,
+        dropboxSyncCursorRepository: DropboxSyncCursorRepository = FakeDropboxSyncCursorRepository()
     ) = SessionDetailViewModel(
         savedStateHandle = SavedStateHandle(mapOf("sessionId" to sessionId)),
         sessionRepository = sessionRepository,
         intervalRepository = FakeIntervalRepository(),
         bestEffortRepository = FakeBestEffortRepository(),
         sessionComparator = SessionComparator(sessionRepository),
+        dropboxSyncCursorRepository = dropboxSyncCursorRepository,
         globalAverageCache = GlobalAverageCache(sessionRepository, scope),
         repeatedIntervalsCache = RepeatedIntervalsCache(FakeRepeatedIntervalRepository(), scope)
     )
@@ -122,6 +125,35 @@ class SessionDetailViewModelTest {
         assertEquals("Couldn't delete ride", vm.deleteError.value)
         assertTrue(repo.delegate.sessions.any { it.id == 2L })
         collector.cancel()
+    }
+
+    @Test
+    fun `deleteRide invalidates the Dropbox sync cursor on success so the ride can be re-synced`() =
+        runTest(testDispatcher) {
+            val repo = FakeCyclingSessionRepository()
+            repo.sessions.add(buildSession(id = 3L))
+            val cursorRepository = FakeDropboxSyncCursorRepository()
+            val vm = buildViewModel(repo, sessionId = 3L, scope = backgroundScope, dropboxSyncCursorRepository = cursorRepository)
+            advanceUntilIdle()
+
+            vm.deleteRide()
+            advanceUntilIdle()
+
+            assertTrue(cursorRepository.invalidated)
+        }
+
+    @Test
+    fun `deleteRide does not touch the Dropbox sync cursor on repository failure`() = runTest(testDispatcher) {
+        val repo = FailingDeleteCyclingSessionRepository()
+        repo.delegate.sessions.add(buildSession(id = 4L))
+        val cursorRepository = FakeDropboxSyncCursorRepository()
+        val vm = buildViewModel(repo, sessionId = 4L, scope = backgroundScope, dropboxSyncCursorRepository = cursorRepository)
+        advanceUntilIdle()
+
+        vm.deleteRide()
+        advanceUntilIdle()
+
+        assertFalse(cursorRepository.invalidated)
     }
 }
 
@@ -164,4 +196,13 @@ private class FakeRepeatedIntervalRepository : RepeatedIntervalRepository {
     override suspend fun renameRepeatedInterval(id: Long, newName: String) {}
     override suspend fun deleteRepeatedIntervalsByIds(ids: List<Long>) {}
     override suspend fun deleteAll() {}
+}
+
+private class FakeDropboxSyncCursorRepository : DropboxSyncCursorRepository {
+    var invalidated = false
+        private set
+
+    override fun invalidateSyncCursor() {
+        invalidated = true
+    }
 }

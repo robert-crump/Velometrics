@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.ui.screens.sessiondetail
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -90,6 +91,38 @@ fun SessionDetailScreen(
                     drawerFraction = drawerFraction
                 )
 
+                // Section membership per #188: which cards each group would render, computed up
+                // front so an empty section's header can be hidden entirely rather than shown
+                // with nothing to expand into.
+                val showPowerZones = s.hasPower && s.powerZoneDistribution != null
+                val showPowerPlaceholder = !s.hasPower
+                val showPowerCurve = s.hasPower && powerCurve.any { it.watts != null }
+                val showSprint = s.hasPower && s.sprintCount > 0 && s.sprintHistogram != null
+                val powerSectionVisible = showPowerZones || showPowerPlaceholder || showPowerCurve || showSprint
+
+                val showHrZones = s.hrZoneDistribution != null
+                val showCardiacDrift = s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null
+                val showFatEfficiency = s.hasPower && s.fatEfficiencyHistogram != null
+                val heartRateSectionVisible = showHrZones || showCardiacDrift || showFatEfficiency
+
+                val intervalsSectionVisible = s.hasPower && intervals.isNotEmpty()
+
+                // Fields relocated out of the summary grid (#188) — surfaced via a ChapterStatsCard
+                // as the first card of their new section, with no trend triangle (plain values only).
+                val normalizedPowerWatts: Int? = if (s.hasPower) s.normalizedPower else null
+                val cardiacEfficiency: Double? = if (s.hasPower) {
+                    val power = s.averagePower
+                    val hr = s.avgHeartRate
+                    if (power != null && hr != null && hr != 0) power.toDouble() / hr else null
+                } else null
+                val fatEffScore: Int? = s.fatEfficiencyScore
+                val fatCarbText: String? = s.energy?.formatFatCarbGrams()
+
+                var powerExpanded by remember { mutableStateOf(false) }
+                var heartRateExpanded by remember { mutableStateOf(false) }
+                var speedExpanded by remember { mutableStateOf(false) }
+                var intervalsExpanded by remember { mutableStateOf(false) }
+
                 // Pull-up drawer with all statistics; opens at 50%
                 PullUpDrawer(
                     initialFraction = 0.5f,
@@ -97,80 +130,122 @@ fun SessionDetailScreen(
                 ) {
                     RideSummaryGrid(session = s, comparison = comparison, tagNarrative = tagNarrative)
 
-                    if (s.hasPower && s.powerZoneDistribution != null) {
-                        PowerZoneChart(
-                            powerZones = s.powerZoneDistribution!!,
-                            averagePercentages = powerZoneAverages
-                        )
-                    } else if (!s.hasPower) {
-                        // Session has no power data — show a placeholder card
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                    if (powerSectionVisible) {
+                        CollapsibleSection(
+                            title = "Power",
+                            expanded = powerExpanded,
+                            onToggle = { powerExpanded = !powerExpanded }
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = "Power Zones",
-                                    style = MaterialTheme.typography.titleMedium
+                            ChapterStatsCard(
+                                metrics = listOfNotNull(
+                                    normalizedPowerWatts?.let { "Norm. Power" to FormatUtils.formatPower(it) }
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Box(
+                            )
+
+                            if (showPowerZones) {
+                                PowerZoneChart(
+                                    powerZones = s.powerZoneDistribution!!,
+                                    averagePercentages = powerZoneAverages
+                                )
+                            } else if (showPowerPlaceholder) {
+                                // Session has no power data — show a placeholder card
+                                Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
-                                    Text(
-                                        text = "No power data available",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
-                                    )
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "Power Zones",
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "No power data available",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    }
                                 }
+                            }
+
+                            if (showPowerCurve) {
+                                SessionPowerCurveCard(points = powerCurve)
+                            }
+
+                            if (showSprint) {
+                                SprintCard(sprintHistogram = s.sprintHistogram!!)
                             }
                         }
                     }
 
-                    if (s.hasPower && powerCurve.any { it.watts != null }) {
-                        SessionPowerCurveCard(points = powerCurve)
-                    }
-
-                    SpeedHistogramChart(
-                        percentages = speedHistogram,
-                        allRidesAveragePercentages = speedHistogramAverages
-                    )
-
-                    if (s.hrZoneDistribution != null) {
-                        HeartRateZoneChart(
-                            hrZones = s.hrZoneDistribution!!,
-                            averagePercentages = hrZoneAverages
+                    CollapsibleSection(
+                        title = "Speed",
+                        expanded = speedExpanded,
+                        onToggle = { speedExpanded = !speedExpanded }
+                    ) {
+                        SpeedHistogramChart(
+                            percentages = speedHistogram,
+                            allRidesAveragePercentages = speedHistogramAverages
                         )
                     }
 
-                    if (s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null) {
-                        CardiacDriftChart(
-                            buckets = s.cardiacDriftBuckets!!,
-                            decouplingPercent = s.cardiacDriftPercent!!
-                        )
+                    if (heartRateSectionVisible) {
+                        CollapsibleSection(
+                            title = "Heart Rate",
+                            expanded = heartRateExpanded,
+                            onToggle = { heartRateExpanded = !heartRateExpanded }
+                        ) {
+                            ChapterStatsCard(
+                                metrics = listOfNotNull(
+                                    cardiacEfficiency?.let { "Cardiac Eff." to FormatUtils.formatCardiacEfficiency(it) },
+                                    fatEffScore?.let { "Fat Eff." to "$it" },
+                                    fatCarbText?.let { "Fat / Carbs" to it }
+                                )
+                            )
+
+                            if (showHrZones) {
+                                HeartRateZoneChart(
+                                    hrZones = s.hrZoneDistribution!!,
+                                    averagePercentages = hrZoneAverages
+                                )
+                            }
+
+                            if (showCardiacDrift) {
+                                CardiacDriftChart(
+                                    buckets = s.cardiacDriftBuckets!!,
+                                    decouplingPercent = s.cardiacDriftPercent!!
+                                )
+                            }
+
+                            if (showFatEfficiency) {
+                                FatEfficiencyHistogram(histogram = s.fatEfficiencyHistogram!!)
+                            }
+                        }
                     }
 
-                    if (s.hasPower && s.fatEfficiencyHistogram != null) {
-                        FatEfficiencyHistogram(histogram = s.fatEfficiencyHistogram!!)
-                    }
-
-                    if (s.hasPower && s.sprintCount > 0 && s.sprintHistogram != null) {
-                        SprintCard(sprintHistogram = s.sprintHistogram!!)
-                    }
-
-                    if (s.hasPower && intervals.isNotEmpty()) {
-                        IntervalListCard(
-                            intervals = intervals,
-                            onIntervalClick = {},
-                            repeatedIntervalNames = repeatedIntervalNames,
-                            onRepeatedIntervalClick = onNavigateToRepeatedInterval
-                        )
-                        Hrr60Card(intervals = intervals)
+                    if (intervalsSectionVisible) {
+                        CollapsibleSection(
+                            title = "Intervals & Recovery",
+                            expanded = intervalsExpanded,
+                            onToggle = { intervalsExpanded = !intervalsExpanded }
+                        ) {
+                            IntervalListCard(
+                                intervals = intervals,
+                                onIntervalClick = {},
+                                repeatedIntervalNames = repeatedIntervalNames,
+                                onRepeatedIntervalClick = onNavigateToRepeatedInterval
+                            )
+                            Hrr60Card(intervals = intervals)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -342,6 +417,87 @@ private fun RideTagLabel(tag: String, expanded: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * A collapsed-by-default group of cards (#188), toggled by tapping its header row — chevron
+ * rotates 90° when expanded, matching [RideTagLabel]'s affordance. Sections are independent: more
+ * than one can be open at once, so e.g. Power and Heart Rate can be compared side by side in the
+ * scroll without the other two sections' cards in between.
+ */
+@Composable
+private fun CollapsibleSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.rotate(if (expanded) 90f else 0f)
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(content = content)
+        }
+    }
+}
+
+/**
+ * The first card in a chapter (#188 follow-up): a two-column [MetricCell] grid, analogous to the
+ * always-shown grid at the top of the drawer, holding the fields that used to live in the summary
+ * grid but are scoped to this chapter's theme (e.g. Norm. Power for Power, Cardiac Eff./Fat
+ * Eff./Fat-Carbs for Heart Rate). No headline — the parent [CollapsibleSection]'s own title already
+ * names the chapter. Plain values only — no trend triangle, matching the rest of the relocated
+ * fields. Renders nothing when [metrics] is empty (e.g. a powerless ride).
+ */
+@Composable
+private fun ChapterStatsCard(metrics: List<Pair<String, String>>) {
+    if (metrics.isEmpty()) return
+
+    val leftColumn = metrics.subList(0, (metrics.size + 1) / 2)
+    val rightColumn = metrics.subList((metrics.size + 1) / 2, metrics.size)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    leftColumn.forEachIndexed { index, (label, value) ->
+                        if (index > 0) Spacer(modifier = Modifier.height(12.dp))
+                        MetricCell(label = label, value = value)
+                    }
+                }
+                if (rightColumn.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        rightColumn.forEachIndexed { index, (label, value) ->
+                            if (index > 0) Spacer(modifier = Modifier.height(12.dp))
+                            MetricCell(label = label, value = value)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?, tagNarrative: String?) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
@@ -357,18 +513,7 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
             .withZone(ZoneId.systemDefault())
     }
 
-    val fatEffScore: Int? = session.fatEfficiencyScore
-
-    val cardiacEfficiency: Double? = if (session.hasPower) {
-        val power = session.averagePower
-        val hr = session.avgHeartRate
-        if (power != null && hr != null && hr != 0) power.toDouble() / hr else null
-    } else null
-
     val totalKcal: Double? = session.energy?.totalKcal?.toDouble()
-    val elevGainPer100km: Double? = session.elevationGainM?.let {
-        if (session.distanceKm > 0) it / session.distanceKm * 100 else null
-    }
 
     Column(
         modifier = Modifier
@@ -406,6 +551,9 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
         fun <T> pooled(last5: T, allPrevious: T): T =
             if (comparisonMode == ComparisonMode.LAST_5) last5 else allPrevious
 
+        // Strava-simple headline set (#188) — 6 fields, 2 columns x 3 rows. The other 5 fields
+        // that used to live here moved into their matching section's card header; Elev. gain /
+        // 100km was dropped entirely as redundant with raw Elevation gain.
         Row(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 MetricCell(
@@ -428,6 +576,30 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
+                    label = "Avg Speed",
+                    value = FormatUtils.formatSpeed(avgSpeed),
+                    current = avgSpeed,
+                    reference = pooled(
+                        comparison?.medianAvgSpeedKmhLast5,
+                        comparison?.medianAvgSpeedKmhAllPrevious
+                    ),
+                    higherIsBetter = true
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                MetricCell(
+                    label = "Elevation gain",
+                    value = session.elevationGainM?.let { FormatUtils.formatElevationGain(it) } ?: "—",
+                    current = session.elevationGainM,
+                    reference = pooled(
+                        comparison?.medianElevationGainMLast5,
+                        comparison?.medianElevationGainMAllPrevious
+                    ),
+                    higherIsBetter = true  // more climbing is an achievement, not a cost
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricCell(
                     label = "Avg Power",
                     value = if (session.hasPower && session.averagePower != null)
                         FormatUtils.formatPower(session.averagePower) else "—",
@@ -445,86 +617,6 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                     current = totalKcal,
                     reference = pooled(comparison?.medianTotalKcalLast5, comparison?.medianTotalKcalAllPrevious),
                     higherIsBetter = true  // more calories burned = better workout
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricCell(
-                    label = "Elevation gain",
-                    value = session.elevationGainM?.let { FormatUtils.formatElevationGain(it) } ?: "—",
-                    current = session.elevationGainM,
-                    reference = pooled(
-                        comparison?.medianElevationGainMLast5,
-                        comparison?.medianElevationGainMAllPrevious
-                    ),
-                    higherIsBetter = true  // more climbing is an achievement, not a cost
-                )
-                val elevGainPer100kmLabel = session.elevationGainM?.let {
-                    FormatUtils.formatElevationGainPer100km(it, session.distanceKm)
-                }
-                if (elevGainPer100kmLabel != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    MetricCell(
-                        label = "Elev. gain / 100km",
-                        value = elevGainPer100kmLabel,
-                        current = elevGainPer100km,
-                        reference = pooled(
-                            comparison?.medianElevGainPer100kmLast5,
-                            comparison?.medianElevGainPer100kmAllPrevious
-                        ),
-                        higherIsBetter = true  // consistent with raw Elevation gain, above
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                // Fat efficiency score replaces total duration
-                MetricCell(
-                    label = "Fat Eff.",
-                    value = if (fatEffScore != null) "$fatEffScore" else "—",
-                    current = fatEffScore?.toDouble(),
-                    reference = pooled(
-                        comparison?.medianFatEfficiencyLast5,
-                        comparison?.medianFatEfficiencyAllPrevious
-                    ),
-                    higherIsBetter = true
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricCell(
-                    label = "Avg Speed",
-                    value = FormatUtils.formatSpeed(avgSpeed),
-                    current = avgSpeed,
-                    reference = pooled(
-                        comparison?.medianAvgSpeedKmhLast5,
-                        comparison?.medianAvgSpeedKmhAllPrevious
-                    ),
-                    higherIsBetter = true
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricCell(
-                    label = "Norm. Power",
-                    value = if (session.hasPower && session.normalizedPower != null)
-                        FormatUtils.formatPower(session.normalizedPower) else "—",
-                    current = session.normalizedPower?.toDouble(),
-                    reference = pooled(
-                        comparison?.medianNormalizedPowerLast5?.toDouble(),
-                        comparison?.medianNormalizedPowerAllPrevious?.toDouble()
-                    ),
-                    higherIsBetter = true
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricCell(
-                    label = "Fat / Carbs",
-                    value = session.energy?.formatFatCarbGrams() ?: "—"
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MetricCell(
-                    label = "Cardiac Eff.",
-                    value = cardiacEfficiency?.let { FormatUtils.formatCardiacEfficiency(it) } ?: "—",
-                    current = cardiacEfficiency,
-                    reference = pooled(
-                        comparison?.medianCardiacEfficiencyLast5,
-                        comparison?.medianCardiacEfficiencyAllPrevious
-                    ),
-                    higherIsBetter = true
                 )
             }
         }

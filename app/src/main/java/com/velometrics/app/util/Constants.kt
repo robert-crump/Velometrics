@@ -164,6 +164,13 @@ object CyclingConstants {
     // never dropped purely due to heading noise.
     const val INTERVAL_SNAP_BEARING_MAX_DIFF_DEG = 45.0
 
+    // RepeatedRoute clustering (grouping raw sessions into deduped route archetypes): also the
+    // floor a resolved route's *surviving* session count must clear at read time (#192) — a
+    // stale/missing member (e.g. one deleted since the last recluster) is filtered out before this
+    // check, so a route that drops below it that way is hidden exactly like one that never reached
+    // it during clustering.
+    const val ROUTE_CLUSTER_MIN_GROUP_SIZE = 3
+
     // RepeatedInterval clustering / matching (grouping raw intervals into deduped archetypes)
     const val INTERVAL_LENGTH_TOLERANCE_M = 100.0
     const val INTERVAL_POINT_SIMILARITY_THRESHOLD = 0.8

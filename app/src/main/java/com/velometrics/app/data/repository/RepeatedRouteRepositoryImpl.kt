@@ -6,6 +6,7 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
+import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
 import com.velometrics.app.util.JsonSafeParser
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
@@ -76,8 +77,11 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
 
     private fun entityToDomain(entity: RepeatedRouteEntity, sessionMap: Map<Long, CyclingSession>): RepeatedRoute? {
         val ids = parseIds(entity.sessionIds)
+        // A stale id (its session deleted since the last recluster) simply drops out here; if
+        // that leaves the route below the same minimum group size clustering itself enforces
+        // (#192), hide it entirely rather than show an under-strength "repeated" route.
         val sessions = ids.mapNotNull { sessionMap[it] }
-        if (sessions.isEmpty()) return null
+        if (sessions.size < ROUTE_CLUSTER_MIN_GROUP_SIZE) return null
 
         // Representative track: median-length session's GPS track
         val sortedByLength = sessions

@@ -197,7 +197,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** Re-clusters routes and repeated intervals once per import batch, on a scope that survives navigation away from the home screen. */
+    /**
+     * Re-clusters routes and repeated intervals, on a scope that survives navigation away from
+     * the home screen. Called once per import batch, and unconditionally on every pull-to-refresh
+     * (#192) so cluster badges stay correct after a ride delete even without a new import.
+     */
     private fun recluster() {
         appScope.launch {
             try {
@@ -231,7 +235,15 @@ class HomeViewModel @Inject constructor(
         _dropboxSyncMessage.value = null
     }
 
-    /** Pull-to-refresh entry point: syncs new .fit files from the configured Dropbox folder. */
+    /**
+     * Pull-to-refresh entry point: syncs new .fit files from the configured Dropbox folder.
+     *
+     * Reclusters unconditionally (#192) — regardless of Dropbox connection state or whether new
+     * files were found — so this is also the general "resync cluster state" action for a user who
+     * just deleted a ride and wants Repeated Routes/Intervals badges to reflect it. It's placed in
+     * `finally` so it still runs on every early-return path (not connected, needs reauth) as well
+     * as after a completed sync, without duplicating the call in each branch.
+     */
     fun syncDropbox(isUserInitiated: Boolean = true) {
         if (_isSyncing.value) return
 
@@ -251,9 +263,6 @@ class HomeViewModel @Inject constructor(
                 val revealBaseline = rideRevealEvaluator.captureBaseline()
                 when (val result = dropboxSyncService.sync()) {
                     is DropboxSyncResult.Completed -> {
-                        if (result.importResults.any { it is ImportResult.Success }) {
-                            recluster()
-                        }
                         val reveal = rideRevealEvaluator.evaluate(result.importResults, revealBaseline)
                         if (reveal != null) {
                             _importState.value = ImportUiState.RideReveal(reveal)
@@ -270,6 +279,7 @@ class HomeViewModel @Inject constructor(
                 }
             } finally {
                 _isSyncing.value = false
+                recluster()
             }
         }
     }

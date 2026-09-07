@@ -89,6 +89,11 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
         edgeMap: Map<Pair<Long, Long>, MapEdge>
     ): RepeatedInterval? {
         val intervalIds = parseLongList(entity.intervalIds)
+        // A stale id (its interval's session deleted since the last recluster) simply drops out
+        // here (#192). Unlike RepeatedRoute, interval clustering has no minimum group size — a
+        // single surviving interval is still a valid archetype, matching clustering's own "no
+        // minimum" behavior (see IntervalClusteringService) — so only a fully-emptied list hides
+        // the entry.
         val intervals = intervalIds.mapNotNull { intervalMap[it] }
         if (intervals.isEmpty()) return null
 

@@ -5,6 +5,7 @@ import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import android.util.Log
+import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
 import com.velometrics.app.util.JsonSafeParser
@@ -28,7 +29,7 @@ class RouteClusteringService @Inject constructor(
         private const val MAX_LENGTH_DELTA_KM = 7.0    // absolute cap on length difference
         private const val LENGTH_DELTA_FRACTION = 0.15 // also cap at 15% of shorter route's distance
         private const val MAX_CENTROID_DIST_M = 3000.0 // routes with centroids >3 km apart are different
-        private const val MIN_GROUP_SIZE = 3
+        private const val MIN_GROUP_SIZE = ROUTE_CLUSTER_MIN_GROUP_SIZE
         private const val MIN_SESSION_DIST_KM = 1.0    // skip bogus/accidental sessions
 
         // Flip to true (locally) to log per-pair rejection reasons + summary.

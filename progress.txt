@@ -1,3 +1,66 @@
+## Issue #192 — Cluster hygiene: keep Repeated Routes/Intervals correct after ride deletion
+Completed: 2026-09-07
+
+### What was done
+
+Second slice of #187: keeps Repeated Routes/Intervals correct after #193's ride-delete, without
+delete itself triggering a recompute (clustering's full-recompute cost stays off the delete path).
+
+**`ui/screens/home/HomeViewModel.kt`** — `syncDropbox()`'s `recluster()` call moved into the
+`finally` block (was: only inside the `DropboxSyncResult.Completed` branch, and only when an import
+actually succeeded). `finally` runs on every path — not connected, needs reauth, or a completed sync
+regardless of outcome — so pull-to-refresh now reclusters unconditionally, becoming the general
+"resync cluster state" action for a user who just deleted a ride. The existing "Connect Dropbox in
+Settings" message still shows exactly as before; only the recluster gating changed. Both
+`RouteClusteringService.runClustering()`/`IntervalClusteringService.runClustering()` already do a
+full recompute straight from the current DB state, so a deleted session/interval simply isn't in
+their input on the next pass — no clustering-service change needed for this half.
+
+**`util/Constants.kt`** — new `CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE = 3`, hoisted out of
+`RouteClusteringService`'s previously-private `MIN_GROUP_SIZE` so the repository layer (below) can
+enforce the same floor. `RouteClusteringService` now defines its own `MIN_GROUP_SIZE` as a reference
+to the shared constant — no behavior change there.
+
+**`data/repository/RepeatedRouteRepositoryImpl.kt`** — `entityToDomain`'s existing
+`ids.mapNotNull { sessionMap[it] }` already silently drops a stale id (a session deleted since the
+last recluster; `RepeatedRouteEntity.sessionIds` carries no FK); the gap was that the group was only
+hidden once *every* member went stale (`sessions.isEmpty()`). Changed the guard to
+`sessions.size < ROUTE_CLUSTER_MIN_GROUP_SIZE`, so a route whose surviving count falls to 1 or 2
+(below clustering's own minimum group size) is hidden entirely, same as a group that never reached
+that size during clustering — rather than rendering an under-strength "repeated" route.
+
+**`data/repository/RepeatedIntervalRepositoryImpl.kt`** — no behavior change; `entityToDomain`
+already filters stale ids the same way and correctly hides only a fully-emptied entry, which is
+already right here since `IntervalClusteringService` has no minimum group size (documented/tested
+as "no minimum group size" — a lone surviving interval is a valid archetype on its own). Added a
+comment explaining why this file needed no floor-check unlike the route one.
+
+Out of scope, per the issue: `IntervalSessionEntity.achievementRank`/`achievementScope` staleness
+after a rank-holder is deleted (pre-existing, accepted, unrelated to this issue's cluster-hygiene
+scope).
+
+### Tests
+`RepeatedRouteRepositoryImplTest` (new, 3 cases, `mockk<RepeatedRouteDao>` + real
+`FakeCyclingSessionRepository`): a route with one stale member id (4 → 3 survivors) still resolves
+with the remaining valid sessions; a route whose survivor count drops to 2 (below the minimum of 3)
+is hidden entirely; a route with zero survivors is hidden (not just filtered down).
+`RepeatedIntervalRepositoryImplTest` (new, 2 cases, `mockk<RepeatedIntervalDao>`/`IntervalRepository`/
+`MapGraphRepository`): a repeated interval with one stale member id (3 → 2 survivors) still resolves
+with the remaining valid intervals (no minimum group size, unlike routes); one with zero survivors
+is hidden. `HomeViewModelTest` (new, first test for this ViewModel; 3 cases, real `CountDownLatch`
+wait rather than virtual time since `syncDropbox` explicitly dispatches onto the real
+`Dispatchers.IO`, not a swappable test dispatcher): `syncDropbox` reclusters (both services) when
+Dropbox is disconnected, when connected but sync finds nothing new, and when Dropbox needs reauth —
+each previously would have skipped the recluster call entirely.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 351 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 341
+prior + 8 new (3 route-repo + 2 interval-repo + 3 HomeViewModel) + 2 more from other work landed on
+main since #193's count was recorded. No on-device verification this session (no emulator/device
+attached); the resolve/hide branching and the unconditional-recluster wiring are fully covered by
+the new unit tests.
+
+---
+
 ## Issue #193 — Delete a ride from Session Detail
 Completed: 2026-09-07
 
@@ -199,59 +262,3 @@ full `testDebugUnitTest`: all pass, 327 tests, zero failures/errors across the w
 touch anything under existing test coverage. No on-device verification this session (no
 emulator/device attached); flagged as a residual visual-verification gap, same as prior UI-only
 passes in this repo's history.
-
----
-
-## Issue #181 — Interval Card decluttering, drop normalized time & interval count from header
-Completed: 2026-09-06
-
-### What was done
-
-Pure display-consistency fix: `durationNormalizedSec` (FTP-normalized duration) was being shown or
-used for coloring in several places that read as if they were reporting plain elapsed time, which
-was misleading (and, for the map legend vs. actual rendered color, an outright mismatch since the
-two could disagree once an interval's FTP-normalized duration diverged from its raw one).
-
-**`ui/components/IntervalListCard.kt`** — removed the "(norm: …)" secondary `Text` per interval
-row entirely (was only shown when `durationNormalizedSec != durationSec`). Header changed from
-`"Intervals (${intervals.size})"` to plain `"Intervals"`; the footer summary line ("Total: … in N
-intervals, avg…") already carried the count separately and is untouched.
-
-**`ui/screens/repeatedintervaldetail/RepeatedIntervalDetailScreen.kt`** — the History row's
-duration column (previously the *only* duration shown there, unlabeled, and silently normalized)
-now reads `interval.durationSec` instead of `interval.durationNormalizedSec`.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** (`IntervalMapLegend`) — the four duration
-bucket predicates ("< 3:30 min", "3:30–5 min", "5–6:30 min", "> 6:30 min") now test
-`it.durationSec` instead of `it.durationNormalizedSec`, so a bucket's presence reflects what its
-label actually says.
-
-**`ui/components/MapIntervalRenderer.kt`** (`renderUngroupedIntervals`) — the per-interval map
-line color now comes from `MapOverlayUtils.normalizedDurationToColor(interval.durationSec)`
-instead of `interval.durationNormalizedSec`, so the legend (which pairs with this exact renderer,
-confirmed by both being driven from the same `LaunchedEffect` in `SessionDetailScreen`) and the
-actual rendered line color agree.
-
-Left alone, per the issue's explicit scope: `MapViewScreen`'s interval-tap popup (still shows raw
-+ normalized in parens); `MapIntervalRenderer.renderRepeatedIntervals` and
-`MapOverlayUtils.avgDurationNormalizedSec` (archetype/grouped rendering used by `MapViewScreen`,
-not paired with this legend); `RepeatedRoutesScreen`'s own `avgDurationNormalizedSec` usage. None
-of these were named in the issue's acceptance criteria and each lives in a different screen context
-than the legend/renderer pair being fixed.
-
-A mid-task user note suggested the map legend should derive its bucketing from the user's FTP
-setting rather than fixed thresholds; confirmed with the user this was out of scope for this issue
-(the whole point of #181 is that these labels describe *plain* duration, not an FTP-normalized
-figure) and proceeded with the issue as written.
-
-### Tests
-No dedicated test added: this is a UI-only display/color-source swap (which field a `Text`/map
-color reads from), matching the precedent of every prior UI-only pass in this repo's history
-(#174, #179, #183) — no Compose UI test harness exists in this project. `MapOverlayUtilsIntervalTest`
-already covers `normalizedDurationToColor` itself (unchanged function, only its call sites moved to
-a different field) so no changes needed there.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 327 tests, zero failures/errors across the whole suite (aggregated test-result XML) —
-unchanged count from #183, confirming this display-only change didn't touch anything under existing
-test coverage. No on-device verification this session (no emulator/device attached); flagged as a
-residual visual-verification gap, same as prior UI-only passes in this repo's history.

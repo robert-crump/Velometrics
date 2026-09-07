@@ -126,14 +126,15 @@ object FormatUtils {
         else              -> category.replaceFirstChar { it.uppercase() }
     }
 
-    // Formats a distance in metres: < 1 km → nearest 10 m; ≥ 1 km → one decimal with comma separator
+    // Formats a distance in metres: < 1 km → nearest 10 m; ≥ 1 km → one decimal, device-locale
+    // decimal separator (was hardcoded to a comma separator regardless of device locale before).
     fun formatPoiDistance(m: Double): String {
         return if (m < 1000.0) {
             val rounded = ((m / 10.0).roundToInt() * 10).coerceAtLeast(10)
             "$rounded m"
         } else {
             val km = m / 1000.0
-            "${"%.1f".format(km).replace('.', ',')} km"
+            "${"%.1f".format(km)} km"
         }
     }
 

@@ -35,7 +35,6 @@ import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -351,7 +350,10 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 
     val dateFormatter = remember {
-        DateTimeFormatter.ofPattern("d. MMM yyyy", Locale("de"))
+        // Device default locale, matching FormatUtils.formatDate elsewhere — was hardcoded to
+        // Locale("de") before, which formatted this header in German regardless of the device's
+        // actual locale.
+        DateTimeFormatter.ofPattern("d. MMM yyyy")
             .withZone(ZoneId.systemDefault())
     }
 

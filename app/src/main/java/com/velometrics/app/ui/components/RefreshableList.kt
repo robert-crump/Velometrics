@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Generic pull-to-refresh list with shared loading/empty-state handling, replacing the
- * near-identical RepeatedRoutesContent/RepeatedIntervalsContent shape (RepeatedRoutesScreen.kt).
+ * near-identical RepeatedRoutesContent/RepeatedIntervalsContent shape (RoutesAndIntervalsScreen.kt).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

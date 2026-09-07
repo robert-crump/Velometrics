@@ -16,7 +16,7 @@ import com.velometrics.app.ui.screens.info.InfoScreen
 import com.velometrics.app.ui.screens.mapview.MapViewScreen
 import com.velometrics.app.ui.screens.repeatedintervaldetail.RepeatedIntervalDetailScreen
 import com.velometrics.app.ui.screens.repeatedroutedetail.RepeatedRouteDetailScreen
-import com.velometrics.app.ui.screens.repeatedroutes.RepeatedRoutesScreen
+import com.velometrics.app.ui.screens.repeatedroutes.RoutesAndIntervalsScreen
 import com.velometrics.app.ui.screens.sessiondetail.SessionDetailScreen
 import com.velometrics.app.ui.screens.settings.SettingsScreen
 
@@ -69,7 +69,7 @@ fun VelometricsNavHost(
         }
 
         composable(Screen.RoutePlanner.route) {
-            RepeatedRoutesScreen(
+            RoutesAndIntervalsScreen(
                 onNavigateToRouteDetail = { routeId ->
                     navController.navigate(Screen.RepeatedRouteDetail.createRoute(routeId))
                 },

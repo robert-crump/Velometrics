@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.material.icons.filled.FavoriteBorder
+import com.velometrics.app.ui.components.ConfirmDialog
 import com.velometrics.app.util.CyclingConstants
 import kotlin.math.roundToInt
 
@@ -383,31 +384,6 @@ private fun NumberEditDialog(
                     onConfirm(parsed)
                 }
             }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-/**
- * Title/body/confirm-or-cancel dialog shared by the FTP-change, Max-HR-change, and recalculate
- * confirmations — all three are otherwise identical AlertDialog shells around different copy.
- */
-@Composable
-private fun ConfirmDialog(
-    title: String,
-    text: String,
-    confirmLabel: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirmLabel) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

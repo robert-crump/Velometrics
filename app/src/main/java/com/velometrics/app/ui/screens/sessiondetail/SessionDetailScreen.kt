@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +56,35 @@ fun SessionDetailScreen(
     val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
     val speedHistogram by viewModel.speedHistogram.collectAsState()
     val speedHistogramAverages by viewModel.speedHistogramAverages.collectAsState()
+    val deleteError by viewModel.deleteError.collectAsState()
+
+    var overflowMenuExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.navigateBack.collect { onNavigateBack() }
+    }
+
+    LaunchedEffect(deleteError) {
+        deleteError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearDeleteError()
+        }
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete ride?",
+            text = "This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                showDeleteConfirm = false
+                viewModel.deleteRide()
+            },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -68,9 +98,27 @@ fun SessionDetailScreen(
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                },
+                actions = {
+                    IconButton(onClick = { overflowMenuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = overflowMenuExpanded,
+                        onDismissRequest = { overflowMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete ride") },
+                            onClick = {
+                                overflowMenuExpanded = false
+                                showDeleteConfirm = true
+                            }
+                        )
+                    }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (isLoading) {
             LoadingBox(modifier = Modifier.padding(padding))

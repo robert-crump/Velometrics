@@ -66,6 +66,13 @@ class SessionDetailViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    /** One-off event (#193): the screen navigates back to Home when this fires. */
+    private val _navigateBack = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val navigateBack: SharedFlow<Unit> = _navigateBack.asSharedFlow()
+
+    private val _deleteError = MutableStateFlow<String?>(null)
+    val deleteError: StateFlow<String?> = _deleteError.asStateFlow()
+
     val intervals: StateFlow<List<IntervalSession>> = intervalRepository.getIntervalsForSession(sessionId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -103,5 +110,26 @@ class SessionDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Deletes the currently loaded session (#193) — FK cascades remove its `interval_sessions`/
+     * `session_best_efforts` rows. No recluster is triggered here; see #192 for the lazy
+     * pull-to-refresh path that resyncs Repeated Routes/Intervals afterward.
+     */
+    fun deleteRide() {
+        val current = _session.value ?: return
+        viewModelScope.launch {
+            try {
+                sessionRepository.deleteSession(current)
+                _navigateBack.emit(Unit)
+            } catch (e: Exception) {
+                _deleteError.value = "Couldn't delete ride"
+            }
+        }
+    }
+
+    fun clearDeleteError() {
+        _deleteError.value = null
     }
 }

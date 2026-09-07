@@ -1,3 +1,58 @@
+## Issue #193 — Delete a ride from Session Detail
+Completed: 2026-09-07
+
+### What was done
+
+First slice of #187 (no way to delete an imported ride): a single-ride delete action on Session
+Detail, behind the shared confirm-dialog pattern already used in Settings.
+
+**`ui/components/ConfirmDialog.kt`** (new) — the title/body/confirm-or-cancel `AlertDialog` shell
+promoted out of `SettingsScreen.kt` (was `private`, used 3x there for FTP/Max-HR/recalculate
+confirmations) unchanged in shape, just made public and moved to a shared components file so
+Session Detail (this issue) and Home's upcoming bulk-delete (#194) can both use it.
+**`ui/screens/settings/SettingsScreen.kt`** — the private `ConfirmDialog` composable removed; its 3
+call sites now resolve via a new `import com.velometrics.app.ui.components.ConfirmDialog` — no
+behavior change.
+
+**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — new `deleteRide()`: calls the
+already-existing (but previously uncalled in production) `CyclingSessionRepository.deleteSession`
+on the currently loaded session, then emits on a new `navigateBack: SharedFlow<Unit>`
+(`MutableSharedFlow<Unit>(extraBufferCapacity = 1)`, the same one-off-event shape
+`RepeatedRouteDetailViewModel.shareIntent` already uses) on success, or sets `deleteError:
+StateFlow<String?>` to `"Couldn't delete ride"` on a caught `Exception` (matching this codebase's
+existing `catch (e: Exception)` convention, e.g. `RepeatedRouteDetailViewModel.exportGpx`). FK
+cascades already remove `interval_sessions`/`session_best_efforts` rows — no schema change needed.
+No recluster is triggered here, per the resolved #187 design; see #192 for the lazy
+pull-to-refresh path that keeps Repeated Routes/Intervals in sync afterward.
+
+**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `TopAppBar` gained an `actions` overflow
+(kebab, `MoreVert`) menu with one `DropdownMenuItem`, "Delete ride", which opens the shared
+`ConfirmDialog` (title "Delete ride?", body "This can't be undone.", confirm label "Delete").
+Confirming calls `viewModel.deleteRide()`. A `LaunchedEffect(viewModel) { navigateBack.collect {
+onNavigateBack() } }` pops back to Home on success; a `SnackbarHost` + `LaunchedEffect(deleteError)`
+(same shape as `RepeatedRouteDetailScreen`'s `exportError` handling) shows the error message and
+clears it on failure, leaving the user on Session Detail.
+
+### Tests
+New `SessionDetailViewModelTest` (first ViewModel test for this screen) with local `Fake*`
+doubles for `IntervalRepository`/`BestEffortRepository`/`RepeatedIntervalRepository` (the existing
+ones in `MapViewViewModelTest.kt` are `private` to that file) plus the shared
+`FakeCyclingSessionRepository`; `GlobalAverageCache`/`RepeatedIntervalsCache` are constructed for
+real against `backgroundScope` from `runTest`, since they're concrete classes, not interfaces.
+Two cases: `deleteRide` on a successful repository delete removes the session from the fake store
+and emits on `navigateBack`, with `deleteError` staying null; on a `FailingDeleteCyclingSessionRepository`
+(interface-delegation wrapper — `by delegate` — that throws only from `deleteSession`) `deleteRide`
+leaves the session in place, sets `deleteError` to the expected message, and never emits
+`navigateBack`.
+`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
+pass, 341 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 339
+prior + 2 new. No on-device verification this session (no emulator/device attached); the
+delete/error/navigate branching is fully covered by the new unit tests, and the kebab menu +
+dialog + snackbar wiring is otherwise-standard Compose plumbing with no Compose UI test harness in
+this project (same residual gap as every prior UI-touching pass in this repo's history).
+
+---
+
 ## Issue #185 — Repeated-interval achievement badge in the name row
 Completed: 2026-09-06
 
@@ -200,51 +255,3 @@ pass, 327 tests, zero failures/errors across the whole suite (aggregated test-re
 unchanged count from #183, confirming this display-only change didn't touch anything under existing
 test coverage. No on-device verification this session (no emulator/device attached); flagged as a
 residual visual-verification gap, same as prior UI-only passes in this repo's history.
-
----
-
-## Issue #183 — Clicking a repeated-interval name opens its detail screen
-Completed: 2026-09-06
-
-### What was done
-
-Pure navigation-plumbing pass. `SessionDetailViewModel.repeatedIntervalNames` was `Map<Long, String>`
-(interval id → name only) with no way to reach the owning `RepeatedInterval`'s own id, which is what
-`Screen.RepeatedIntervalDetail.createRoute` needs.
-
-**`domain/model/RepeatedIntervalRef.kt`** (new) — small projection type, `data class
-RepeatedIntervalRef(val repeatedIntervalId: Long, val name: String)`. Put in `domain/model` (next to
-`RepeatedInterval` itself) rather than in the ViewModel or the component, since both a screen-layer
-ViewModel and a lower-layer `ui/components` composable need to reference it — a domain-model type is
-the one place both can import without an awkward `ui.components → ui.screens.*` dependency.
-
-**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — `repeatedIntervalNames` is now
-`StateFlow<Map<Long, RepeatedIntervalRef>>`; the `flatMap` now pairs each interval id with
-`RepeatedIntervalRef(repeated.id, repeated.name)` instead of the bare name string.
-
-**`ui/components/IntervalListCard.kt`** — new `onRepeatedIntervalClick: (Long) -> Unit = {}`
-parameter. Only the name `Text` itself gets a `.clickable { onRepeatedIntervalClick(ref.repeatedIntervalId) }`
-modifier — the row's existing `onIntervalClick` (already wired to a no-op in `SessionDetailScreen`,
-unrelated to this change) and its own `.clickable` are untouched, so the two click targets stay
-independent tap areas rather than one nested inside the other's ripple. Ungrouped intervals (no
-entry in the map) render no name `Text` at all, so they stay non-clickable, unchanged.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — new `onNavigateToRepeatedInterval: (Long) ->
-Unit = {}` parameter, passed straight through to `IntervalListCard`'s new callback.
-
-**`ui/navigation/VelometricsNavHost.kt`** — the existing `SessionDetail` composable now supplies
-`onNavigateToRepeatedInterval = { id -> navController.navigate(Screen.RepeatedIntervalDetail.createRoute(id)) }`,
-mirroring the identical callback already wired from `RepeatedRoutesScreen`. Back navigation is
-ordinary back-stack pop, same as every other screen in this NavHost — no special-casing needed.
-
-### Tests
-No dedicated test added: this project has no Compose UI test harness (confirmed — no
-`*ComposeTest*`/`*ScreenTest*` files anywhere in `app/src`), and every prior UI-only change to this
-same card (#174, #179) shipped the same way. This change is pure plumbing (a map's value type, a
-callback threaded through three composables, one more NavHost route wiring) with no branching logic
-of its own to unit-test in isolation.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 327 tests, zero failures/errors across the whole suite (aggregated test-result XML) — unchanged
-count from #184, confirming this UI-only change didn't touch anything under existing test coverage.
-No on-device verification this session (no emulator/device attached); flagged as a residual
-visual-verification gap in the issue close-out, same as prior UI-only passes in this repo's history.

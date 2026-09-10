@@ -8,14 +8,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -119,8 +116,6 @@ fun MapViewScreen(
     }
 
     val context = LocalContext.current
-
-    var showLayersPanel by remember { mutableStateOf(false) }
 
     var mapAndStyle by remember { mutableStateOf<Pair<MapLibreMap, Style>?>(null) }
     var scaleBarInfo by remember { mutableStateOf<ScaleBarInfo?>(null) }
@@ -401,17 +396,29 @@ fun MapViewScreen(
                 }
             }
 
-            // Layers FAB — top-aligned, right-of-row
+            // Overlay toggle chip row — Intervals/Flow segments, independent toggles
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SmallFloatingActionButton(
-                    onClick = { showLayersPanel = true },
-                    modifier = Modifier.padding(end = 16.dp)
-                ) {
-                    Icon(Icons.Default.Layers, contentDescription = "Toggle layers")
-                }
+                FilterChip(
+                    selected = showIntervalOverlay,
+                    onClick = { viewModel.toggleIntervalOverlay() },
+                    label = { Text("Intervals") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    )
+                )
+                FilterChip(
+                    selected = showFlowSegments,
+                    onClick = { viewModel.toggleFlowSegments() },
+                    label = { Text("Flow segments") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    )
+                )
             }
 
             // POI popup card — sits below the chip rows
@@ -472,75 +479,6 @@ fun MapViewScreen(
             }
         }
 
-        // Layers panel overlay — scrim + centered card, confined to this content area so the
-        // bottom navigation bar (outside MapViewScreen) remains tappable while it's open.
-        if (showLayersPanel) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.32f))
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) { showLayersPanel = false }
-            ) {
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 24.dp)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) {}
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Layers",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            IconButton(onClick = { showLayersPanel = false }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close layers panel")
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Intervals toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Intervals", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = showIntervalOverlay,
-                                onCheckedChange = { viewModel.toggleIntervalOverlay() }
-                            )
-                        }
-
-                        // Flow segments toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Flow segments", style = MaterialTheme.typography.bodyMedium)
-                            Switch(
-                                checked = showFlowSegments,
-                                onCheckedChange = { viewModel.toggleFlowSegments() }
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                }
-            }
-        }
     }
 
     // Grouped prototype detail bottom sheet

@@ -14,6 +14,7 @@ import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.RideRevealContent
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.di.ApplicationScope
 import com.velometrics.app.domain.service.IntervalClusteringService
 import com.velometrics.app.domain.service.RideRevealEvaluator
@@ -70,6 +71,7 @@ class HomeViewModel @Inject constructor(
     private val fitImportService: FitImportService,
     private val dropboxSyncService: DropboxSyncService,
     private val dropboxAuthRepository: DropboxAuthRepository,
+    private val dropboxSyncCursorRepository: DropboxSyncCursorRepository,
     private val routeClusteringService: RouteClusteringService,
     private val intervalClusteringService: IntervalClusteringService,
     private val rideRevealEvaluator: RideRevealEvaluator,
@@ -170,6 +172,11 @@ class HomeViewModel @Inject constructor(
      * Flow-backed query. On failure, leaves selection mode active with the same items selected
      * (so the user can retry) and surfaces [deleteError]. No recluster here, per #187/#192 — that
      * stays on the lazy pull-to-refresh path.
+     *
+     * Also invalidates the saved Dropbox sync cursor, same as Session Detail's single delete
+     * (#193/a756bae) — without this, a bulk-deleted ride that was previously synced from Dropbox
+     * would never be reconsidered for import again, since the delta cursor has no visibility into
+     * local deletions.
      */
     fun deleteSelectedSessions() {
         val ids = _selectedSessionIds.value.toList()
@@ -177,6 +184,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 sessionRepository.deleteSessions(ids)
+                dropboxSyncCursorRepository.invalidateSyncCursor()
                 exitSelectionMode()
             } catch (e: Exception) {
                 Log.e(TAG, "Bulk delete failed", e)

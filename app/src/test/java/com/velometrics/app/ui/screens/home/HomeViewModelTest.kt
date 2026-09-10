@@ -8,6 +8,7 @@ import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.repository.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.service.IntervalClusteringService
 import com.velometrics.app.domain.service.RideRevealEvaluator
 import com.velometrics.app.domain.service.RouteClusteringService
@@ -58,7 +59,8 @@ class HomeViewModelTest {
         syncResult: DropboxSyncResult = DropboxSyncResult.Completed(emptyList()),
         routeClusteringService: RouteClusteringService,
         intervalClusteringService: IntervalClusteringService,
-        sessionRepository: CyclingSessionRepository = FakeCyclingSessionRepository()
+        sessionRepository: CyclingSessionRepository = FakeCyclingSessionRepository(),
+        dropboxSyncCursorRepository: DropboxSyncCursorRepository = FakeDropboxSyncCursorRepository()
     ): HomeViewModel {
         val dropboxAuthRepository = mockk<DropboxAuthRepository>()
         every { dropboxAuthRepository.isConnected } returns isConnected
@@ -77,6 +79,7 @@ class HomeViewModelTest {
             fitImportService = mockk<FitImportService>(relaxed = true),
             dropboxSyncService = dropboxSyncService,
             dropboxAuthRepository = dropboxAuthRepository,
+            dropboxSyncCursorRepository = dropboxSyncCursorRepository,
             routeClusteringService = routeClusteringService,
             intervalClusteringService = intervalClusteringService,
             rideRevealEvaluator = rideRevealEvaluator,
@@ -158,13 +161,24 @@ class HomeViewModelTest {
     /** Builds a [HomeViewModel] with relaxed Dropbox/clustering collaborators, disconnected so
      * init's auto-sync no-ops — these tests only exercise selection state and delete wiring. */
     private fun buildViewModelForSelection(
-        sessionRepository: CyclingSessionRepository = FakeCyclingSessionRepository()
+        sessionRepository: CyclingSessionRepository = FakeCyclingSessionRepository(),
+        dropboxSyncCursorRepository: DropboxSyncCursorRepository = FakeDropboxSyncCursorRepository()
     ): HomeViewModel = buildViewModel(
         isConnected = MutableStateFlow(false),
         routeClusteringService = mockk<RouteClusteringService>(relaxed = true),
         intervalClusteringService = mockk<IntervalClusteringService>(relaxed = true),
-        sessionRepository = sessionRepository
+        sessionRepository = sessionRepository,
+        dropboxSyncCursorRepository = dropboxSyncCursorRepository
     )
+
+    private class FakeDropboxSyncCursorRepository : DropboxSyncCursorRepository {
+        var invalidated = false
+            private set
+
+        override fun invalidateSyncCursor() {
+            invalidated = true
+        }
+    }
 
     private fun buildSession(id: Long) = CyclingSession(
         id = id,
@@ -289,6 +303,42 @@ class HomeViewModelTest {
         assertTrue("selection mode must stay active so the user can retry", vm.selectionMode.value)
         assertEquals(setOf(1L, 2L), vm.selectedSessionIds.value)
         assertTrue(repo.delegate.sessions.any { it.id == 1L } && repo.delegate.sessions.any { it.id == 2L })
+    }
+
+    @Test
+    fun `deleteSelectedSessions invalidates the Dropbox sync cursor on success so the rides can be re-synced`() {
+        val latch = CountDownLatch(1)
+        val repo = LatchedDeleteSessionsRepository(latch = latch)
+        repo.delegate.sessions.add(buildSession(1L))
+        repo.delegate.sessions.add(buildSession(2L))
+        val cursorRepository = FakeDropboxSyncCursorRepository()
+        val vm = buildViewModelForSelection(sessionRepository = repo, dropboxSyncCursorRepository = cursorRepository)
+        vm.enterSelectionMode(sessionId = 1L)
+        vm.toggleSessionSelected(2L)
+
+        vm.deleteSelectedSessions()
+
+        assertTrue("deleteSessions was not invoked", latch.await(5, TimeUnit.SECONDS))
+        val invalidated = waitFor(5, TimeUnit.SECONDS) { cursorRepository.invalidated }
+        assertTrue("expected the Dropbox sync cursor to be invalidated after a successful bulk delete", invalidated)
+    }
+
+    @Test
+    fun `deleteSelectedSessions does not touch the Dropbox sync cursor on failure`() {
+        val latch = CountDownLatch(1)
+        val repo = LatchedDeleteSessionsRepository(latch = latch, shouldFail = true)
+        repo.delegate.sessions.add(buildSession(1L))
+        repo.delegate.sessions.add(buildSession(2L))
+        val cursorRepository = FakeDropboxSyncCursorRepository()
+        val vm = buildViewModelForSelection(sessionRepository = repo, dropboxSyncCursorRepository = cursorRepository)
+        vm.enterSelectionMode(sessionId = 1L)
+        vm.toggleSessionSelected(2L)
+
+        vm.deleteSelectedSessions()
+
+        assertTrue("deleteSessions was not invoked", latch.await(5, TimeUnit.SECONDS))
+        waitFor(5, TimeUnit.SECONDS) { vm.deleteError.value != null }
+        assertFalse(cursorRepository.invalidated)
     }
 
     /** Polls [condition] on the test thread until it's true or [timeout] elapses. */

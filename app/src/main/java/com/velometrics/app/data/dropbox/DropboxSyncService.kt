@@ -11,6 +11,7 @@ import com.dropbox.core.v2.files.FileMetadata
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.data.preferences.UserSettingsRepository
+import com.velometrics.app.domain.repository.CyclingSessionRepository
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,7 +41,8 @@ class DropboxSyncService @Inject constructor(
     private val credentialStore: DropboxCredentialStore,
     private val requestConfig: DbxRequestConfig,
     private val fitImportService: FitImportService,
-    private val userSettingsRepository: UserSettingsRepository
+    private val userSettingsRepository: UserSettingsRepository,
+    private val sessionRepository: CyclingSessionRepository
 ) {
     /**
      * Lists new/changed `.fit` files since the last sync (or the whole folder on
@@ -99,6 +101,16 @@ class DropboxSyncService @Inject constructor(
     }
 
     private suspend fun downloadAndImport(client: DbxClientV2, entry: FileMetadata): ImportResult {
+        // Fast pre-download dedup: after a cursor reset (e.g. following a ride delete, #193/#194),
+        // list_folder re-offers every file in the synced folder, not just genuinely new ones. Most
+        // of those are already-imported rides - checking by filename first (cheap, local) skips
+        // downloading their full bytes just to have FitImportService's SHA-1 check reject them a
+        // few hundred KB later. Without this, a full re-list of e.g. 100 rides downloads all 100
+        // over the network before any newly-added ride is even reached.
+        if (sessionRepository.existsByFileName(entry.name)) {
+            return ImportResult.AlreadyImported(entry.name)
+        }
+
         return try {
             val output = ByteArrayOutputStream()
             client.files().download(entry.pathLower).download(output)

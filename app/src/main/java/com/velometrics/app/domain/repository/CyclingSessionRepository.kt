@@ -15,6 +15,8 @@ interface CyclingSessionRepository {
     suspend fun getSessionById(id: Long): CyclingSession?
     suspend fun getSessionBySha1(sha1: String): CyclingSession?
     suspend fun existsBySha1(sha1: String): Boolean
+    /** Cheap pre-download dedup check for Dropbox sync - see [CyclingSessionDao.existsByFileName]. */
+    suspend fun existsByFileName(fileName: String): Boolean
     suspend fun insertSession(session: CyclingSession): Long
     suspend fun updateSession(session: CyclingSession)
     suspend fun deleteSession(session: CyclingSession)

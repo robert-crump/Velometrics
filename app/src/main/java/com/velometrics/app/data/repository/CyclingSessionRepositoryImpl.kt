@@ -53,6 +53,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         return dao.existsBySha1(sha1)
     }
 
+    override suspend fun existsByFileName(fileName: String): Boolean {
+        return dao.existsByFileName(fileName)
+    }
+
     override suspend fun insertSession(session: CyclingSession): Long {
         return dao.insert(session.toEntity())
     }

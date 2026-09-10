@@ -41,6 +41,9 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
     override suspend fun existsBySha1(sha1: String): Boolean =
         sessions.any { it.fileSha1 == sha1 }
 
+    override suspend fun existsByFileName(fileName: String): Boolean =
+        sessions.any { it.fileName == fileName }
+
     override suspend fun insertSession(session: CyclingSession): Long {
         val id = (sessions.maxOfOrNull { it.id } ?: 0L) + 1
         sessions.add(session.copy(id = id))

@@ -75,6 +75,15 @@ interface CyclingSessionDao {
     @Query("SELECT EXISTS(SELECT 1 FROM cycling_sessions WHERE fileSha1 = :sha1)")
     suspend fun existsBySha1(sha1: String): Boolean
 
+    /**
+     * Cheap pre-download dedup check for Dropbox sync (see [existsBySha1] for the authoritative
+     * content check, which needs the file's bytes and therefore a full download first). Devices
+     * generate unique, timestamped `.fit` filenames, so a name match is a reliable "already have
+     * this ride, don't bother downloading it" signal in practice.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM cycling_sessions WHERE fileName = :fileName)")
+    suspend fun existsByFileName(fileName: String): Boolean
+
     @Query("SELECT * FROM cycling_sessions WHERE fileSha1 = :sha1")
     suspend fun getBySha1(sha1: String): CyclingSessionEntity?
 

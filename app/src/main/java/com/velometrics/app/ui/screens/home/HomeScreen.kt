@@ -106,6 +106,7 @@ private class OpenMultipleDocumentsSorted : ActivityResultContract<String, List<
 fun HomeScreen(
     onSessionClick: (Long) -> Unit,
     onNavigateToAllTimeStats: () -> Unit = {},
+    onNavigateToTrainingLoad: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val sessions by viewModel.sessions.collectAsState()
@@ -221,6 +222,13 @@ fun HomeScreen(
                                     onClick = {
                                         overflowMenuExpanded = false
                                         onNavigateToAllTimeStats()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Training load") },
+                                    onClick = {
+                                        overflowMenuExpanded = false
+                                        onNavigateToTrainingLoad()
                                     }
                                 )
                             }

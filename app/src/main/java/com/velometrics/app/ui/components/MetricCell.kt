@@ -31,7 +31,9 @@ private val ColorWorseDark = Color(0xFFD7A86E)
 /**
  * A label/value pair, optionally with a trend triangle comparing [current] against [reference]
  * (whichever comparison pool the caller has already selected — e.g. last 5 rides or all previous
- * rides). Used by the Ride and Repeated Interval detail screens.
+ * rides). Used by the Ride and Repeated Interval detail screens. [valueColor] lets a caller
+ * color-code the value itself (e.g. Training Load's Form/TSB sign) without affecting the trend
+ * triangle; defaults to [Color.Unspecified] (inherited content color), the prior fixed behavior.
  */
 @Composable
 fun MetricCell(
@@ -39,7 +41,8 @@ fun MetricCell(
     value: String,
     current: Double? = null,
     reference: Double? = null,
-    higherIsBetter: Boolean = true
+    higherIsBetter: Boolean = true,
+    valueColor: Color = Color.Unspecified
 ) {
     val darkTheme = isSystemInDarkTheme()
     val triangle = remember(current, reference, higherIsBetter, darkTheme) {
@@ -55,7 +58,8 @@ fun MetricCell(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = valueColor
             )
             triangle?.let { (icon, color) ->
                 Spacer(modifier = Modifier.width(4.dp))

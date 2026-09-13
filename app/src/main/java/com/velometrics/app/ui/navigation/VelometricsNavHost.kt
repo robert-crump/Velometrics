@@ -19,6 +19,7 @@ import com.velometrics.app.ui.screens.repeatedroutedetail.RepeatedRouteDetailScr
 import com.velometrics.app.ui.screens.repeatedroutes.RoutesAndIntervalsScreen
 import com.velometrics.app.ui.screens.sessiondetail.SessionDetailScreen
 import com.velometrics.app.ui.screens.settings.SettingsScreen
+import com.velometrics.app.ui.screens.trainingload.TrainingLoadScreen
 
 @Composable
 fun VelometricsNavHost(
@@ -39,6 +40,9 @@ fun VelometricsNavHost(
                 },
                 onNavigateToAllTimeStats = {
                     navController.navigate(Screen.AllTimeStats.route)
+                },
+                onNavigateToTrainingLoad = {
+                    navController.navigate(Screen.TrainingLoad.route)
                 }
             )
         }
@@ -50,6 +54,10 @@ fun VelometricsNavHost(
                     navController.navigate(Screen.SessionDetail.createRoute(sessionId))
                 }
             )
+        }
+
+        composable(Screen.TrainingLoad.route) {
+            TrainingLoadScreen(onNavigateBack = { navController.popBackStack() })
         }
 
         composable(

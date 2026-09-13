@@ -195,6 +195,30 @@ object CyclingConstants {
     const val NAV_USER_MARKER_RADIUS = 10f
     const val USER_HEADING_ARROW_ICON_SIZE = 0.9f
 
+    // Training load (#190): CTL/ATL/TSB fitness-fatigue trend
+    // Standard TrainingPeaks/Strava exponential-moving-average time constants.
+    const val CTL_TIME_CONSTANT_DAYS = 42
+    const val ATL_TIME_CONSTANT_DAYS = 7
+    const val TRAINING_LOAD_CHART_WINDOW_DAYS = 182  // ~6 months, default visible chart window
+
+    // HR-based load score for rides with no power data (TRIMP-zonal style): each HR zone's
+    // time is weighted by increasing multipliers, then scaled by HR_LOAD_CALIBRATION_CONSTANT
+    // so scores land in roughly the same numeric range as power-based TSS. This is a deliberate
+    // approximation, not a physiological formula — tune the calibration constant here if
+    // HR-based load reads systematically high/low vs. power-based TSS on the same rider's
+    // mixed history.
+    // Derivation: target a steady 60-min Zone 3 ride landing near TSS 65 (mid of the 60-70
+    // range a similar power ride would score). weightedMinutes = 3.0 * 60 = 180 →
+    // k = 65 / 180 ≈ 0.36.
+    val HR_LOAD_ZONE_MULTIPLIERS = mapOf(
+        "Zone 1" to 1.0,
+        "Zone 2" to 2.0,
+        "Zone 3" to 3.0,
+        "Zone 4" to 4.0,
+        "Zone 5" to 5.0
+    )
+    const val HR_LOAD_CALIBRATION_CONSTANT = 0.36
+
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(
         "0 km/h" to "#000000",

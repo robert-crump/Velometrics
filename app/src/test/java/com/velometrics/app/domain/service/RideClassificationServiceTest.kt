@@ -1,6 +1,6 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RideTag
 import kotlinx.coroutines.runBlocking

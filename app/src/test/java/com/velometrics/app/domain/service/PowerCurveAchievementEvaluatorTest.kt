@@ -1,6 +1,6 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.data.repository.FakeBestEffortRepository
+import com.velometrics.app.fakes.FakeBestEffortRepository
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.RideRevealFamily
 import com.velometrics.app.domain.model.RideRevealScope

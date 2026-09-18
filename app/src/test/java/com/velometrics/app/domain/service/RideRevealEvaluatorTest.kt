@@ -1,8 +1,8 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.data.fitimport.ImportResult
-import com.velometrics.app.data.repository.FakeBestEffortRepository
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeBestEffortRepository
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.CyclingSession
 import java.time.Instant

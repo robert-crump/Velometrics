@@ -4,33 +4,32 @@ import com.velometrics.app.di.ApplicationScope
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Hoists [RepeatedIntervalRepository.getAllRepeatedIntervals] into a singleton-scoped hot
- * [StateFlow], mirroring [RepeatedRoutesCache] so switching to the Intervals sub-tab does not
- * restart collection (and edge-geometry resolution) each time the screen's ViewModel is recreated.
+ * Singleton-scoped hot view of [RepeatedIntervalRepository.getAllRepeatedIntervals], mirroring
+ * [RepeatedRoutesCache] so switching to the Intervals sub-tab does not restart collection (and
+ * edge-geometry resolution) each time the screen's ViewModel is recreated. ViewModels depend on
+ * this interface (see [RepeatedIntervalsCacheImpl]) so a test can supply a fake instead of
+ * standing up Hilt or a real [CoroutineScope].
  *
  * [isLoading] reflects "have we ever received a DB emission?" — it flips to false on the
  * first emission and stays false. Tab switches after that show the cached data instantly.
  */
+interface RepeatedIntervalsCache {
+    val isLoading: StateFlow<Boolean>
+    val repeatedIntervals: StateFlow<List<RepeatedInterval>>
+}
+
 @Singleton
-class RepeatedIntervalsCache @Inject constructor(
+class RepeatedIntervalsCacheImpl @Inject constructor(
     repository: RepeatedIntervalRepository,
     @ApplicationScope scope: CoroutineScope
-) {
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+) : RepeatedIntervalsCache {
+    private val cache = HotFlowCache(repository.getAllRepeatedIntervals(), scope, emptyList<RepeatedInterval>())
 
-    val repeatedIntervals: StateFlow<List<RepeatedInterval>> = repository
-        .getAllRepeatedIntervals()
-        .onEach { _isLoading.value = false }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    override val isLoading: StateFlow<Boolean> = cache.isLoading
+    override val repeatedIntervals: StateFlow<List<RepeatedInterval>> = cache.value
 }

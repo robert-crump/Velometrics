@@ -1,24 +1,15 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
-import com.velometrics.app.data.location.FakeLocationSource
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
-import com.velometrics.app.domain.model.FlowSegment
-import com.velometrics.app.domain.model.GraphMetadata
-import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.LocationFix
-import com.velometrics.app.domain.model.MapEdge
-import com.velometrics.app.domain.model.MapNode
-import com.velometrics.app.domain.model.Poi
-import com.velometrics.app.domain.model.RepeatedInterval
-import com.velometrics.app.domain.repository.IntervalRepository
-import com.velometrics.app.domain.repository.MapGraphRepository
-import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.service.LocationException
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeIntervalRepository
+import com.velometrics.app.fakes.FakeLocationSource
+import com.velometrics.app.fakes.FakeMapGraphRepository
+import com.velometrics.app.fakes.FakeRepeatedIntervalRepository
 import com.velometrics.app.util.CyclingConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -215,40 +206,4 @@ class MapViewViewModelTest {
         vm.selectPoiChip("Park")
         assertEquals("Park", vm.activePoiChip.value)
     }
-}
-
-// ---------------------------------------------------------------------------
-// Test doubles
-// ---------------------------------------------------------------------------
-
-private class FakeMapGraphRepository : MapGraphRepository {
-    override fun getAllEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
-    override fun getAllNodes(): Flow<List<MapNode>> = flowOf(emptyList())
-    override suspend fun getEdgesByNodePairs(pairs: List<Pair<Long, Long>>) = emptyList<MapEdge>()
-    override suspend fun getEdgesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapEdge>()
-    override suspend fun getNodesNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<MapNode>()
-    override suspend fun getNodesByIds(vararg ids: Long) = emptyList<MapNode>()
-    override fun getTraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
-    override fun getUntraversedEdges(): Flow<List<MapEdge>> = flowOf(emptyList())
-    override fun getAllPois(): Flow<List<Poi>> = flowOf(emptyList())
-    override suspend fun getMetadata(): GraphMetadata? = null
-    override suspend fun getFlowSegmentsNear(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) = emptyList<FlowSegment>()
-}
-
-private class FakeIntervalRepository : IntervalRepository {
-    override suspend fun insertInterval(interval: IntervalSession): Long = 0L
-    override suspend fun insertIntervals(intervals: List<IntervalSession>): List<Long> = emptyList()
-    override suspend fun updateInterval(interval: IntervalSession) {}
-    override fun getIntervalsForSession(sessionId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
-    override fun getAllIntervals(): Flow<List<IntervalSession>> = flowOf(emptyList())
-}
-
-private class FakeRepeatedIntervalRepository : RepeatedIntervalRepository {
-    override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> = flowOf(emptyList())
-    override fun getRepeatedIntervalById(id: Long): Flow<RepeatedInterval?> = flowOf(null)
-    override suspend fun getAllRepeatedIntervalsList(): List<RepeatedInterval> = emptyList()
-    override suspend fun saveRepeatedInterval(interval: RepeatedInterval): Long = 0L
-    override suspend fun renameRepeatedInterval(id: Long, newName: String) {}
-    override suspend fun deleteRepeatedIntervalsByIds(ids: List<Long>) {}
-    override suspend fun deleteAll() {}
 }

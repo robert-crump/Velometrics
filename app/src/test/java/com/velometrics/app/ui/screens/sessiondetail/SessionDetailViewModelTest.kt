@@ -1,26 +1,21 @@
 package com.velometrics.app.ui.screens.sessiondetail
 
 import androidx.lifecycle.SavedStateHandle
-import com.velometrics.app.data.cache.GlobalAverageCache
-import com.velometrics.app.data.cache.RepeatedIntervalsCache
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
-import com.velometrics.app.domain.model.BestEffortRecord
-import com.velometrics.app.domain.model.BestEffortValues
+import com.velometrics.app.data.cache.GlobalAverageCacheImpl
+import com.velometrics.app.data.cache.RepeatedIntervalsCacheImpl
 import com.velometrics.app.domain.model.CyclingSession
-import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.RepeatedInterval
-import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
-import com.velometrics.app.domain.repository.IntervalRepository
-import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.service.SessionComparator
+import com.velometrics.app.fakes.FakeBestEffortRepository
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
+import com.velometrics.app.fakes.FakeIntervalRepository
+import com.velometrics.app.fakes.FakeRepeatedIntervalRepository
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -85,8 +80,8 @@ class SessionDetailViewModelTest {
         bestEffortRepository = FakeBestEffortRepository(),
         sessionComparator = SessionComparator(sessionRepository),
         dropboxSyncCursorRepository = dropboxSyncCursorRepository,
-        globalAverageCache = GlobalAverageCache(sessionRepository, scope),
-        repeatedIntervalsCache = RepeatedIntervalsCache(FakeRepeatedIntervalRepository(), scope)
+        globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),
+        repeatedIntervalsCache = RepeatedIntervalsCacheImpl(FakeRepeatedIntervalRepository(), scope)
     )
 
     @Test
@@ -167,42 +162,5 @@ private class FailingDeleteCyclingSessionRepository(
 ) : CyclingSessionRepository by delegate {
     override suspend fun deleteSession(session: CyclingSession) {
         throw RuntimeException("delete failed")
-    }
-}
-
-private class FakeIntervalRepository : IntervalRepository {
-    override suspend fun insertInterval(interval: IntervalSession): Long = 0L
-    override suspend fun insertIntervals(intervals: List<IntervalSession>): List<Long> = emptyList()
-    override suspend fun updateInterval(interval: IntervalSession) {}
-    override fun getIntervalsForSession(sessionId: Long): Flow<List<IntervalSession>> = flowOf(emptyList())
-    override fun getAllIntervals(): Flow<List<IntervalSession>> = flowOf(emptyList())
-}
-
-private class FakeBestEffortRepository : BestEffortRepository {
-    override suspend fun insert(sessionId: Long, values: BestEffortValues) {}
-    override fun getAllWithSessionDate(): Flow<List<BestEffortRecord>> = flowOf(emptyList())
-    override suspend fun getForSession(sessionId: Long): BestEffortValues? = null
-    override suspend fun countBestEffortsWithGreaterPower5s(power: Int, since: Instant?): Int = 0
-    override suspend fun countBestEffortsWithGreaterPower1m(power: Int, since: Instant?): Int = 0
-    override suspend fun countBestEffortsWithGreaterPower5m(power: Int, since: Instant?): Int = 0
-    override suspend fun countBestEffortsWithGreaterPower20m(power: Int, since: Instant?): Int = 0
-}
-
-private class FakeRepeatedIntervalRepository : RepeatedIntervalRepository {
-    override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> = flowOf(emptyList())
-    override fun getRepeatedIntervalById(id: Long): Flow<RepeatedInterval?> = flowOf(null)
-    override suspend fun getAllRepeatedIntervalsList(): List<RepeatedInterval> = emptyList()
-    override suspend fun saveRepeatedInterval(interval: RepeatedInterval): Long = 0L
-    override suspend fun renameRepeatedInterval(id: Long, newName: String) {}
-    override suspend fun deleteRepeatedIntervalsByIds(ids: List<Long>) {}
-    override suspend fun deleteAll() {}
-}
-
-private class FakeDropboxSyncCursorRepository : DropboxSyncCursorRepository {
-    var invalidated = false
-        private set
-
-    override fun invalidateSyncCursor() {
-        invalidated = true
     }
 }

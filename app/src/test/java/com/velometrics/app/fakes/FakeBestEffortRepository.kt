@@ -1,4 +1,4 @@
-package com.velometrics.app.data.repository
+package com.velometrics.app.fakes
 
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.BestEffortValues
@@ -12,7 +12,7 @@ class FakeBestEffortRepository : BestEffortRepository {
     val records = mutableListOf<BestEffortRecord>()
 
     override suspend fun insert(sessionId: Long, values: BestEffortValues) {
-        throw UnsupportedOperationException("not used by AllTimeStatsCache")
+        throw UnsupportedOperationException("not used by any current caller of this fake")
     }
 
     override fun getAllWithSessionDate(): Flow<List<BestEffortRecord>> = flowOf(records.toList())

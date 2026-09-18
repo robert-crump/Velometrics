@@ -3,6 +3,7 @@ package com.velometrics.app.data.repository
 import com.velometrics.app.data.local.dao.RepeatedRouteDao
 import com.velometrics.app.data.local.entity.RepeatedRouteEntity
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.google.gson.Gson
 import io.mockk.coEvery
 import io.mockk.mockk

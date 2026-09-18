@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.data.location
+﻿package com.velometrics.app.fakes
 
 import com.velometrics.app.domain.model.LocationFix
 import com.velometrics.app.domain.service.LocationException

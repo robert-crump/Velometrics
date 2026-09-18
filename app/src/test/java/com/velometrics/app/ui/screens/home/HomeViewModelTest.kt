@@ -5,13 +5,14 @@ import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncResult
 import com.velometrics.app.data.dropbox.DropboxSyncService
 import com.velometrics.app.data.fitimport.FitImportService
-import com.velometrics.app.data.repository.FakeCyclingSessionRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.service.IntervalClusteringService
 import com.velometrics.app.domain.service.RideRevealEvaluator
 import com.velometrics.app.domain.service.RouteClusteringService
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -170,15 +171,6 @@ class HomeViewModelTest {
         sessionRepository = sessionRepository,
         dropboxSyncCursorRepository = dropboxSyncCursorRepository
     )
-
-    private class FakeDropboxSyncCursorRepository : DropboxSyncCursorRepository {
-        var invalidated = false
-            private set
-
-        override fun invalidateSyncCursor() {
-            invalidated = true
-        }
-    }
 
     private fun buildSession(id: Long) = CyclingSession(
         id = id,

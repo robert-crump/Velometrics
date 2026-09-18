@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.data.repository
+﻿package com.velometrics.app.fakes
 
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary

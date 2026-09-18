@@ -27,7 +27,7 @@ object MapIntervalRenderer {
     private const val UNGROUPED_SOURCE = "interval-ungrouped-source"
     private const val UNGROUPED_LAYER = "interval-ungrouped-layer"
     private const val GROUPED_SOURCE = "interval-grouped-source"
-    private const val GROUPED_LAYER = "interval-grouped-layer"
+    const val GROUPED_LAYER = "interval-grouped-layer"
     private const val HIGHLIGHT_SOURCE = "interval-highlight-source"
     private const val HIGHLIGHT_LAYER = "interval-highlight-layer"
 

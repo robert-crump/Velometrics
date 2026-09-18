@@ -1,11 +1,9 @@
 ﻿package com.velometrics.app.ui.screens.mapview
 
 import android.Manifest
-import android.content.Context
 import android.graphics.PointF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,57 +19,40 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.velometrics.app.R
+import com.velometrics.app.domain.model.GeoPoint
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.ui.components.ComposableMapView
 import com.velometrics.app.ui.components.MapScaleBar
+import com.velometrics.app.ui.components.MapFeatureQuery
 import com.velometrics.app.ui.components.MapIntervalRenderer
 import com.velometrics.app.ui.components.MapOverlayRenderer
 import com.velometrics.app.ui.components.MapPoiRenderer
 import com.velometrics.app.ui.components.MapTrackRenderer
+import com.velometrics.app.ui.components.MapUserLocationRenderer
 import com.velometrics.app.ui.components.PoiIcons
 import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
+import com.velometrics.app.ui.components.toGeoBounds
+import com.velometrics.app.ui.components.toLatLng
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
-import com.velometrics.app.util.CyclingConstants.USER_HEADING_ARROW_ICON_SIZE
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.util.LocationSample
+import com.velometrics.app.util.LocationSmoothing
 import com.velometrics.app.util.MapOverlayUtils
-import com.velometrics.app.util.PolylineDecoder
 import com.velometrics.app.util.ScaleBarInfo
 import com.velometrics.app.util.ScaleBarUtils
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.roundToInt
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.CircleLayer
-import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.SymbolLayer
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.Point
-
-// Number of recent fixes kept for the accuracy-weighted moving average that smooths the
-// on-screen marker. Rendering only — POI-distance/Fast-Way-Home calculations use the
-// unsmoothed currentLocation from the ViewModel.
-private const val LOCATION_SMOOTHING_WINDOW_SIZE = 5
-
-private data class LocationSample(val lat: Double, val lon: Double, val accuracyM: Float)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,8 +79,9 @@ fun MapViewScreen(
     val showPoiLayer by viewModel.showPoiLayer.collectAsState()
     val visiblePois by viewModel.visiblePois.collectAsState()
     val availablePoiCategories by viewModel.availablePoiCategories.collectAsState()
-    val activePoiChip by viewModel.activePoiChip.collectAsState()
-    val selectedPoi by viewModel.selectedPoi.collectAsState()
+    val poiSelection by viewModel.poiSelection.collectAsState()
+    val activePoiChip = poiSelection.activeChip
+    val selectedPoi = poiSelection.selected
 
     val currentLocation by viewModel.currentLocation.collectAsState()
     val locationAccuracy by viewModel.locationAccuracy.collectAsState()
@@ -140,24 +122,15 @@ fun MapViewScreen(
     // marker position — the canonical currentLocation stays unsmoothed for POI-distance and
     // Fast-Way-Home calculations.
     val locationSamples = remember { mutableStateListOf<LocationSample>() }
-    var smoothedLocation by remember { mutableStateOf<LatLng?>(null) }
+    var smoothedLocation by remember { mutableStateOf<GeoPoint?>(null) }
     LaunchedEffect(currentLocation, locationAccuracy) {
         val loc = currentLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
-        locationSamples.add(LocationSample(loc.latitude, loc.longitude, accuracy))
-        while (locationSamples.size > LOCATION_SMOOTHING_WINDOW_SIZE) {
+        locationSamples.add(LocationSample(loc.lat, loc.lon, accuracy))
+        while (locationSamples.size > LocationSmoothing.WINDOW_SIZE) {
             locationSamples.removeAt(0)
         }
-        var weightSum = 0.0
-        var latSum = 0.0
-        var lonSum = 0.0
-        locationSamples.forEach { sample ->
-            val weight = 1.0 / sample.accuracyM.toDouble().coerceAtLeast(1.0).pow(2)
-            weightSum += weight
-            latSum += sample.lat * weight
-            lonSum += sample.lon * weight
-        }
-        smoothedLocation = LatLng(latSum / weightSum, lonSum / weightSum)
+        smoothedLocation = LocationSmoothing.weightedAverage(locationSamples)
     }
 
     // Render user location marker at the smoothed position
@@ -166,7 +139,7 @@ fun MapViewScreen(
         val loc = smoothedLocation ?: return@LaunchedEffect
         val accuracy = locationAccuracy ?: 1000f
         try {
-            renderUserMarker(context, ms.first, ms.second, loc, accuracy, currentHeading)
+            MapUserLocationRenderer.render(context, ms.second, loc, accuracy, currentHeading)
         } catch (_: IllegalStateException) {
             return@LaunchedEffect
         }
@@ -178,7 +151,7 @@ fun MapViewScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         val loc = currentLocation ?: return@LaunchedEffect
         if (followMode) {
-            ms.first.animateCamera(CameraUpdateFactory.newLatLng(loc))
+            ms.first.animateCamera(CameraUpdateFactory.newLatLng(loc.toLatLng()))
         }
     }
 
@@ -187,7 +160,7 @@ fun MapViewScreen(
         val ms = mapAndStyle ?: return@LaunchedEffect
         val heading = currentHeading ?: return@LaunchedEffect
         try {
-            updateHeadingArrow(context, ms.second, heading)
+            MapUserLocationRenderer.updateHeading(context, ms.second, heading)
         } catch (_: IllegalStateException) {
             return@LaunchedEffect
         }
@@ -285,22 +258,17 @@ fun MapViewScreen(
 
             // POI cluster tap → zoom in
             if (currentShowPoi) {
-                val clusterFeatures = ms.first.queryRenderedFeatures(screenPoint, MapPoiRenderer.POI_CLUSTER_LAYER)
-                if (clusterFeatures.isNotEmpty()) {
-                    val feature = clusterFeatures[0]
-                    val geo = feature.geometry()
-                    val lat = if (geo is Point) geo.latitude() else latLng.latitude
-                    val lon = if (geo is Point) geo.longitude() else latLng.longitude
+                val clusterLocation = MapFeatureQuery.poiClusterAt(ms.first, screenPoint)
+                if (clusterLocation != null) {
                     ms.first.animateCamera(
-                        CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), ms.first.cameraPosition.zoom + 2.0), 500
+                        CameraUpdateFactory.newLatLngZoom(clusterLocation.toLatLng(), ms.first.cameraPosition.zoom + 2.0), 500
                     )
                     return@addOnMapClickListener true
                 }
 
                 // Individual POI tap → popup
-                val poiFeatures = ms.first.queryRenderedFeatures(screenPoint, MapPoiRenderer.POI_LAYER)
-                if (poiFeatures.isNotEmpty()) {
-                    val poiId = poiFeatures[0].getStringProperty("poiId")
+                val poiId = MapFeatureQuery.poiIdAt(ms.first, screenPoint)
+                if (poiId != null) {
                     val poi = currentVisiblePois.find { it.poiId == poiId }
                     if (poi != null) {
                         viewModel.selectPoiFromMap(poi)
@@ -318,9 +286,8 @@ fun MapViewScreen(
             }
 
             // Query repeated-interval layer
-            val groupedFeatures = ms.first.queryRenderedFeatures(screenPoint, "interval-grouped-layer")
-            if (groupedFeatures.isNotEmpty()) {
-                val repeatedIntervalIdStr = groupedFeatures[0].getStringProperty("repeatedIntervalId")
+            val repeatedIntervalIdStr = MapFeatureQuery.repeatedIntervalIdAt(ms.first, screenPoint)
+            if (repeatedIntervalIdStr != null) {
                 val group = currentGroups.find { it.id.toString() == repeatedIntervalIdStr }
                 if (group != null) { viewModel.selectGroup(group) }
                 return@addOnMapClickListener true
@@ -339,10 +306,10 @@ fun MapViewScreen(
             gesturesEnabled = true,
             onMapReady = { map, style ->
                 mapAndStyle = Pair(map, style)
-                viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds.toGeoBounds())
                 scaleBarInfo = computeScaleBarInfo(map, density)
                 map.addOnCameraIdleListener {
-                    viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds)
+                    viewModel.updateViewportBounds(map.projection.visibleRegion.latLngBounds.toGeoBounds())
                     scaleBarInfo = computeScaleBarInfo(map, density)
                 }
                 map.addOnCameraMoveStartedListener { reason ->
@@ -470,7 +437,7 @@ fun MapViewScreen(
                     val ms = mapAndStyle
                     if (loc != null && ms != null) {
                         ms.first.animateCamera(
-                            CameraUpdateFactory.newLatLngZoom(loc, DEFAULT_MAP_ZOOM + 2.0)
+                            CameraUpdateFactory.newLatLngZoom(loc.toLatLng(), DEFAULT_MAP_ZOOM + 2.0)
                         )
                     }
                 }
@@ -586,118 +553,4 @@ private fun computeScaleBarInfo(map: MapLibreMap, density: Float): ScaleBarInfo 
     return ScaleBarUtils.computeScaleBar(metersPerPixel, maxWidthPx.toDouble())
 }
 
-private const val USER_LOCATION_SOURCE = "user-location-source"
-private const val USER_LOCATION_HEADING_LAYER = "user-location-heading"
-private const val USER_HEADING_ARROW_ICON = "user-heading-arrow-icon"
-
-private fun renderUserMarker(
-    context: Context,
-    map: MapLibreMap,
-    style: Style,
-    location: LatLng,
-    accuracyM: Float,
-    heading: Float?
-) {
-    val sourceId = USER_LOCATION_SOURCE
-    val outerLayerId = "user-location-outer"
-    val innerLayerId = "user-location-inner"
-
-    val feature = Feature.fromGeometry(Point.fromLngLat(location.longitude, location.latitude))
-    val source = GeoJsonSource(sourceId, feature)
-
-    // Remove existing layers/source if present (heading layer must go before its source)
-    if (style.getLayer(USER_LOCATION_HEADING_LAYER) != null) style.removeLayer(USER_LOCATION_HEADING_LAYER)
-    if (style.getLayer(outerLayerId) != null) style.removeLayer(outerLayerId)
-    if (style.getLayer(innerLayerId) != null) style.removeLayer(innerLayerId)
-    if (style.getSource(sourceId) != null) style.removeSource(sourceId)
-
-    style.addSource(source)
-
-    // Location.getAccuracy() is a 68%-confidence radius by definition, so ~1-in-3 fixes
-    // legitimately land outside it with no bug. Doubling it approximates a ~95%-confidence
-    // radius so the dot reliably reads as "inside the circle".
-    val displayRadiusM = accuracyM.toDouble() * 2.0
-
-    // Web Mercator tiles double in resolution with each zoom level, so the screen-pixel
-    // radius for a constant ground radius is `radiusAtZoom0 * 2^zoom`. Express that as an
-    // exponential (base 2) zoom interpolation so the circle keeps representing the same
-    // real-world accuracy radius — and visibly grows/shrinks — as the map is zoomed,
-    // mirroring the Google Maps "my location" accuracy circle.
-    val latRad = Math.toRadians(location.latitude)
-    val radiusAtZoom0 = (displayRadiusM * 256.0 /
-            (2 * Math.PI * com.velometrics.app.util.GeoUtils.EARTH_RADIUS_M * cos(latRad))).toFloat()
-    val outerRadius = Expression.interpolate(
-        Expression.exponential(2f),
-        Expression.zoom(),
-        Expression.stop(0f, radiusAtZoom0),
-        Expression.stop(20f, radiusAtZoom0 * 2f.pow(20))
-    )
-
-    val outerCircle = CircleLayer(outerLayerId, sourceId).apply {
-        setProperties(
-            PropertyFactory.circleRadius(outerRadius),
-            PropertyFactory.circleColor("#42A5F5"),
-            PropertyFactory.circleOpacity(0.25f)
-        )
-    }
-
-    // Inner dot — 8px radius, fully opaque, with white stroke
-    val innerCircle = CircleLayer(innerLayerId, sourceId).apply {
-        setProperties(
-            PropertyFactory.circleRadius(8f),
-            PropertyFactory.circleColor("#42A5F5"),
-            PropertyFactory.circleOpacity(1.0f),
-            PropertyFactory.circleStrokeWidth(2f),
-            PropertyFactory.circleStrokeColor("#FFFFFF")
-        )
-    }
-
-    style.addLayer(outerCircle)
-    style.addLayer(innerCircle)
-
-    if (heading != null) {
-        registerHeadingArrowIcon(context, style)
-        val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, sourceId).apply {
-            setProperties(
-                PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
-                PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
-                PropertyFactory.iconRotate(heading),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true)
-            )
-        }
-        style.addLayer(headingLayer)
-    }
-}
-
-private fun registerHeadingArrowIcon(context: Context, style: Style) {
-    if (style.getImage(USER_HEADING_ARROW_ICON) != null) return
-    val drawable = ContextCompat.getDrawable(context, R.drawable.ic_heading_arrow) ?: return
-    style.addImage(USER_HEADING_ARROW_ICON, drawable.toBitmap())
-}
-
-/** Cheaply updates the heading arrow's rotation, creating the layer if it doesn't exist yet. */
-private fun updateHeadingArrow(context: Context, style: Style, heading: Float) {
-    if (style.getSource(USER_LOCATION_SOURCE) == null) return
-
-    val existing = style.getLayer(USER_LOCATION_HEADING_LAYER) as? SymbolLayer
-    if (existing != null) {
-        existing.setProperties(PropertyFactory.iconRotate(heading))
-        return
-    }
-
-    registerHeadingArrowIcon(context, style)
-    val headingLayer = SymbolLayer(USER_LOCATION_HEADING_LAYER, USER_LOCATION_SOURCE).apply {
-        setProperties(
-            PropertyFactory.iconImage(USER_HEADING_ARROW_ICON),
-            PropertyFactory.iconSize(USER_HEADING_ARROW_ICON_SIZE),
-            PropertyFactory.iconRotate(heading),
-            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-            PropertyFactory.iconAllowOverlap(true),
-            PropertyFactory.iconIgnorePlacement(true)
-        )
-    }
-    style.addLayer(headingLayer)
-}
 

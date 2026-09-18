@@ -17,6 +17,7 @@ import com.velometrics.app.ui.components.NotFoundBox
 import com.velometrics.app.ui.components.PullUpDrawer
 import com.velometrics.app.ui.components.TrackMapWithDrawer
 import com.velometrics.app.ui.components.rememberEditableTopBarTitleState
+import com.velometrics.app.ui.components.toLatLng
 import com.velometrics.app.util.FormatUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,7 +76,7 @@ fun RepeatedIntervalDetailScreen(
         ) {
             // Full-screen map background (interactive)
             TrackMapWithDrawer(
-                points = uiState.trackPoints,
+                points = uiState.trackPoints.map { it.toLatLng() },
                 drawerFraction = drawerFraction,
                 trackId = "repeated-interval-detail"
             )

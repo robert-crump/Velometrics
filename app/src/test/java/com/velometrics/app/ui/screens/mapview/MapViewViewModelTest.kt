@@ -89,7 +89,7 @@ class MapViewViewModelTest {
         fakeLocation.emitFix(coarseFix(lat = 10.0, lon = 20.0))
         advanceUntilIdle()
         val firstLocation = vm.currentLocation.value
-        assertEquals(10.0, firstLocation!!.latitude, 0.0001)
+        assertEquals(10.0, firstLocation!!.lat, 0.0001)
 
         // Second fix emitted immediately — within 5 s throttle window; should NOT update
         fakeLocation.emitFix(coarseFix(lat = 30.0, lon = 40.0))
@@ -191,19 +191,37 @@ class MapViewViewModelTest {
     fun `selectPoiChip activates, switches, and deactivates on re-tap`() = runTest(testDispatcher) {
         val vm = buildViewModel(FakeLocationSource())
 
-        assertNull(vm.activePoiChip.value)
+        assertNull(vm.poiSelection.value.activeChip)
 
         vm.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
-        assertEquals(MapViewViewModel.ALL_POIS_CHIP, vm.activePoiChip.value)
+        assertEquals(MapViewViewModel.ALL_POIS_CHIP, vm.poiSelection.value.activeChip)
 
         // Re-tapping the active chip deactivates
         vm.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP)
-        assertNull(vm.activePoiChip.value)
+        assertNull(vm.poiSelection.value.activeChip)
 
         // Activating a category then switching to another
         vm.selectPoiChip("Cafe")
-        assertEquals("Cafe", vm.activePoiChip.value)
+        assertEquals("Cafe", vm.poiSelection.value.activeChip)
         vm.selectPoiChip("Park")
-        assertEquals("Park", vm.activePoiChip.value)
+        assertEquals("Park", vm.poiSelection.value.activeChip)
+    }
+
+    @Test
+    fun `selecting a chip leaves an already popped-up POI untouched`() = runTest(testDispatcher) {
+        val vm = buildViewModel(FakeLocationSource())
+        val poi = com.velometrics.app.domain.model.Poi(
+            poiId = "1", name = "Cafe", category = "Cafe", cuisine = null,
+            lat = 1.0, lon = 1.0, openingHours = null
+        )
+
+        vm.selectPoiFromMap(poi)
+        assertEquals(poi, vm.poiSelection.value.selected?.poi)
+
+        vm.selectPoiChip("Park")
+        assertEquals(poi, vm.poiSelection.value.selected?.poi)
+
+        vm.dismissPoi()
+        assertNull(vm.poiSelection.value.selected)
     }
 }

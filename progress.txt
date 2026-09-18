@@ -1,3 +1,61 @@
+## Issue #199 — Map View: extract user-location renderer and feature query, remove MapLibre types from ViewModels, fix stale CONTEXT.md entry
+Completed: 2026-09-18
+
+### What was done
+
+Three architecture-review fixes to `MapViewScreen`/`MapViewViewModel`, all from the same
+`/improve-codebase-architecture` pass that produced #195.
+
+**Extracted the ~110 raw-MapLibre lines out of `MapViewScreen`** — `MapUserLocationRenderer` (new,
+`ui/components/`) owns the user-location dot/accuracy-circle/heading-arrow layers, taking a domain
+`GeoPoint` instead of MapLibre's `LatLng`. `MapFeatureQuery` (new, same package) is a small adapter
+over `queryRenderedFeatures` tap hit-testing, so the three interactive layers' names
+(`MapPoiRenderer.POI_CLUSTER_LAYER`/`POI_LAYER`, `MapIntervalRenderer.GROUPED_LAYER` — the last made
+public for this) live next to the renderers that create them instead of as string literals in the
+screen's click listener. The accuracy-weighted location-smoothing math moved to a new pure
+`util/LocationSmoothing.weightedAverage(List<LocationSample>): GeoPoint?`, unit-tested
+(`LocationSmoothingTest`, 5 cases) — the screen now only owns the `mutableStateListOf` window and
+calls the pure function. `MapViewScreen` no longer constructs `CircleLayer`/`SymbolLayer`/
+`Expression` or references a layer name directly.
+
+**Removed MapLibre types from both ViewModels' interfaces** — new map-library-free
+`domain/model/GeoPoint`/`GeoBounds` (the latter with `contains(lat, lon)`) replace `LatLng`/
+`LatLngBounds` throughout `MapViewViewModel` (`currentLocation`, `_viewportBounds`,
+`updateViewportBounds`) and `RepeatedIntervalDetailViewModel` (`trackPoints`). Conversion to/from
+MapLibre's types happens only at the UI edge, via new `GeoPoint.toLatLng()`/`LatLng.toGeoPoint()`/
+`LatLngBounds.toGeoBounds()` extensions (`ui/components/GeoLibreExtensions.kt`) — `MapViewScreen`
+and `RepeatedIntervalDetailScreen` call these at the boundary; `TrackMapWithDrawer` (a Composable)
+was left taking `LatLng` since MapLibre types are the right currency for a map-rendering component,
+just not for a ViewModel.
+
+**Reinstated `PoiSelectionState` for Map View** — new `ui/screens/mapview/PoiSelectionState.kt`
+(`activeChip`, `selected`, intents `selectChip`/`selectPoi`/`dismissPoi`) replaces
+`MapViewViewModel`'s `_activePoiChip`/`_selectedPoi` pair, which the architecture review flagged as
+a regression back to the "parallel `MutableStateFlow`s in lockstep" shape the glossary already
+described (for the now-deleted Navigation screen). `_allPois` stayed a separate plain data flow —
+it's the raw POI list, not a "what is the user looking at" concern, so folding it in would have
+mixed two different kinds of state. `poiSelection: StateFlow<PoiSelectionState>` is exposed
+directly (not via `.map{}.stateIn()`) so a synchronous read immediately after `selectPoiChip()`/
+`selectPoiFromMap()` sees the new value without needing an active collector to pump the flow first
+— tried the mapped/derived form initially and it broke `MapViewViewModelTest`'s no-`runCurrent()`
+assertions, which was the tell that it would've been a real (if usually invisible) latency
+regression, not just a test artifact. Selecting a chip intentionally leaves any popped-up POI
+untouched (matches prior behavior exactly — confirmed with a new test). Updated `CONTEXT.md`'s
+`PoiSelectionState` entry to describe the Map View shape and note the Navigation-screen history.
+
+### Tests
+New: `LocationSmoothingTest` (5 cases: empty window, single sample, equal-accuracy averaging,
+accuracy-weighted pull, sub-1m clamping). `MapViewViewModelTest` gained one case (chip selection
+leaves an open POI popup untouched) and had its existing POI-chip assertions updated for the
+`poiSelection` state object. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
+full `testDebugUnitTest`: all pass. No on-device verification this session (no emulator/device
+attached) — acceptance criterion "Map View behaves unchanged on device" is unverified beyond the
+unit-test coverage of the extracted/refactored logic; the renderer/query extraction is a
+line-for-line behavior-preserving move, and the POI-selection consolidation was deliberately kept
+behavior-identical (see above).
+
+---
+
 ## Issue #195 — Test seams: shared fakes package, interfaces for the derived caches, one FlowCache
 Completed: 2026-09-18
 
@@ -247,69 +305,3 @@ prior + 2 new. No on-device verification this session (no emulator/device attach
 delete/error/navigate branching is fully covered by the new unit tests, and the kebab menu +
 dialog + snackbar wiring is otherwise-standard Compose plumbing with no Compose UI test harness in
 this project (same residual gap as every prior UI-touching pass in this repo's history).
-
----
-
-## Issue #185 — Repeated-interval achievement badge in the name row
-Completed: 2026-09-06
-
-### What was done
-
-New import-time achievement snapshot, scoped to one `RepeatedInterval`'s own reps (never against
-other archetypes or plain rides), surfaced in the repeated-interval name row.
-
-**`domain/model/IntervalAchievement.kt`** (new) — `AchievementScope` enum (`ALL_TIME`/`THIS_YEAR`)
-and `IntervalAchievement(rank, scope, year)`, per the issue's illustrative shape.
-
-**`domain/service/IntervalAchievementEvaluator.kt`** (new) — `evaluate(interval, reps)`, where
-`reps` is the archetype's full, already-updated rep list (including `interval` itself). Ranks by
-raw `avgSpeedKmh` via the same count-strictly-greater-then-+1 shape `RankedMetricEvaluator` uses for
-ride-level achievements, but over the in-memory rep list rather than a repository query. Gates on
-`reps.size < 3` (total reps, not year-scoped) before evaluating either scope. Tries `ALL_TIME`
-first (over all reps) and only falls back to `THIS_YEAR` (reps whose `startTimestamp` falls in the
-same calendar year, system default zone) when `ALL_TIME` isn't top-3 — so a rep qualifying in both
-is recorded as `ALL_TIME`, matching the issue's precedence rule. Returns `null` past 3rd place in
-both scopes.
-
-**`domain/model/IntervalSession.kt`** / **`data/local/entity/IntervalSessionEntity.kt`** — new
-nullable `achievementRank: Int?` / `achievementScope: AchievementScope?` (entity: `String?`, the
-enum's `.name`) fields. **`util/EntityMappers.kt`** — mapped both directions
-(`AchievementScope.valueOf(...)` / `.name`). **`data/local/VelometricsDatabase.kt`** — version 17 →
-18. **`di/DatabaseModule.kt`** — `MIGRATION_17_18` (two nullable `ALTER TABLE ADD COLUMN`s, same
-shape as `MIGRATION_15_16`/`MIGRATION_16_17`), added to `addMigrations(...)`.
-
-**`domain/service/IntervalMatcher.kt`** — now also takes `IntervalRepository`. Right after grouping
-each import batch's newly-matched intervals under their archetype and building `updatedReps =
-archetype.intervals + matched` (the archetype's full, current rep list), each matched interval is
-run through `IntervalAchievementEvaluator.evaluate(interval, updatedReps)`; a non-null result is
-persisted via `intervalRepository.updateInterval(interval.copy(achievementRank = ...,
-achievementScope = ...))` before the archetype itself is saved. This is the "compute once, right
-after `matchToRepeatedIntervals` groups the new interval" snapshot the issue calls for — it's never
-recomputed afterward, so a later rep beating an earlier one doesn't retroactively change the
-earlier snapshot. Historical intervals (matched before this change) simply never went through this
-path, so they're left with null achievement fields — no backfill, matching the HRR60/#178
-precedent.
-
-**`ui/components/IntervalListCard.kt`** — new private `achievementLabel(interval)` helper: returns
-`"3rd best 2026"` / `"3rd best all-time"` (or `null` when the interval carries no achievement
-snapshot) — the year is derived from `interval.startTimestamp`'s own calendar year at render time,
-not persisted separately, since a past rep's year never changes. The name row now renders
-`"${ref.name} | ${achievementLabel}"` when a snapshot exists, else the plain `ref.name` unchanged.
-
-### Tests
-`IntervalAchievementEvaluatorTest` (new, 6 cases): the minimum-reps gate (2 reps records nothing
-even for the fastest), the exact rank-3/rank-4 boundary among 5 reps, ties (two reps tied for
-fastest both rank 1st, a third ranks 3rd — not 2nd), a rep qualifying in both scopes at once
-recording `ALL_TIME`, a rep that only qualifies `THIS_YEAR` recording that scope + the correct
-literal year, and a rep beaten too many times in both scopes getting nothing.
-`VelometricsMigrationTest` gained `migrate 17 to 18 adds nullable achievementRank and
-achievementScope columns defaulting to null`, mirroring the 16→17 test shape.
-`IntervalMatcherTest`'s constructor call updated for `IntervalMatcher`'s new `IntervalRepository`
-parameter (mocked, relaxed) — its own tests only exercise the pure `matchIntervals` function, so no
-behavior there needed changing.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 339 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 332
-prior + 7 new (6 evaluator + 1 migration). No on-device verification this session (no
-emulator/device attached); the ranking/persistence logic is fully covered by the new unit tests, and
-the name-row rendering is a small pure-string helper with no Compose UI test harness in this
-project (same residual gap as every prior UI-touching pass in this repo's history).

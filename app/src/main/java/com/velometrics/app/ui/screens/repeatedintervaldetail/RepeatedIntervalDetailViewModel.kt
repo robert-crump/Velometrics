@@ -3,6 +3,7 @@ package com.velometrics.app.ui.screens.repeatedintervaldetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.velometrics.app.domain.model.GeoPoint
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.util.PolylineDecoder
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import org.maplibre.android.geometry.LatLng
 import javax.inject.Inject
 
 data class RepeatedIntervalDetailUiState(
@@ -23,7 +23,7 @@ data class RepeatedIntervalDetailUiState(
     val avgSpeedKmh: Double = 0.0,
     val avgPowerW: Int = 0,
     /** Decoded edge-list geometry, concatenated in sequence order, for map preview. */
-    val trackPoints: List<LatLng> = emptyList()
+    val trackPoints: List<GeoPoint> = emptyList()
 )
 
 @HiltViewModel
@@ -50,7 +50,7 @@ class RepeatedIntervalDetailViewModel @Inject constructor(
 
                 val trackPoints = repeatedInterval.edges.flatMap { edge ->
                     PolylineDecoder.decode(edge.geometryEncoded)
-                }
+                }.map { GeoPoint(it.latitude, it.longitude) }
 
                 RepeatedIntervalDetailUiState(
                     repeatedInterval = repeatedInterval,

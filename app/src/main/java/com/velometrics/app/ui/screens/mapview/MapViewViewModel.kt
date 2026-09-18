@@ -1,9 +1,11 @@
-﻿package com.velometrics.app.ui.screens.mapview
+package com.velometrics.app.ui.screens.mapview
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.FlowSegment
+import com.velometrics.app.domain.model.GeoBounds
+import com.velometrics.app.domain.model.GeoPoint
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.Poi
 import com.velometrics.app.domain.model.PoiWithDistances
@@ -31,8 +33,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import javax.inject.Inject
 
 @HiltViewModel
@@ -55,7 +55,7 @@ class MapViewViewModel @Inject constructor(
     private val _showFlowSegments = MutableStateFlow(false)
     val showFlowSegments: StateFlow<Boolean> = _showFlowSegments.asStateFlow()
 
-    private val _viewportBounds = MutableStateFlow<LatLngBounds?>(null)
+    private val _viewportBounds = MutableStateFlow<GeoBounds?>(null)
 
     fun toggleFlowSegments() { _showFlowSegments.update { !it } }
 
@@ -66,8 +66,8 @@ class MapViewViewModel @Inject constructor(
     ) { show, bounds ->
         if (!show || bounds == null) emptyList()
         else mapGraphRepository.getFlowSegmentsNear(
-            bounds.latitudeSouth, bounds.longitudeWest,
-            bounds.latitudeNorth, bounds.longitudeEast
+            bounds.south, bounds.west,
+            bounds.north, bounds.east
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -120,34 +120,34 @@ class MapViewViewModel @Inject constructor(
 
     private val _allPois = MutableStateFlow<List<Poi>>(emptyList())
 
-    private val _activePoiChip = MutableStateFlow<String?>(null)
-    val activePoiChip: StateFlow<String?> = _activePoiChip.asStateFlow()
-
-    private val _selectedPoi = MutableStateFlow<PoiWithDistances?>(null)
-    val selectedPoi: StateFlow<PoiWithDistances?> = _selectedPoi.asStateFlow()
+    // Exposed directly (not via map+stateIn) so a synchronous read right after selectPoiChip()/
+    // selectPoiFromMap() sees the new value without needing a collector to pump the flow.
+    private val _poiSelection = MutableStateFlow(PoiSelectionState.None)
+    val poiSelection: StateFlow<PoiSelectionState> = _poiSelection.asStateFlow()
 
     val availablePoiCategories: StateFlow<List<String>> = _allPois
         .map { pois -> pois.map { it.category }.distinct().sorted() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val visiblePois: StateFlow<List<Poi>> = combine(
-        _allPois, _viewportBounds, _activePoiChip
-    ) { pois, bounds, activeChip ->
+        _allPois, _viewportBounds, _poiSelection
+    ) { pois, bounds, selection ->
+        val activeChip = selection.activeChip
         if (bounds == null || activeChip == null) return@combine emptyList()
         val filtered = if (activeChip == ALL_POIS_CHIP) pois else pois.filter { it.category == activeChip }
-        filtered.filter { bounds.contains(LatLng(it.lat, it.lon)) }
+        filtered.filter { bounds.contains(it.lat, it.lon) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val showPoiLayer: StateFlow<Boolean> = _activePoiChip
-        .map { it != null }
+    val showPoiLayer: StateFlow<Boolean> = _poiSelection
+        .map { it.activeChip != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun selectPoiChip(chipLabel: String) {
-        _activePoiChip.value = if (_activePoiChip.value == chipLabel) null else chipLabel
+        _poiSelection.update { it.selectChip(chipLabel) }
     }
 
     fun clearPoiChip() {
-        _activePoiChip.value = null
+        _poiSelection.update { it.copy(activeChip = null) }
     }
 
     init {
@@ -156,24 +156,24 @@ class MapViewViewModel @Inject constructor(
         }
     }
 
-    fun updateViewportBounds(bounds: LatLngBounds) {
+    fun updateViewportBounds(bounds: GeoBounds) {
         _viewportBounds.value = bounds
     }
 
     fun selectPoiFromMap(poi: Poi) {
         val loc = _currentLocation.value
         val distanceM = if (loc != null) {
-            GeoUtils.haversineDistance(loc.latitude, loc.longitude, poi.lat, poi.lon)
+            GeoUtils.haversineDistance(loc.lat, loc.lon, poi.lat, poi.lon)
         } else null
-        _selectedPoi.value = PoiWithDistances(poi, distanceM, trackDistanceM = null)
+        _poiSelection.update { it.selectPoi(PoiWithDistances(poi, distanceM, trackDistanceM = null)) }
     }
 
-    fun dismissPoi() { _selectedPoi.value = null }
+    fun dismissPoi() { _poiSelection.update { it.dismissPoi() } }
 
     // --- Current location with accuracy ---
 
-    private val _currentLocation = MutableStateFlow<LatLng?>(null)
-    val currentLocation: StateFlow<LatLng?> = _currentLocation.asStateFlow()
+    private val _currentLocation = MutableStateFlow<GeoPoint?>(null)
+    val currentLocation: StateFlow<GeoPoint?> = _currentLocation.asStateFlow()
 
     private val _locationAccuracy = MutableStateFlow<Float?>(null)
     val locationAccuracy: StateFlow<Float?> = _locationAccuracy.asStateFlow()
@@ -195,7 +195,7 @@ class MapViewViewModel @Inject constructor(
                 locationSource.lastKnownFix(CyclingConstants.GPS_ROUGH_FIX_ACCURACY_M)?.let { fix ->
                     _locationAccuracy.value = fix.accuracyM
                     lastDotUpdateMs = System.currentTimeMillis()
-                    _currentLocation.value = LatLng(fix.lat, fix.lon)
+                    _currentLocation.value = GeoPoint(fix.lat, fix.lon)
                     _showLocatingIndicator.value = false
                 }
                 locationSource.fixes()
@@ -204,7 +204,7 @@ class MapViewViewModel @Inject constructor(
                         val nowMs = System.currentTimeMillis()
                         if (nowMs - lastDotUpdateMs >= CyclingConstants.LOCATION_DISPLAY_THROTTLE_MS) {
                             lastDotUpdateMs = nowMs
-                            _currentLocation.value = LatLng(fix.lat, fix.lon)
+                            _currentLocation.value = GeoPoint(fix.lat, fix.lon)
                         }
                         _showLocatingIndicator.value = false
                     }

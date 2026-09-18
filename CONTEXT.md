@@ -4,14 +4,14 @@ Named concepts used throughout the codebase. Architecture-review skills are info
 
 ## PoiSelectionState
 
-The single value type describing what POI the user is currently looking at on the Navigation screen. Replaces four parallel `MutableStateFlow`s that were previously updated in lockstep.
+The value type describing the POI-layer selection on the Map View screen: which category chip is active and which single POI, if any, is popped up after a tap.
 
-- **Lives in:** `ui/screens/navigation/PoiSelectionState.kt` (UI-screen state, not a domain entity).
-- **Interface:** four intents — `pickFromList(poiWD)`, `pickFromMap(poiWD)`, `dismiss()`, `consumeCameraMove()` — each returns a new `PoiSelectionState`. Default value: `PoiSelectionState.None`.
-- **Holds:** `selected: Selected?` (the picked `Poi` plus its `PoiWithDistances` for the popup) and `pendingZoomTo: Poi?` (one-shot: signals the screen to ease the camera once, then call `consumePoiCameraMove`).
-- **Origin matters:** list-pick sets `pendingZoomTo`; map-pick does not (the user is already looking at the map).
-- **Tab coupling:** `selectedTab` is *not* part of this state. The "list-pick also flips to MAP tab" rule lives in `NavigationViewModel.pickPoiFromList`, not in the state machine — selection and tab are orthogonal axes.
-- **Reset:** `setMode` / `resetMode` write `PoiSelectionState.None` directly; there is no explicit "reset" intent.
+- **Lives in:** `ui/screens/mapview/PoiSelectionState.kt` (UI-screen state, not a domain entity).
+- **Interface:** three intents — `selectChip(chip)`, `selectPoi(poiWD)`, `dismissPoi()` — each returns a new `PoiSelectionState`. Default value: `PoiSelectionState.None`.
+- **Holds:** `activeChip: String?` (drives `showPoiLayer`/`visiblePois` filtering in `MapViewViewModel`) and `selected: PoiWithDistances?` (the popped-up POI, rendered by `PoiPopupCard`).
+- **Independent axes:** re-selecting the active chip toggles it off and leaves `selected` untouched — switching categories does not dismiss whatever popup is currently open.
+- **Raw POI data is separate:** the full POI list (`MapViewViewModel._allPois`) is a plain data flow, not part of this state — it isn't a "what is the user looking at" concern.
+- **History:** this entry previously described the Navigation screen's `PoiSelectionState`, deleted in `9ac43df` along with the screen itself (`ecf2d80`). `MapViewViewModel` had since regressed to three loose `MutableStateFlow`s before this reinstatement (issue #199).
 
 ## SessionEnergy
 

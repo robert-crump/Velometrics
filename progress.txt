@@ -1,3 +1,18 @@
+## Issue #206 — Atomic per-file import: FitImportService writes in one Room transaction
+Completed: 2026-09-19
+
+### What was done
+
+- `FitImportService` now injects `VelometricsDatabase` and wraps `insertSession` through `updateTag`
+  (best efforts, intervals + matching, sprint update, tag) in one `withTransaction`; parse/hash/filter/
+  metrics stay outside. A kill mid-import leaves nothing or a full row -- never a partial one that dedup
+  would treat as imported. Public signature and callers unchanged.
+- New `FitImportServiceTransactionTest` (Robolectric + real Room, FIT built with the Garmin encoder):
+  successful import commits session + best efforts + tag; a forced `updateTag` failure leaves zero rows
+  (`existsByFileName` false) and a retry then imports cleanly.
+
+`testDebugUnitTest` passes.
+
 ## Issue #201 — Ride Reveal: RevealCandidateSource seam and a single-file priority rule
 Completed: 2026-09-19
 
@@ -70,62 +85,3 @@ Completed: 2026-09-19
   and the now-unused `SessionComparator` constructor dependency.
 
 `testDebugUnitTest` passes.
-
-## Issue #199 — Map View: extract user-location renderer and feature query, remove MapLibre types from ViewModels, fix stale CONTEXT.md entry
-Completed: 2026-09-18
-
-### What was done
-
-Three architecture-review fixes to `MapViewScreen`/`MapViewViewModel`, all from the same
-`/improve-codebase-architecture` pass that produced #195.
-
-**Extracted the ~110 raw-MapLibre lines out of `MapViewScreen`** — `MapUserLocationRenderer` (new,
-`ui/components/`) owns the user-location dot/accuracy-circle/heading-arrow layers, taking a domain
-`GeoPoint` instead of MapLibre's `LatLng`. `MapFeatureQuery` (new, same package) is a small adapter
-over `queryRenderedFeatures` tap hit-testing, so the three interactive layers' names
-(`MapPoiRenderer.POI_CLUSTER_LAYER`/`POI_LAYER`, `MapIntervalRenderer.GROUPED_LAYER` — the last made
-public for this) live next to the renderers that create them instead of as string literals in the
-screen's click listener. The accuracy-weighted location-smoothing math moved to a new pure
-`util/LocationSmoothing.weightedAverage(List<LocationSample>): GeoPoint?`, unit-tested
-(`LocationSmoothingTest`, 5 cases) — the screen now only owns the `mutableStateListOf` window and
-calls the pure function. `MapViewScreen` no longer constructs `CircleLayer`/`SymbolLayer`/
-`Expression` or references a layer name directly.
-
-**Removed MapLibre types from both ViewModels' interfaces** — new map-library-free
-`domain/model/GeoPoint`/`GeoBounds` (the latter with `contains(lat, lon)`) replace `LatLng`/
-`LatLngBounds` throughout `MapViewViewModel` (`currentLocation`, `_viewportBounds`,
-`updateViewportBounds`) and `RepeatedIntervalDetailViewModel` (`trackPoints`). Conversion to/from
-MapLibre's types happens only at the UI edge, via new `GeoPoint.toLatLng()`/`LatLng.toGeoPoint()`/
-`LatLngBounds.toGeoBounds()` extensions (`ui/components/GeoLibreExtensions.kt`) — `MapViewScreen`
-and `RepeatedIntervalDetailScreen` call these at the boundary; `TrackMapWithDrawer` (a Composable)
-was left taking `LatLng` since MapLibre types are the right currency for a map-rendering component,
-just not for a ViewModel.
-
-**Reinstated `PoiSelectionState` for Map View** — new `ui/screens/mapview/PoiSelectionState.kt`
-(`activeChip`, `selected`, intents `selectChip`/`selectPoi`/`dismissPoi`) replaces
-`MapViewViewModel`'s `_activePoiChip`/`_selectedPoi` pair, which the architecture review flagged as
-a regression back to the "parallel `MutableStateFlow`s in lockstep" shape the glossary already
-described (for the now-deleted Navigation screen). `_allPois` stayed a separate plain data flow —
-it's the raw POI list, not a "what is the user looking at" concern, so folding it in would have
-mixed two different kinds of state. `poiSelection: StateFlow<PoiSelectionState>` is exposed
-directly (not via `.map{}.stateIn()`) so a synchronous read immediately after `selectPoiChip()`/
-`selectPoiFromMap()` sees the new value without needing an active collector to pump the flow first
-— tried the mapped/derived form initially and it broke `MapViewViewModelTest`'s no-`runCurrent()`
-assertions, which was the tell that it would've been a real (if usually invisible) latency
-regression, not just a test artifact. Selecting a chip intentionally leaves any popped-up POI
-untouched (matches prior behavior exactly — confirmed with a new test). Updated `CONTEXT.md`'s
-`PoiSelectionState` entry to describe the Map View shape and note the Navigation-screen history.
-
-### Tests
-New: `LocationSmoothingTest` (5 cases: empty window, single sample, equal-accuracy averaging,
-accuracy-weighted pull, sub-1m clamping). `MapViewViewModelTest` gained one case (chip selection
-leaves an open POI popup untouched) and had its existing POI-chip assertions updated for the
-`poiSelection` state object. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`,
-full `testDebugUnitTest`: all pass. No on-device verification this session (no emulator/device
-attached) — acceptance criterion "Map View behaves unchanged on device" is unverified beyond the
-unit-test coverage of the extracted/refactored logic; the renderer/query extraction is a
-line-for-line behavior-preserving move, and the POI-selection consolidation was deliberately kept
-behavior-identical (see above).
-
----
-

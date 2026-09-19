@@ -1,6 +1,8 @@
 ﻿package com.velometrics.app.data.fitimport
 
 import android.util.Log
+import androidx.room.withTransaction
+import com.velometrics.app.data.local.VelometricsDatabase
 import com.velometrics.app.domain.model.Datapoint
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.BestEffortRepository
@@ -38,7 +40,8 @@ class FitImportService @Inject constructor(
     private val intervalRepository: IntervalRepository,
     private val sprintDetector: SprintDetector,
     private val userSettingsRepository: UserSettingsRepository,
-    private val bestEffortRepository: BestEffortRepository
+    private val bestEffortRepository: BestEffortRepository,
+    private val velometricsDatabase: VelometricsDatabase
 ) {
 
     companion object {
@@ -115,59 +118,64 @@ class FitImportService @Inject constructor(
             Log.d(TAG, "$fileName: dist=${session.distanceKm}km, duration=${session.netDurationSec}s, " +
                     "avgPower=${session.averagePower}W, np=${session.normalizedPower}W")
 
-            // 9. Persist
-            val id = sessionRepository.insertSession(session)
-
-            // 9b. Best-effort records (distance splits + power curve), computed here while the
-            // per-record datapoint stream is still in memory — it isn't persisted anywhere.
-            val bestEfforts = BestEffortCalculator.compute(datapoints, hasPower)
-            if (bestEfforts.hasAnyData) {
-                bestEffortRepository.insert(id, bestEfforts)
-            }
-
-            // 10. Interval detection & matching (power rides only)
+            // 9. Persist -- every DB write for this file commits atomically, so a process kill
+            // mid-import leaves either nothing or a fully populated row, never a partial one that
+            // the SHA-1 dedup check would treat as already imported.
             var intervalCount = 0
             var intervalTotalSec = 0
-            var sprintCount = 0
-            var sprintHistogram: Map<String, Int>? = null
-            if (hasPower) {
-                val intervals = intervalDetector.detect(datapoints, id, ftp)
-                if (intervals.isNotEmpty()) {
-                    val insertedIds = intervalRepository.insertIntervals(intervals)
-                    val persisted = intervals.zip(insertedIds) { interval, insertedId -> interval.copy(id = insertedId) }
-                    intervalMatcher.matchToRepeatedIntervals(persisted)
-                    intervalCount = intervals.size
-                    intervalTotalSec = intervals.sumOf { it.durationSec }
-                    sessionRepository.updateIntervalStats(id, intervalCount, intervalTotalSec)
-                }
-                Log.d(TAG, "$fileName: detected $intervalCount intervals (${intervalTotalSec}s total)")
+            val id = velometricsDatabase.withTransaction {
+                val id = sessionRepository.insertSession(session)
 
-                val sprints = sprintDetector.detect(datapoints, ftp)
-                sprintCount = sprints.size
-                if (sprints.isNotEmpty()) {
-                    sprintHistogram = sprintDetector.buildHistogram(sprints)
+                // 9b. Best-effort records (distance splits + power curve), computed here while the
+                // per-record datapoint stream is still in memory — it isn't persisted anywhere.
+                val bestEfforts = BestEffortCalculator.compute(datapoints, hasPower)
+                if (bestEfforts.hasAnyData) {
+                    bestEffortRepository.insert(id, bestEfforts)
                 }
-                Log.d(TAG, "$fileName: detected $sprintCount sprints")
+
+                // 10. Interval detection & matching (power rides only)
+                var sprintCount = 0
+                var sprintHistogram: Map<String, Int>? = null
+                if (hasPower) {
+                    val intervals = intervalDetector.detect(datapoints, id, ftp)
+                    if (intervals.isNotEmpty()) {
+                        val insertedIds = intervalRepository.insertIntervals(intervals)
+                        val persisted = intervals.zip(insertedIds) { interval, insertedId -> interval.copy(id = insertedId) }
+                        intervalMatcher.matchToRepeatedIntervals(persisted)
+                        intervalCount = intervals.size
+                        intervalTotalSec = intervals.sumOf { it.durationSec }
+                        sessionRepository.updateIntervalStats(id, intervalCount, intervalTotalSec)
+                    }
+                    Log.d(TAG, "$fileName: detected $intervalCount intervals (${intervalTotalSec}s total)")
+
+                    val sprints = sprintDetector.detect(datapoints, ftp)
+                    sprintCount = sprints.size
+                    if (sprints.isNotEmpty()) {
+                        sprintHistogram = sprintDetector.buildHistogram(sprints)
+                    }
+                    Log.d(TAG, "$fileName: detected $sprintCount sprints")
+                }
+
+                // Update sprint data on the session
+                if (sprintCount > 0) {
+                    val updatedSession = sessionRepository.getSessionById(id)
+                    if (updatedSession != null) {
+                        sessionRepository.updateSession(
+                            updatedSession.copy(sprintCount = sprintCount, sprintHistogram = sprintHistogram)
+                        )
+                    }
+                }
+
+                // 11. Rule-based ride tag (#169). Classified off a local copy carrying this import's
+                // just-detected interval stats — session itself still has intervalTotalTimeSec = 0
+                // (SessionMetricsCalculator always emits that; interval detection above is what fills
+                // it in), and the DB row is updated separately rather than via a full updateSession
+                // round trip, matching updateIntervalStats' shape just above.
+                val classifiableSession = session.copy(intervalCount = intervalCount, intervalTotalTimeSec = intervalTotalSec)
+                val tag = RideClassifier.classify(classifiableSession, ftp)?.label
+                sessionRepository.updateTag(id, tag)
+                id
             }
-
-            // Update sprint data on the session
-            if (sprintCount > 0) {
-                val updatedSession = sessionRepository.getSessionById(id)
-                if (updatedSession != null) {
-                    sessionRepository.updateSession(
-                        updatedSession.copy(sprintCount = sprintCount, sprintHistogram = sprintHistogram)
-                    )
-                }
-            }
-
-            // 11. Rule-based ride tag (#169). Classified off a local copy carrying this import's
-            // just-detected interval stats — session itself still has intervalTotalTimeSec = 0
-            // (SessionMetricsCalculator always emits that; interval detection above is what fills
-            // it in), and the DB row is updated separately rather than via a full updateSession
-            // round trip, matching updateIntervalStats' shape just above.
-            val classifiableSession = session.copy(intervalCount = intervalCount, intervalTotalTimeSec = intervalTotalSec)
-            val tag = RideClassifier.classify(classifiableSession, ftp)?.label
-            sessionRepository.updateTag(id, tag)
 
             val summary = buildString {
                 append("%.1f km".format(session.distanceKm))

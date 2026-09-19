@@ -114,12 +114,6 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
             .sortedByDescending { it.sessionStart }
             .map { it.toMetricSample() }
 
-    override suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long, limit: Int): List<SessionMetricSample> =
-        sessions.filter { it.tag == tag && it.sessionStart.toEpochMilli() < epochMs }
-            .sortedByDescending { it.sessionStart }
-            .take(limit)
-            .map { it.toMetricSample() }
-
     override suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long): List<SessionMetricSample> =
         sessions.filter { it.tag == tag && it.sessionStart.toEpochMilli() < epochMs }
             .sortedByDescending { it.sessionStart }

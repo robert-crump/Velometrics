@@ -152,14 +152,6 @@ interface CyclingSessionDao {
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
            intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec
-           FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
-    )
-    suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
-
-    @Query(
-        """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
-           avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec
            FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long): List<SessionMetricSampleEntity>

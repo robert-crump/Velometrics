@@ -219,32 +219,46 @@ class SessionComparatorTest {
     }
 
     @Test
-    fun `tag-scoped comparison only pools sessions sharing the same tag`() = runBlocking {
+    fun `tag-scoped comparison pools all earlier sessions sharing the same tag`() = runBlocking {
         val current = makeSession(1, 0, 3600, 30.0, tag = "Zone 2")
-        val sameTag1 = makeSession(2, 1, 3400, 28.0, tag = "Zone 2")
-        val sameTag2 = makeSession(3, 2, 3600, 32.0, tag = "Zone 2")
-        val otherTag = makeSession(4, 3, 100, 100.0, tag = "Intervals")
-        val untagged = makeSession(5, 4, 200, 200.0, tag = null)
-        repository.sessions.addAll(listOf(current, sameTag1, sameTag2, otherTag, untagged))
+        val same = (2L..8L).map { makeSession(it, it, 3600, 20.0 + it, tag = "Zone 2") }
+        val otherTag = makeSession(20, 3, 100, 100.0, tag = "Intervals")
+        val untagged = makeSession(21, 4, 200, 200.0, tag = null)
+        repository.sessions.addAll(listOf(current, otherTag, untagged) + same)
 
-        val result = comparator.computeComparison(current, tag = "Zone 2")
+        val result = comparator.computeTagComparison(current, "Zone 2")
 
-        assertEquals(2, result.last5SessionCount)
-        assertEquals(2, result.allPreviousSessionCount)
-        // Median of [28.0, 32.0] = 30.0 -- the other-tag and untagged rides are excluded.
-        assertEquals(30.0, result.medianDistanceKmLast5!!, 0.01)
+        // All 7 same-tag rides (not just the last 5); distances 22..28 -> median 25.
+        assertEquals(7, result.sampleCount)
+        assertEquals(25.0, result.medians.distanceKm!!, 0.01)
     }
 
     @Test
-    fun `tag-scoped comparison ignores same-tag sessions with fewer than 2 prior rides`() = runBlocking {
+    fun `tag-scoped comparison has no median below 2 prior same-tag rides`() = runBlocking {
         val current = makeSession(1, 0, 3600, 30.0, tag = "Recovery")
         val sameTag = makeSession(2, 1, 3400, 28.0, tag = "Recovery")
         repository.sessions.addAll(listOf(current, sameTag))
 
-        val result = comparator.computeComparison(current, tag = "Recovery")
+        val result = comparator.computeTagComparison(current, "Recovery")
 
-        assertEquals(1, result.last5SessionCount)
-        assertNull(result.medianDistanceKmLast5)
+        assertEquals(1, result.sampleCount)
+        assertNull(result.medians.distanceKm)
+    }
+
+    @Test
+    fun `tag-scoped comparison computes median fat grams`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, hasPower = true, tag = "Zone 2")
+        repository.sessions.addAll(
+            listOf(
+                current,
+                makeSession(2, 1, 3600, 30.0, hasPower = true, tag = "Zone 2"),
+                makeSession(3, 2, 3600, 30.0, hasPower = true, tag = "Zone 2")
+            )
+        )
+
+        val result = comparator.computeTagComparison(current, "Zone 2")
+
+        assertEquals(30.0, result.medians.fatGrams!!, 0.01)
     }
 
     @Test

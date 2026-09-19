@@ -113,10 +113,6 @@ class CyclingSessionRepositoryImpl @Inject constructor(
         return dao.getAllSessionMetricSamplesBeforeDate(epochMs).map { it.toDomain() }
     }
 
-    override suspend fun getSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long, limit: Int): List<SessionMetricSample> {
-        return dao.getSessionMetricSamplesBeforeDateForTag(tag, epochMs, limit).map { it.toDomain() }
-    }
-
     override suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, epochMs: Long): List<SessionMetricSample> {
         return dao.getAllSessionMetricSamplesBeforeDateForTag(tag, epochMs).map { it.toDomain() }
     }

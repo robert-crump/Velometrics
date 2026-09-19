@@ -3,14 +3,18 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RideTag
+import com.velometrics.app.domain.model.energy
 import com.velometrics.app.util.FormatUtils
 import java.util.Locale
 import kotlin.math.abs
 
 /**
- * Templated tag-scoped comparison narrative (#171), shown when a ride's tag label is expanded on
- * Session Detail: compares this ride to its own tag-scoped "last 5 [tag] rides" pool ([comparison],
- * which must come from [SessionComparator.computeComparison] called with this same [tag]).
+ * Templated tag-scoped comparison narrative (#171, all-time pool since #214): compares this ride to
+ * every earlier ride sharing its tag ([comparison], from [SessionComparator.computeTagComparison]
+ * with this same [tag] — [SessionNarrativeAssembler] is the single call path that guarantees it).
+ *
+ * [RideTag.ZONE_2] renders a fixed metric list ([zone2Narrative]); the other tags use the older
+ * single-sentence model below, until their own fixed lists land.
  *
  * Each [RideTag] has one designated "main value" the sentence leads with (per-user feedback,
  * 2026-08-31) — the metric that actually defines what that tag is about, not just whichever moved
@@ -44,12 +48,13 @@ object TagComparisonNarrative {
     fun generate(
         session: CyclingSession,
         tag: String,
-        comparison: SessionComparison,
+        comparison: TagComparison,
         intervals: List<IntervalSession> = emptyList()
     ): String {
-        if (comparison.last5SessionCount < MIN_TAG_SCOPED_SAMPLES) {
-            return "Not enough history for $tag rides yet."
-        }
+        val notEnoughHistory = notEnoughHistory(tag)
+        if (comparison.sampleCount < MIN_TAG_SCOPED_SAMPLES) return notEnoughHistory
+
+        if (tag == RideTag.ZONE_2.label) return zone2Narrative(session, tag, comparison.medians) ?: notEnoughHistory
 
         val mainValue = mainValueCandidate(session, tag, comparison, intervals)
         if (mainValue != null) return mainValue.sentence
@@ -63,7 +68,68 @@ object TagComparisonNarrative {
         )
 
         return candidates.maxByOrNull { it.relativeDeviation }?.sentence
-            ?: "Not enough history for $tag rides yet."
+            ?: notEnoughHistory
+    }
+
+    fun notEnoughHistory(tag: String): String = "Not enough history for $tag rides yet."
+
+    /** One "value (vs. median)" pair (see [zone2Narrative]). */
+    private class Metric(val value: String, val median: String)
+
+    /**
+     * Zone 2's fixed metric list (#214): fat efficiency + fat grams, then duration + avg power, then
+     * cardiac drift. Each metric drops out independently when this ride or the pool lacks it; the
+     * first one that renders carries the "in a typical [tag] ride" qualifier. Null if none render.
+     */
+    private fun zone2Narrative(session: CyclingSession, tag: String, m: PoolMedians): String? {
+        val fatEfficiency = session.fatEfficiencyScore?.let { cur ->
+            m.fatEfficiency?.let { Metric("$cur", "%.0f".format(Locale.US, it)) }
+        }
+        val fatGrams = session.energy?.fatGrams?.let { cur ->
+            m.fatGrams?.let { Metric("%.0fg".format(Locale.US, cur), "%.0fg".format(Locale.US, it)) }
+        }
+        val duration = m.netDurationSec?.let {
+            Metric(compactDuration(session.netDurationSec), compactDuration(it))
+        }
+        val power = session.averagePower?.let { cur ->
+            m.avgPower?.let { Metric("$cur W", "$it W") }
+        }
+        val drift = session.cardiacDriftPercent?.let { cur ->
+            m.cardiacDriftPercent?.let { Metric("%.1f%%".format(Locale.US, cur), "%.1f%%".format(Locale.US, it)) }
+        }
+
+        var first = true
+        fun vs(metric: Metric, unitSuffix: String = ""): String {
+            val text = if (first) "${metric.value}$unitSuffix (vs. ${metric.median} in a typical $tag ride)"
+            else "${metric.value}$unitSuffix (vs. ${metric.median})"
+            first = false
+            return text
+        }
+
+        val sentences = listOfNotNull(
+            when {
+                fatEfficiency != null && fatGrams != null ->
+                    "Your fat efficiency score was ${vs(fatEfficiency)} and you burned ${vs(fatGrams, " of fat")}."
+                fatEfficiency != null -> "Your fat efficiency score was ${vs(fatEfficiency)}."
+                fatGrams != null -> "You burned ${vs(fatGrams, " of fat")}."
+                else -> null
+            },
+            when {
+                duration != null && power != null -> "You rode ${vs(duration)} at ${vs(power)}."
+                duration != null -> "You rode ${vs(duration)}."
+                power != null -> "Your average power was ${vs(power)}."
+                else -> null
+            },
+            drift?.let { "Your cardiac drift was ${vs(it)}." }
+        )
+        return sentences.takeIf { it.isNotEmpty() }?.joinToString(" ")
+    }
+
+    /** "2h41min" / "45min" — compact, no space, as in the #214 recap wording. */
+    private fun compactDuration(totalSeconds: Int): String {
+        val h = totalSeconds / 3600
+        val min = (totalSeconds % 3600) / 60
+        return if (h > 0) "${h}h${min}min" else "${min}min"
     }
 
     /** The one KPI that defines each tag (see class doc) — null when that tag has no ride data
@@ -71,7 +137,7 @@ object TagComparisonNarrative {
     private fun mainValueCandidate(
         session: CyclingSession,
         tag: String,
-        comparison: SessionComparison,
+        comparison: TagComparison,
         intervals: List<IntervalSession>
     ): Candidate? =
         when (tag) {
@@ -84,11 +150,11 @@ object TagComparisonNarrative {
     private fun intervalCountCandidate(
         session: CyclingSession,
         tag: String,
-        comparison: SessionComparison,
+        comparison: TagComparison,
         intervals: List<IntervalSession>
     ): Candidate? {
         val current = session.intervalCount
-        val median = comparison.medianIntervalCountLast5 ?: return null
+        val median = comparison.medians.intervalCount ?: return null
         val direction = if (current > median) "more" else "fewer"
         var sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
         timeInIntervalsSentence(session, comparison)?.let { sentence = "$sentence $it" }
@@ -96,9 +162,9 @@ object TagComparisonNarrative {
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
-    private fun timeInIntervalsSentence(session: CyclingSession, comparison: SessionComparison): String? {
+    private fun timeInIntervalsSentence(session: CyclingSession, comparison: TagComparison): String? {
         val current = session.intervalTotalTimeSec
-        val median = comparison.medianIntervalTotalTimeSecLast5 ?: return null
+        val median = comparison.medians.intervalTotalTimeSec ?: return null
         return "You spent ${FormatUtils.formatDuration(current)} in intervals " +
             "(median: ${FormatUtils.formatDuration(median)})."
     }
@@ -129,9 +195,9 @@ object TagComparisonNarrative {
         }
     }
 
-    private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
         val current = session.timeBelowSixtyPercentFtpSec ?: return null
-        val median = comparison.medianTimeBelowSixtyPercentFtpSecLast5 ?: return null
+        val median = comparison.medians.timeBelowSixtyPercentFtpSec ?: return null
         val direction = if (current > median) "more" else "less"
         val sentence = "You spent ${FormatUtils.formatDuration(current)} below 60% of FTP, $direction than your " +
             "typical ${FormatUtils.formatDuration(median)} for $tag rides."
@@ -141,20 +207,20 @@ object TagComparisonNarrative {
     private fun relativeDeviation(current: Double, median: Double): Double =
         abs(current - median) / abs(median).coerceAtLeast(0.0001)
 
-    private fun cardiacDriftCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun cardiacDriftCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
         val current = session.cardiacDriftPercent ?: return null
-        val median = comparison.medianCardiacDriftPercentLast5 ?: return null
+        val median = comparison.medians.cardiacDriftPercent ?: return null
         val direction = if (current < median) "lower" else "higher"
         val sentence = "Your cardiac drift was %.1f%%, $direction than your typical %.1f%% for $tag rides."
             .format(Locale.US, current, median)
         return Candidate(relativeDeviation(current, median), sentence)
     }
 
-    private fun npToApCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun npToApCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
         val avg = session.averagePower ?: return null
         val np = session.normalizedPower ?: return null
         if (avg == 0) return null
-        val median = comparison.medianNpToApRatioLast5 ?: return null
+        val median = comparison.medians.npToApRatio ?: return null
         val current = np.toDouble() / avg
         val direction = if (current < median) "steadier" else "more variable"
         val sentence = "Your power was $direction than usual for $tag rides (NP:AP %.2f vs. your typical %.2f)."
@@ -162,25 +228,25 @@ object TagComparisonNarrative {
         return Candidate(relativeDeviation(current, median), sentence)
     }
 
-    private fun fatEfficiencyCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun fatEfficiencyCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
         val current = session.fatEfficiencyScore ?: return null
-        val median = comparison.medianFatEfficiencyLast5 ?: return null
+        val median = comparison.medians.fatEfficiency ?: return null
         val direction = if (current > median) "above" else "below"
         val sentence = "Your fat efficiency score was $current, $direction your typical %.0f for $tag rides."
             .format(Locale.US, median)
         return Candidate(relativeDeviation(current.toDouble(), median), sentence)
     }
 
-    private fun avgPowerCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
+    private fun avgPowerCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
         val current = session.averagePower ?: return null
-        val median = comparison.medianAvgPowerLast5 ?: return null
+        val median = comparison.medians.avgPower ?: return null
         val direction = if (current > median) "above" else "below"
         val sentence = "Your average power was ${current}W, $direction your typical ${median}W for $tag rides."
         return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
-    private fun distanceCandidate(session: CyclingSession, tag: String, comparison: SessionComparison): Candidate? {
-        val median = comparison.medianDistanceKmLast5 ?: return null
+    private fun distanceCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
+        val median = comparison.medians.distanceKm ?: return null
         val current = session.distanceKm
         val direction = if (current > median) "longer" else "shorter"
         val sentence = "This ride was %.1f km, $direction than your typical %.1f km for $tag rides."

@@ -31,6 +31,7 @@ import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
+import com.velometrics.app.domain.service.SessionNarrative
 import com.velometrics.app.ui.components.*
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
@@ -48,7 +49,7 @@ fun SessionDetailScreen(
     val intervals by viewModel.intervals.collectAsState()
     val repeatedIntervalNames by viewModel.repeatedIntervalNames.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
-    val tagNarrative by viewModel.tagNarrative.collectAsState()
+    val narrative by viewModel.narrative.collectAsState()
     val powerCurve by viewModel.powerCurve.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
@@ -144,7 +145,7 @@ fun SessionDetailScreen(
                     initialFraction = 0.5f,
                     onFractionSnapped = { drawerFraction = it }
                 ) {
-                    RideSummaryGrid(session = s, comparison = comparison, tagNarrative = tagNarrative)
+                    RideSummaryGrid(session = s, comparison = comparison, narrative = narrative)
 
                     if (powerSectionVisible) {
                         CollapsibleSection(
@@ -461,40 +462,6 @@ private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (Comparison
     }
 }
 
-/**
- * Rule-based classification label (#169, thresholds/category set replaced in #170), e.g.
- * "Zone 2" or "Intervals" — tapping it expands the tag-scoped comparison narrative (#171). The
- * chevron rotates 90° when expanded to read as a "collapse" affordance, matching the label's own
- * clickable row rather than a separate expand icon button.
- */
-@Composable
-private fun RideTagLabel(tag: String, expanded: Boolean, onClick: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Text(
-            text = tag,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = if (expanded) "Collapse" else "Expand",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(16.dp)
-                .rotate(if (expanded) 90f else 0f)
-        )
-    }
-}
-
-/**
- * A collapsed-by-default group of cards (#188), toggled by tapping its header row — chevron
- * rotates 90° when expanded, matching [RideTagLabel]'s affordance. Sections are independent: more
- * than one can be open at once, so e.g. Power and Heart Rate can be compared side by side in the
- * scroll without the other two sections' cards in between.
- */
 @Composable
 private fun CollapsibleSection(
     title: String,
@@ -571,9 +538,8 @@ private fun ChapterStatsCard(metrics: List<Pair<String, String>>) {
 }
 
 @Composable
-private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?, tagNarrative: String?) {
+private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?, narrative: SessionNarrative?) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
-    var tagExpanded by remember { mutableStateOf(false) }
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
 
@@ -604,15 +570,17 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 )
-                session.tag?.let { tag ->
-                    RideTagLabel(tag, expanded = tagExpanded, onClick = { tagExpanded = !tagExpanded })
-                }
             }
             ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
         }
-        if (tagExpanded && tagNarrative != null) {
+        if (narrative != null) {
             Text(
-                text = tagNarrative,
+                text = narrative.headline,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                text = narrative.text,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)

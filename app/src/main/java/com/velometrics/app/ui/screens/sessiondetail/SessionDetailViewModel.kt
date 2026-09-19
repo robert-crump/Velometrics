@@ -15,7 +15,8 @@ import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.SessionComparator
-import com.velometrics.app.domain.service.TagComparisonNarrative
+import com.velometrics.app.domain.service.SessionNarrative
+import com.velometrics.app.domain.service.SessionNarrativeAssembler
 import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -29,6 +30,7 @@ class SessionDetailViewModel @Inject constructor(
     private val intervalRepository: IntervalRepository,
     private val bestEffortRepository: BestEffortRepository,
     private val sessionComparator: SessionComparator,
+    sessionNarrativeAssembler: SessionNarrativeAssembler,
     private val dropboxSyncCursorRepository: DropboxSyncCursorRepository,
     globalAverageCache: GlobalAverageCache,
     repeatedIntervalsCache: RepeatedIntervalsCache
@@ -57,9 +59,9 @@ class SessionDetailViewModel @Inject constructor(
     private val _comparison = MutableStateFlow<SessionComparison?>(null)
     val comparison: StateFlow<SessionComparison?> = _comparison.asStateFlow()
 
-    /** Tag-scoped comparison narrative (#171), or null if this ride has no tag. */
-    private val _tagNarrative = MutableStateFlow<String?>(null)
-    val tagNarrative: StateFlow<String?> = _tagNarrative.asStateFlow()
+    /** Tag-scoped recap (#171/#214), or null if this ride has no tag. Refreshes if the tag is backfilled. */
+    val narrative: StateFlow<SessionNarrative?> = sessionNarrativeAssembler.observe(sessionId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** This ride's own best-effort power curve (#173), or empty if it has no power data at all. */
     private val _powerCurve = MutableStateFlow<List<PowerCurvePoint>>(emptyList())
@@ -102,14 +104,6 @@ class SessionDetailViewModel @Inject constructor(
             if (loaded != null) {
                 _comparison.value = sessionComparator.computeComparison(loaded)
                 _powerCurve.value = bestEffortRepository.getForSession(sessionId)?.toPowerCurvePoints().orEmpty()
-
-                val tag = loaded.tag
-                if (tag != null) {
-                    val tagScopedComparison = sessionComparator.computeComparison(loaded, tag)
-                    val sessionIntervals = intervalRepository.getIntervalsForSession(sessionId).first()
-                    _tagNarrative.value =
-                        TagComparisonNarrative.generate(loaded, tag, tagScopedComparison, sessionIntervals)
-                }
             }
         }
     }

@@ -7,6 +7,7 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.service.SessionComparator
+import com.velometrics.app.domain.service.SessionNarrativeAssembler
 import com.velometrics.app.fakes.FakeBestEffortRepository
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
@@ -79,10 +80,58 @@ class SessionDetailViewModelTest {
         intervalRepository = FakeIntervalRepository(),
         bestEffortRepository = FakeBestEffortRepository(),
         sessionComparator = SessionComparator(sessionRepository),
+        sessionNarrativeAssembler = SessionNarrativeAssembler(
+            sessionRepository, FakeIntervalRepository(), SessionComparator(sessionRepository)
+        ),
         dropboxSyncCursorRepository = dropboxSyncCursorRepository,
         globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),
         repeatedIntervalsCache = RepeatedIntervalsCacheImpl(FakeRepeatedIntervalRepository(), scope)
     )
+
+    @Test
+    fun `narrative exposes the Zone 2 recap headline and text`() = runTest(testDispatcher) {
+        val repo = FakeCyclingSessionRepository()
+        fun zone2(id: Long, start: String, fatEfficiency: Int, fatG: Double, netSec: Int, power: Int, drift: Double) =
+            buildSession(id).copy(
+                sessionStart = Instant.parse(start),
+                sessionEnd = Instant.parse(start).plusSeconds(netSec.toLong()),
+                netDurationSec = netSec,
+                hasPower = true,
+                averagePower = power,
+                fatBurnedGrams = fatG,
+                carbsBurnedGrams = 50.0,
+                fatEfficiencyScore = fatEfficiency,
+                cardiacDriftPercent = drift,
+                tag = "Zone 2"
+            )
+        repo.sessions.add(zone2(10L, "2026-02-01T08:00:00Z", 80, 20.0, 3600, 150, 4.0))
+        repo.sessions.add(zone2(11L, "2026-01-01T08:00:00Z", 70, 10.0, 1800, 120, 3.0))
+        repo.sessions.add(zone2(12L, "2026-01-05T08:00:00Z", 70, 10.0, 1800, 120, 3.0))
+        val vm = buildViewModel(repo, sessionId = 10L, scope = backgroundScope)
+        val collector = launch { vm.narrative.collect { } }
+        advanceUntilIdle()
+
+        val narrative = vm.narrative.value!!
+        assertEquals("Vs. other Zone 2 rides", narrative.headline)
+        assertEquals(
+            "Your fat efficiency score was 80 (vs. 70 in a typical Zone 2 ride) and you burned 20g of fat (vs. 10g). " +
+                "You rode 1h0min (vs. 30min) at 150 W (vs. 120 W). Your cardiac drift was 4.0% (vs. 3.0%).",
+            narrative.text
+        )
+        collector.cancel()
+    }
+
+    @Test
+    fun `narrative is null for an untagged ride`() = runTest(testDispatcher) {
+        val repo = FakeCyclingSessionRepository()
+        repo.sessions.add(buildSession(id = 20L))
+        val vm = buildViewModel(repo, sessionId = 20L, scope = backgroundScope)
+        val collector = launch { vm.narrative.collect { } }
+        advanceUntilIdle()
+
+        assertNull(vm.narrative.value)
+        collector.cancel()
+    }
 
     @Test
     fun `deleteRide calls the repository and triggers navigate-back on success`() = runTest(testDispatcher) {

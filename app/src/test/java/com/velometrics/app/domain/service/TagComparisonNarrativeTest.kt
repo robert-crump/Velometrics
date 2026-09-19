@@ -69,7 +69,7 @@ class TagComparisonNarrativeTest {
         restBeforeNextIntervalSec = restBeforeNextIntervalSec
     )
 
-    /** Only the fields [TagComparisonNarrative] reads need real values; the rest default to null/0. */
+    /** Only the fields [TagComparisonNarrative] reads need real values; the rest default to null. */
     private fun makeComparison(
         last5SessionCount: Int = 5,
         medianDistanceKmLast5: Double? = null,
@@ -79,40 +79,29 @@ class TagComparisonNarrativeTest {
         medianNpToApRatioLast5: Double? = null,
         medianIntervalCountLast5: Int? = null,
         medianIntervalTotalTimeSecLast5: Int? = null,
-        medianTimeBelowSixtyPercentFtpSecLast5: Int? = null
-    ) = SessionComparison(
-        medianNetDurationSecLast5 = null,
-        medianNetDurationSecAllPrevious = null,
-        medianDistanceKmLast5 = medianDistanceKmLast5,
-        medianDistanceKmAllPrevious = null,
-        medianAvgSpeedKmhLast5 = null,
-        medianAvgSpeedKmhAllPrevious = null,
-        medianAvgPowerLast5 = medianAvgPowerLast5,
-        medianAvgPowerAllPrevious = null,
-        medianNormalizedPowerLast5 = null,
-        medianNormalizedPowerAllPrevious = null,
-        medianFatEfficiencyLast5 = medianFatEfficiencyLast5,
-        medianFatEfficiencyAllPrevious = null,
-        medianCardiacEfficiencyLast5 = null,
-        medianCardiacEfficiencyAllPrevious = null,
-        medianTotalKcalLast5 = null,
-        medianTotalKcalAllPrevious = null,
-        medianElevationGainMLast5 = null,
-        medianElevationGainMAllPrevious = null,
-        medianElevGainPer100kmLast5 = null,
-        medianElevGainPer100kmAllPrevious = null,
-        medianCardiacDriftPercentLast5 = medianCardiacDriftPercentLast5,
-        medianCardiacDriftPercentAllPrevious = null,
-        medianNpToApRatioLast5 = medianNpToApRatioLast5,
-        medianNpToApRatioAllPrevious = null,
-        medianIntervalCountLast5 = medianIntervalCountLast5,
-        medianIntervalCountAllPrevious = null,
-        medianIntervalTotalTimeSecLast5 = medianIntervalTotalTimeSecLast5,
-        medianIntervalTotalTimeSecAllPrevious = null,
-        medianTimeBelowSixtyPercentFtpSecLast5 = medianTimeBelowSixtyPercentFtpSecLast5,
-        medianTimeBelowSixtyPercentFtpSecAllPrevious = null,
-        last5SessionCount = last5SessionCount,
-        allPreviousSessionCount = last5SessionCount
+        medianTimeBelowSixtyPercentFtpSecLast5: Int? = null,
+        medianNetDurationSec: Int? = null,
+        medianFatGrams: Double? = null
+    ) = TagComparison(
+        sampleCount = last5SessionCount,
+        medians = PoolMedians(
+            netDurationSec = medianNetDurationSec,
+            distanceKm = medianDistanceKmLast5,
+            avgSpeedKmh = null,
+            avgPower = medianAvgPowerLast5,
+            normalizedPower = null,
+            fatEfficiency = medianFatEfficiencyLast5,
+            fatGrams = medianFatGrams,
+            cardiacEfficiency = null,
+            totalKcal = null,
+            elevationGainM = null,
+            elevGainPer100km = null,
+            cardiacDriftPercent = medianCardiacDriftPercentLast5,
+            npToApRatio = medianNpToApRatioLast5,
+            intervalCount = medianIntervalCountLast5,
+            intervalTotalTimeSec = medianIntervalTotalTimeSecLast5,
+            timeBelowSixtyPercentFtpSec = medianTimeBelowSixtyPercentFtpSecLast5
+        )
     )
 
     @Test
@@ -152,10 +141,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
+        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
 
         assertEquals(
-            "Your cardiac drift was 2.0%, lower than your typical 4.0% for Zone 2 rides.",
+            "Your cardiac drift was 2.0%, lower than your typical 4.0% for Recovery rides.",
             result
         )
     }
@@ -201,10 +190,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
+        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
 
         assertEquals(
-            "Your fat efficiency score was 90, above your typical 60 for Zone 2 rides.",
+            "Your fat efficiency score was 90, above your typical 60 for Recovery rides.",
             result
         )
     }
@@ -242,34 +231,6 @@ class TagComparisonNarrativeTest {
 
         assertEquals(
             "This ride was 45.0 km, longer than your typical 30.0 km for Recovery rides.",
-            result
-        )
-    }
-
-    @Test
-    fun `Zone 2 leads with fat efficiency even when another metric deviates more`() {
-        // Cardiac drift deviates far more (75%) than fat efficiency (10%), but Zone 2's main
-        // value is always fat efficiency when it's available.
-        val session = makeSession(
-            hasPower = true,
-            averagePower = 150,
-            normalizedPower = 155,
-            fatEfficiencyScore = 66,
-            cardiacDriftPercent = 1.0,
-            tag = "Zone 2"
-        )
-        val comparison = makeComparison(
-            medianAvgPowerLast5 = 149,
-            medianFatEfficiencyLast5 = 60.0,
-            medianCardiacDriftPercentLast5 = 4.0,
-            medianNpToApRatioLast5 = 1.03,
-            medianDistanceKmLast5 = 30.0
-        )
-
-        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
-
-        assertEquals(
-            "Your fat efficiency score was 66, above your typical 60 for Zone 2 rides.",
             result
         )
     }
@@ -434,5 +395,113 @@ class TagComparisonNarrativeTest {
 
         assertEquals("You did 1 intervals, fewer than your typical 2 for Intervals rides.", result)
         assertFalse(result.contains("rest gap"))
+    }
+
+    // -- Zone 2 fixed metric list (#214) --------------------------------------------------------
+
+    private fun zone2Session(
+        fatEfficiencyScore: Int? = 83,
+        fatBurnedGrams: Double? = 21.0,
+        carbsBurnedGrams: Double? = 90.0,
+        netDurationSec: Int = 2 * 3600 + 41 * 60,
+        averagePower: Int? = 178,
+        cardiacDriftPercent: Double? = 4.2
+    ): CyclingSession = makeSession(
+        hasPower = true,
+        averagePower = averagePower,
+        fatEfficiencyScore = fatEfficiencyScore,
+        cardiacDriftPercent = cardiacDriftPercent
+    ).copy(
+        fatBurnedGrams = fatBurnedGrams,
+        carbsBurnedGrams = carbsBurnedGrams,
+        netDurationSec = netDurationSec
+    )
+
+    private fun zone2Comparison(
+        medianFatEfficiency: Double? = 81.0,
+        medianFatGrams: Double? = 43.0,
+        medianNetDurationSec: Int? = 75 * 60,
+        medianAvgPower: Int? = 183,
+        medianCardiacDrift: Double? = 3.7,
+        sampleCount: Int = 6
+    ) = makeComparison(
+        last5SessionCount = sampleCount,
+        medianFatEfficiencyLast5 = medianFatEfficiency,
+        medianFatGrams = medianFatGrams,
+        medianNetDurationSec = medianNetDurationSec,
+        medianAvgPowerLast5 = medianAvgPower,
+        medianCardiacDriftPercentLast5 = medianCardiacDrift
+    )
+
+    private fun zone2(session: CyclingSession, comparison: TagComparison) =
+        TagComparisonNarrative.generate(session, "Zone 2", comparison)
+
+    @Test
+    fun `Zone 2 renders all five metrics in the fixed order and grouping`() {
+        assertEquals(
+            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
+                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
+            zone2(zone2Session(), zone2Comparison())
+        )
+    }
+
+    @Test
+    fun `Zone 2 without fat efficiency moves the typical-ride qualifier to fat grams`() {
+        assertEquals(
+            "You burned 21g of fat (vs. 43g in a typical Zone 2 ride). " +
+                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
+            zone2(zone2Session(fatEfficiencyScore = null), zone2Comparison())
+        )
+    }
+
+    @Test
+    fun `Zone 2 without fat grams keeps fat efficiency alone`() {
+        val expected = "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride). " +
+            "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%)."
+        assertEquals(expected, zone2(zone2Session(fatBurnedGrams = null), zone2Comparison()))
+        assertEquals(expected, zone2(zone2Session(), zone2Comparison(medianFatGrams = null)))
+    }
+
+    @Test
+    fun `Zone 2 without duration median drops duration and rephrases power`() {
+        assertEquals(
+            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
+                "Your average power was 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
+            zone2(zone2Session(), zone2Comparison(medianNetDurationSec = null))
+        )
+    }
+
+    @Test
+    fun `Zone 2 without power keeps duration alone`() {
+        assertEquals(
+            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
+                "You rode 2h41min (vs. 1h15min). Your cardiac drift was 4.2% (vs. 3.7%).",
+            zone2(zone2Session(averagePower = null), zone2Comparison())
+        )
+    }
+
+    @Test
+    fun `Zone 2 without cardiac drift omits the last sentence`() {
+        assertEquals(
+            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
+                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W).",
+            zone2(zone2Session(cardiacDriftPercent = null), zone2Comparison(medianCardiacDrift = null))
+        )
+    }
+
+    @Test
+    fun `Zone 2 with fewer than 2 prior rides shows not-enough-history`() {
+        assertEquals(
+            "Not enough history for Zone 2 rides yet.",
+            zone2(zone2Session(), zone2Comparison(sampleCount = 1))
+        )
+    }
+
+    @Test
+    fun `Zone 2 with no computable metric shows not-enough-history`() {
+        assertEquals(
+            "Not enough history for Zone 2 rides yet.",
+            zone2(zone2Session(), zone2Comparison(null, null, null, null, null))
+        )
     }
 }

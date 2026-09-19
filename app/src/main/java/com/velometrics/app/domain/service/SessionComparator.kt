@@ -43,17 +43,24 @@ data class SessionComparison(
 )
 
 /**
+ * All-time tag-scoped comparison (#214): medians over every earlier ride sharing the current
+ * ride's tag. [sampleCount] is the pool size, before per-metric availability filtering.
+ */
+data class TagComparison(val sampleCount: Int, val medians: PoolMedians)
+
+/**
  * Per-metric medians for one reference pool (e.g. last 5 rides, or all previous rides).
  * Each field independently falls back to null when its own sub-population (e.g. power-having
  * sessions) has fewer than 2 samples — see [SessionComparator.median].
  */
-private data class PoolMedians(
+data class PoolMedians(
     val netDurationSec: Int?,
     val distanceKm: Double?,
     val avgSpeedKmh: Double?,
     val avgPower: Int?,
     val normalizedPower: Int?,
     val fatEfficiency: Double?,
+    val fatGrams: Double?,
     val cardiacEfficiency: Double?,
     val totalKcal: Double?,
     val elevationGainM: Double?,
@@ -68,28 +75,13 @@ private data class PoolMedians(
 class SessionComparator @Inject constructor(
     private val cyclingSessionRepository: CyclingSessionRepository
 ) {
-    /**
-     * @param tag when non-null, both reference pools (last 5 / all previous) are additionally
-     * scoped to sessions sharing this [com.velometrics.app.domain.model.RideTag] label, for the
-     * tag-scoped comparison narrative (#171) — otherwise identical to the untagged comparison.
-     */
-    suspend fun computeComparison(currentSession: CyclingSession, tag: String? = null): SessionComparison {
+    suspend fun computeComparison(currentSession: CyclingSession): SessionComparison {
         val beforeEpochMs = currentSession.sessionStart.toEpochMilli()
 
-        val last5 = (
-            if (tag != null) {
-                cyclingSessionRepository.getSessionMetricSamplesBeforeDateForTag(tag, beforeEpochMs, 5)
-            } else {
-                cyclingSessionRepository.getSessionMetricSamplesBeforeDate(beforeEpochMs, 5)
-            }
-            ).filter { it.id != currentSession.id }
-        val allPrevious = (
-            if (tag != null) {
-                cyclingSessionRepository.getAllSessionMetricSamplesBeforeDateForTag(tag, beforeEpochMs)
-            } else {
-                cyclingSessionRepository.getAllSessionMetricSamplesBeforeDate(beforeEpochMs)
-            }
-            ).filter { it.id != currentSession.id }
+        val last5 = cyclingSessionRepository.getSessionMetricSamplesBeforeDate(beforeEpochMs, 5)
+            .filter { it.id != currentSession.id }
+        val allPrevious = cyclingSessionRepository.getAllSessionMetricSamplesBeforeDate(beforeEpochMs)
+            .filter { it.id != currentSession.id }
 
         val last5Medians = computeMedians(last5)
         val allPreviousMedians = computeMedians(allPrevious)
@@ -130,6 +122,14 @@ class SessionComparator @Inject constructor(
         )
     }
 
+    /** Medians over all earlier rides sharing [tag] (#214) — the tag-scoped recap's reference pool. */
+    suspend fun computeTagComparison(currentSession: CyclingSession, tag: String): TagComparison {
+        val pool = cyclingSessionRepository
+            .getAllSessionMetricSamplesBeforeDateForTag(tag, currentSession.sessionStart.toEpochMilli())
+            .filter { it.id != currentSession.id }
+        return TagComparison(pool.size, computeMedians(pool))
+    }
+
     private fun computeMedians(samples: List<SessionMetricSample>): PoolMedians {
         val durations = samples.map { it.netDurationSec.toDouble() }
         val distances = samples.map { it.distanceKm }
@@ -152,6 +152,7 @@ class SessionComparator @Inject constructor(
             if (avg != null && avg != 0 && np != null) np.toDouble() / avg else null
         }
 
+        val fatGrams = samples.mapNotNull { SessionEnergy.from(it.fatBurnedGrams, it.carbsBurnedGrams)?.fatGrams }
         val kcals = samples.mapNotNull { SessionEnergy.from(it.fatBurnedGrams, it.carbsBurnedGrams)?.totalKcal?.toDouble() }
         val elevGains = samples.mapNotNull { it.elevationGainM }
         val elevGainsPer100km = samples.mapNotNull { sample ->
@@ -170,6 +171,7 @@ class SessionComparator @Inject constructor(
             avgPower = median(avgPowers)?.toInt(),
             normalizedPower = median(normPowers)?.toInt(),
             fatEfficiency = median(fatEffScores),
+            fatGrams = median(fatGrams),
             cardiacEfficiency = median(cardiacEfficiencies),
             totalKcal = median(kcals),
             elevationGainM = median(elevGains),

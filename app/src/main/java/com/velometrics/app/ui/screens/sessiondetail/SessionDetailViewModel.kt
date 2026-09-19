@@ -11,8 +11,9 @@ import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
-import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.repository.IntervalRepository
+import com.velometrics.app.domain.service.DeleteResult
+import com.velometrics.app.domain.service.RideLifecycle
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.SessionComparator
 import com.velometrics.app.domain.service.RouteRecap
@@ -32,7 +33,7 @@ class SessionDetailViewModel @Inject constructor(
     private val bestEffortRepository: BestEffortRepository,
     private val sessionComparator: SessionComparator,
     sessionNarrativeAssembler: SessionNarrativeAssembler,
-    private val dropboxSyncCursorRepository: DropboxSyncCursorRepository,
+    private val rideLifecycle: RideLifecycle,
     globalAverageCache: GlobalAverageCache,
     repeatedIntervalsCache: RepeatedIntervalsCache
 ) : ViewModel() {
@@ -114,24 +115,16 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     /**
-     * Deletes the currently loaded session (#193) — FK cascades remove its `interval_sessions`/
-     * `session_best_efforts` rows. No recluster is triggered here; see #192 for the lazy
-     * pull-to-refresh path that resyncs Repeated Routes/Intervals afterward.
-     *
-     * Also invalidates the saved Dropbox sync cursor: without this, a ride that was previously
-     * synced from Dropbox would never be reconsidered for import again, since the delta cursor
-     * has no visibility into local deletions — the next pull-to-refresh would silently report "no
-     * new rides found" even though the file is still sitting in the Dropbox folder.
+     * Deletes the currently loaded session (#193) via [RideLifecycle.delete] — FK cascades remove
+     * its `interval_sessions`/`session_best_efforts` rows. On success navigates back; on failure
+     * surfaces [deleteError].
      */
     fun deleteRide() {
         val current = _session.value ?: return
         viewModelScope.launch {
-            try {
-                sessionRepository.deleteSession(current)
-                dropboxSyncCursorRepository.invalidateSyncCursor()
-                _navigateBack.emit(Unit)
-            } catch (e: Exception) {
-                _deleteError.value = "Couldn't delete ride"
+            when (rideLifecycle.delete(listOf(current.id))) {
+                DeleteResult.Deleted -> _navigateBack.emit(Unit)
+                DeleteResult.Failed -> _deleteError.value = "Couldn't delete ride"
             }
         }
     }

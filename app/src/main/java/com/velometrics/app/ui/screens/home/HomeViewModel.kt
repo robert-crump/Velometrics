@@ -1,9 +1,6 @@
 ﻿package com.velometrics.app.ui.screens.home
 
-import android.content.Context
 import android.net.Uri
-import android.provider.OpenableColumns
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.Constraints
@@ -17,21 +14,17 @@ import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcome
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
 import com.velometrics.app.data.dropbox.DropboxSyncWorker
-import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.RideRevealContent
 import com.velometrics.app.domain.repository.CyclingSessionRepository
-import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
-import com.velometrics.app.di.ApplicationScope
-import com.velometrics.app.domain.service.IntervalClusteringService
-import com.velometrics.app.domain.service.RideRevealEvaluator
-import com.velometrics.app.domain.service.RouteClusteringService
+import com.velometrics.app.domain.service.DeleteResult
+import com.velometrics.app.domain.service.ImportProgress
+import com.velometrics.app.domain.service.ImportSource
+import com.velometrics.app.domain.service.RideLifecycle
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,8 +36,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
@@ -77,21 +68,12 @@ data class MonthlyRideSummary(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
-    private val fitImportService: FitImportService,
+    private val rideLifecycle: RideLifecycle,
+    private val importSourceReader: UriImportSourceReader,
     private val workManager: WorkManager,
     private val dropboxSyncOutcomeStore: DropboxSyncOutcomeStore,
-    private val dropboxAuthRepository: DropboxAuthRepository,
-    private val dropboxSyncCursorRepository: DropboxSyncCursorRepository,
-    private val routeClusteringService: RouteClusteringService,
-    private val intervalClusteringService: IntervalClusteringService,
-    private val rideRevealEvaluator: RideRevealEvaluator,
-    @ApplicationScope private val appScope: CoroutineScope,
-    @ApplicationContext private val context: Context
+    private val dropboxAuthRepository: DropboxAuthRepository
 ) : ViewModel() {
-
-    companion object {
-        private const val TAG = "HomeViewModel"
-    }
 
     // Tracks whether the first real DB emission has arrived.
     // Prevents the empty-state placeholder from flashing on startup.
@@ -188,43 +170,33 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Deletes every selected session atomically (via [CyclingSessionRepository.deleteSessions]).
-     * On success, exits selection mode; the Home list updates on its own via the existing
-     * Flow-backed query. On failure, leaves selection mode active with the same items selected
-     * (so the user can retry) and surfaces [deleteError]. No recluster here, per #187/#192 — that
-     * stays on the lazy pull-to-refresh path.
-     *
-     * Also invalidates the saved Dropbox sync cursor, same as Session Detail's single delete
-     * (#193/a756bae) — without this, a bulk-deleted ride that was previously synced from Dropbox
-     * would never be reconsidered for import again, since the delta cursor has no visibility into
-     * local deletions.
+     * Deletes every selected session via [RideLifecycle.delete]. On success, exits selection mode;
+     * the Home list updates on its own via the existing Flow-backed query. On failure, leaves
+     * selection mode active with the same items selected (so the user can retry) and surfaces
+     * [deleteError].
      */
     fun deleteSelectedSessions() {
         val ids = _selectedSessionIds.value.toList()
         if (ids.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                sessionRepository.deleteSessions(ids)
-                dropboxSyncCursorRepository.invalidateSyncCursor()
-                exitSelectionMode()
-            } catch (e: Exception) {
-                Log.e(TAG, "Bulk delete failed", e)
-                _deleteError.value = "Couldn't delete rides"
+            when (rideLifecycle.delete(ids)) {
+                DeleteResult.Deleted -> exitSelectionMode()
+                DeleteResult.Failed -> _deleteError.value = "Couldn't delete rides"
             }
         }
     }
 
     // --- Import ---
 
-    private val importMutex = Mutex()
-    private var smallFileDecisionChannel: Channel<Boolean>? = null
+    // Answered by the small-file dialog; the import batch is suspended on it in the meantime.
+    private var smallFileDecision: CompletableDeferred<Boolean>? = null
 
     fun confirmSmallFileImport() {
-        smallFileDecisionChannel?.trySend(true)
+        smallFileDecision?.complete(true)
     }
 
     fun skipSmallFile() {
-        smallFileDecisionChannel?.trySend(false)
+        smallFileDecision?.complete(false)
     }
 
     fun importFromUri(uri: Uri) {
@@ -233,74 +205,45 @@ class HomeViewModel @Inject constructor(
 
     fun importFromUris(uris: List<Uri>) {
         viewModelScope.launch(Dispatchers.IO) {
-            importMutex.withLock {
-                val total = uris.size
-                val results = mutableListOf<ImportResult>()
-                val revealBaseline = rideRevealEvaluator.captureBaseline()
-
-                for (index in uris.indices) {
-                    val uri = uris[index]
-                    val current = index + 1
-                    val fileName = getFileName(uri) ?: "unknown.fit"
-                    _importState.value = ImportUiState.BatchLoading(current, total)
-
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    if (bytes == null) {
-                        results.add(ImportResult.Error("Could not read file: $fileName"))
-                        break
-                    }
-
-                    var result = fitImportService.importFile(fileName, bytes)
-
-                    if (result is ImportResult.SmallFile) {
-                        val channel = Channel<Boolean>(1)
-                        smallFileDecisionChannel = channel
-                        _importState.value = ImportUiState.SmallFileWarning(
-                            fileName = result.fileName,
-                            dataPointCount = result.dataPointCount,
-                            current = current,
-                            total = total
-                        )
-                        val shouldImport = channel.receive()
-                        smallFileDecisionChannel = null
-                        if (!shouldImport) continue
-                        _importState.value = ImportUiState.BatchLoading(current, total)
-                        result = fitImportService.importFile(fileName, bytes, forceImport = true)
-                    }
-
-                    results.add(result)
-                }
-
-                val reveal = rideRevealEvaluator.evaluate(results, revealBaseline)
-                _importState.value = if (reveal != null) {
-                    ImportUiState.RideReveal(reveal)
-                } else {
-                    ImportUiState.Done(results.lastOrNull() ?: ImportResult.Error("No files"))
-                }
-            }
-
-            recluster()
+            runImport(importSourceReader.sourcesFor(uris))
         }
     }
 
-    /**
-     * Re-clusters routes and repeated intervals, on a scope that survives navigation away from
-     * the home screen. Called once per import batch, and unconditionally on every pull-to-refresh
-     * (#192) so cluster badges stay correct after a ride delete even without a new import.
-     */
-    private fun recluster() {
-        appScope.launch {
-            try {
-                routeClusteringService.runClustering()
-            } catch (e: Exception) {
-                Log.e(TAG, "Route clustering failed", e)
+    fun importFromSources(sources: List<ImportSource>) {
+        viewModelScope.launch(Dispatchers.IO) { runImport(sources) }
+    }
+
+    private suspend fun runImport(sources: List<ImportSource>) {
+        var latest = ImportProgress.Importing(current = 0, total = sources.size, fileName = "")
+        rideLifecycle.import(sources) { smallFile ->
+            val decision = CompletableDeferred<Boolean>()
+            smallFileDecision = decision
+            _importState.value = ImportUiState.SmallFileWarning(
+                fileName = smallFile.fileName,
+                dataPointCount = smallFile.dataPointCount,
+                current = latest.current,
+                total = latest.total
+            )
+            val shouldImport = try {
+                decision.await()
+            } finally {
+                smallFileDecision = null
             }
-        }
-        appScope.launch {
-            try {
-                intervalClusteringService.runClustering()
-            } catch (e: Exception) {
-                Log.e(TAG, "Interval clustering failed", e)
+            _importState.value = ImportUiState.BatchLoading(latest.current, latest.total)
+            shouldImport
+        }.collect { progress ->
+            when (progress) {
+                is ImportProgress.Importing -> {
+                    latest = progress
+                    _importState.value = ImportUiState.BatchLoading(progress.current, progress.total)
+                }
+                is ImportProgress.Finished -> {
+                    _importState.value = if (progress.reveal != null) {
+                        ImportUiState.RideReveal(progress.reveal)
+                    } else {
+                        ImportUiState.Done(progress.results.lastOrNull() ?: ImportResult.Error("No files"))
+                    }
+                }
             }
         }
     }
@@ -360,16 +303,6 @@ class HomeViewModel @Inject constructor(
     private fun autoSyncDropbox() {
         if (!dropboxAuthRepository.isConnected.value) return
         syncDropbox(isUserInitiated = false)
-    }
-
-    private fun getFileName(uri: Uri): String? {
-        val cursor = context.contentResolver.query(uri, null, null, null, null)
-        return cursor?.use {
-            if (it.moveToFirst()) {
-                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex >= 0) it.getString(nameIndex) else null
-            } else null
-        }
     }
 
     init {

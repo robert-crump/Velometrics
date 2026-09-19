@@ -11,6 +11,7 @@ import com.velometrics.app.domain.service.SessionNarrativeAssembler
 import com.velometrics.app.fakes.FakeBestEffortRepository
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
+import com.velometrics.app.fakes.RideLifecycleFixture
 import com.velometrics.app.fakes.FakeIntervalRepository
 import com.velometrics.app.fakes.FakeRepeatedIntervalRepository
 import java.time.Instant
@@ -84,7 +85,7 @@ class SessionDetailViewModelTest {
             sessionRepository, FakeIntervalRepository(), SessionComparator(sessionRepository),
             com.velometrics.app.fakes.FakeRepeatedRoutesCache()
         ),
-        dropboxSyncCursorRepository = dropboxSyncCursorRepository,
+        rideLifecycle = RideLifecycleFixture().lifecycle(sessionRepository, dropboxSyncCursorRepository),
         globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),
         repeatedIntervalsCache = RepeatedIntervalsCacheImpl(FakeRepeatedIntervalRepository(), scope)
     )
@@ -210,7 +211,7 @@ class SessionDetailViewModelTest {
 private class FailingDeleteCyclingSessionRepository(
     val delegate: FakeCyclingSessionRepository = FakeCyclingSessionRepository()
 ) : CyclingSessionRepository by delegate {
-    override suspend fun deleteSession(session: CyclingSession) {
+    override suspend fun deleteSessions(ids: List<Long>) {
         throw RuntimeException("delete failed")
     }
 }

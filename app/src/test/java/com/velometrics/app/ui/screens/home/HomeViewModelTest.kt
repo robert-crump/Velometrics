@@ -1,6 +1,5 @@
 package com.velometrics.app.ui.screens.home
 
-import android.content.Context
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcome
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
@@ -16,24 +15,19 @@ import io.mockk.verify
 import java.util.UUID
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertNull
-import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
-import com.velometrics.app.domain.service.IntervalClusteringService
-import com.velometrics.app.domain.service.RideRevealEvaluator
-import com.velometrics.app.domain.service.RouteClusteringService
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
+import com.velometrics.app.fakes.RideLifecycleFixture
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -91,22 +85,14 @@ class HomeViewModelTest {
         val dropboxAuthRepository = mockk<DropboxAuthRepository>()
         every { dropboxAuthRepository.isConnected } returns isConnected
 
-        val rideRevealEvaluator = mockk<RideRevealEvaluator>()
-        coEvery { rideRevealEvaluator.captureBaseline() } returns null
-        coEvery { rideRevealEvaluator.evaluate(any(), any()) } returns null
-
+        val fixture = RideLifecycleFixture()
         return HomeViewModel(
             sessionRepository = sessionRepository,
-            fitImportService = mockk<FitImportService>(relaxed = true),
+            rideLifecycle = fixture.lifecycle(sessionRepository, dropboxSyncCursorRepository),
+            importSourceReader = mockk(relaxed = true),
             workManager = workManager,
             dropboxSyncOutcomeStore = outcomeStore,
-            dropboxAuthRepository = dropboxAuthRepository,
-            dropboxSyncCursorRepository = dropboxSyncCursorRepository,
-            routeClusteringService = mockk<RouteClusteringService>(relaxed = true),
-            intervalClusteringService = mockk<IntervalClusteringService>(relaxed = true),
-            rideRevealEvaluator = rideRevealEvaluator,
-            appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            context = mockk<Context>(relaxed = true)
+            dropboxAuthRepository = dropboxAuthRepository
         )
     }
 

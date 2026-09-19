@@ -8,17 +8,11 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
 import com.velometrics.app.data.dropbox.DropboxSyncWorker
-import com.velometrics.app.data.fitimport.FitImportService
-import com.velometrics.app.domain.service.IntervalClusteringService
-import com.velometrics.app.domain.service.RideRevealEvaluator
-import com.velometrics.app.domain.service.RouteClusteringService
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
-import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
+import com.velometrics.app.fakes.RideLifecycleFixture
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.resetMain
@@ -58,18 +52,14 @@ class HomeViewModelSyncWorkTest {
         val outcomeStore = mockk<DropboxSyncOutcomeStore>()
         every { outcomeStore.outcome } returns emptyFlow()
 
+        val fixture = RideLifecycleFixture()
         val vm = HomeViewModel(
             sessionRepository = FakeCyclingSessionRepository(),
-            fitImportService = mockk<FitImportService>(relaxed = true),
+            rideLifecycle = fixture.lifecycle(),
+            importSourceReader = mockk(relaxed = true),
             workManager = workManager,
             dropboxSyncOutcomeStore = outcomeStore,
-            dropboxAuthRepository = auth,
-            dropboxSyncCursorRepository = FakeDropboxSyncCursorRepository(),
-            routeClusteringService = mockk<RouteClusteringService>(relaxed = true),
-            intervalClusteringService = mockk<IntervalClusteringService>(relaxed = true),
-            rideRevealEvaluator = mockk<RideRevealEvaluator>(relaxed = true),
-            appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            context = mockk<Context>(relaxed = true)
+            dropboxAuthRepository = auth
         ) // init auto-sync enqueues the first request
 
         val first = workManager.getWorkInfosForUniqueWork(DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME).get()

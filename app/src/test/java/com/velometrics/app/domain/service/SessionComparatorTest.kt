@@ -307,4 +307,21 @@ class SessionComparatorTest {
 
         assertNull(result.medians.intervalAvgPower)
     }
+
+    @Test
+    fun `tag-scoped comparison takes the all-time heart rate median, skipping rides without HR`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Recovery", avgHeartRate = 121)
+        repository.sessions.addAll(
+            listOf(
+                current,
+                makeSession(2, 1, 3600, 30.0, tag = "Recovery", avgHeartRate = 115),
+                makeSession(3, 2, 3600, 30.0, tag = "Recovery", avgHeartRate = 123),
+                makeSession(4, 3, 3600, 30.0, tag = "Recovery", avgHeartRate = null)
+            )
+        )
+
+        val result = comparator.computeTagComparison(current, "Recovery")
+
+        assertEquals(119, result.medians.avgHeartRate)
+    }
 }

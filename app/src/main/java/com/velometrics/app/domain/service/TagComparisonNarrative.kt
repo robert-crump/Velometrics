@@ -13,17 +13,13 @@ import kotlin.math.abs
  * every earlier ride sharing its tag ([comparison], from [SessionComparator.computeTagComparison]
  * with this same [tag] — [SessionNarrativeAssembler] is the single call path that guarantees it).
  *
- * [RideTag.ZONE_2] and [RideTag.INTERVALS] render fixed metric lists ([zone2Narrative],
- * [intervalsNarrative]); Recovery uses the older single-sentence model below until its list lands.
- *
- * Each [RideTag] has one designated "main value" the sentence leads with (per-user feedback,
- * 2026-08-31) — the metric that actually defines what that tag is about, not just whichever moved
- * the most this ride: [RideTag.RECOVERY] leads with time spent below 60% of FTP. When that main value isn't
- * available for this ride or its comparison pool (missing power data, say), the sentence falls
- * back to whichever remaining candidate KPI deviates most from the pool's median, ranked by
- * *relative* deviation (`|current - median| / median`) so metrics on different scales (a
- * percentage, a ratio near 1.0, watts) compare fairly. Distance is the one candidate never gated
- * on power/HR data, guaranteeing a sentence whenever there's enough tag-scoped history at all,
+ * [RideTag.ZONE_2], [RideTag.INTERVALS] and [RideTag.RECOVERY] render fixed metric lists
+ * ([zone2Narrative], [intervalsNarrative], [recoveryNarrative]). Any other tag (custom or legacy)
+ * uses the single-sentence model below: the sentence leads with whichever candidate KPI deviates
+ * most from the pool's median, ranked by *relative* deviation (`|current - median| / median`) so
+ * metrics on different scales (a percentage, a ratio near 1.0, watts) compare fairly. Distance is
+ * the one candidate never gated on power/HR data, guaranteeing a sentence whenever there's enough
+ * tag-scoped history at all,
  * even for a power-and-HR-less ride.
  */
 object TagComparisonNarrative {
@@ -47,12 +43,10 @@ object TagComparisonNarrative {
         if (comparison.sampleCount < MIN_TAG_SCOPED_SAMPLES) return notEnoughHistory
 
         if (tag == RideTag.ZONE_2.label) return zone2Narrative(session, tag, comparison.medians) ?: notEnoughHistory
+        if (tag == RideTag.RECOVERY.label) return recoveryNarrative(session, tag, comparison.medians) ?: notEnoughHistory
         if (tag == RideTag.INTERVALS.label) {
             return intervalsNarrative(session, tag, comparison.medians, intervals) ?: notEnoughHistory
         }
-
-        val mainValue = mainValueCandidate(session, tag, comparison, intervals)
-        if (mainValue != null) return mainValue.sentence
 
         val candidates = listOfNotNull(
             cardiacDriftCandidate(session, tag, comparison),
@@ -172,26 +166,56 @@ object TagComparisonNarrative {
             .takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
+    /**
+     * Recovery's fixed metric list (#216): duration + avg power + time below 60% of FTP, then avg
+     * heart rate. Each metric drops out independently; the first one rendered carries the
+     * "in a typical [tag] ride" qualifier. Null if nothing renders.
+     */
+    private fun recoveryNarrative(session: CyclingSession, tag: String, m: PoolMedians): String? {
+        val duration = m.netDurationSec?.let {
+            Metric(compactDuration(session.netDurationSec), compactDuration(it))
+        }
+        val power = session.averagePower?.let { cur ->
+            m.avgPower?.let { Metric("$cur W", "$it W") }
+        }
+        val belowSixty = session.timeBelowSixtyPercentFtpSec?.let { cur ->
+            m.timeBelowSixtyPercentFtpSec?.let { Metric(compactDuration(cur), compactDuration(it)) }
+        }
+        val heartRate = session.avgHeartRate?.let { cur ->
+            m.avgHeartRate?.let { Metric("${cur}bpm", "${it}bpm") }
+        }
+
+        var first = true
+        fun vs(metric: Metric, unitSuffix: String = ""): String {
+            val text = if (first) "${metric.value}$unitSuffix (vs. ${metric.median} in a typical $tag ride)"
+            else "${metric.value}$unitSuffix (vs. ${metric.median})"
+            first = false
+            return text
+        }
+
+        var body: String? = when {
+            duration != null && power != null -> "You rode ${vs(duration)} at ${vs(power)}"
+            duration != null -> "You rode ${vs(duration)}"
+            power != null -> "Your average power was ${vs(power)}"
+            else -> null
+        }
+        if (belowSixty != null) {
+            val spent = vs(belowSixty, " below 60% of FTP")
+            body = if (body != null) "$body and spent $spent" else "You spent $spent"
+        }
+        val sentences = listOfNotNull(
+            body?.let { "$it." },
+            heartRate?.let { "Your average heart rate was ${vs(it)}." }
+        )
+        return sentences.takeIf { it.isNotEmpty() }?.joinToString(" ")
+    }
+
     /** "2h41min" / "45min" — compact, no space, as in the #214 recap wording. */
     private fun compactDuration(totalSeconds: Int): String {
         val h = totalSeconds / 3600
         val min = (totalSeconds % 3600) / 60
         return if (h > 0) "${h}h${min}min" else "${min}min"
     }
-
-    /** The one KPI that defines each tag (see class doc) — null when that tag has no ride data
-     *  for it yet, or isn't [RideTag]-recognized, so [generate] falls back to deviation ranking. */
-    private fun mainValueCandidate(
-        session: CyclingSession,
-        tag: String,
-        comparison: TagComparison,
-        intervals: List<IntervalSession>
-    ): Candidate? =
-        when (tag) {
-            RideTag.ZONE_2.label -> fatEfficiencyCandidate(session, tag, comparison)
-            RideTag.RECOVERY.label -> timeBelowSixtyPercentFtpCandidate(session, tag, comparison)
-            else -> null
-        }
 
     /**
      * Flags rest gaps between intervals (#186) that fall outside the recommended 2-3min recovery
@@ -217,15 +241,6 @@ object TagComparisonNarrative {
             else ->
                 "$tooLong of $total rest gaps were longer than the recommended 2-3min."
         }
-    }
-
-    private fun timeBelowSixtyPercentFtpCandidate(session: CyclingSession, tag: String, comparison: TagComparison): Candidate? {
-        val current = session.timeBelowSixtyPercentFtpSec ?: return null
-        val median = comparison.medians.timeBelowSixtyPercentFtpSec ?: return null
-        val direction = if (current > median) "more" else "less"
-        val sentence = "You spent ${FormatUtils.formatDuration(current)} below 60% of FTP, $direction than your " +
-            "typical ${FormatUtils.formatDuration(median)} for $tag rides."
-        return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
     }
 
     private fun relativeDeviation(current: Double, median: Double): Double =

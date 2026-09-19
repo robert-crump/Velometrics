@@ -20,7 +20,8 @@ class TagComparisonNarrativeTest {
         tag: String? = "Zone 2",
         intervalCount: Int = 0,
         intervalTotalTimeSec: Int = 0,
-        timeBelowSixtyPercentFtpSec: Int? = null
+        timeBelowSixtyPercentFtpSec: Int? = null,
+        avgHeartRate: Int? = null
     ): CyclingSession {
         val start = Instant.now()
         return CyclingSession(
@@ -46,7 +47,8 @@ class TagComparisonNarrativeTest {
             fatEfficiencyScore = fatEfficiencyScore,
             cardiacDriftPercent = cardiacDriftPercent,
             tag = tag,
-            timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
+            timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+            avgHeartRate = avgHeartRate
         )
     }
 
@@ -86,7 +88,8 @@ class TagComparisonNarrativeTest {
         medianTimeBelowSixtyPercentFtpSecLast5: Int? = null,
         medianNetDurationSec: Int? = null,
         medianFatGrams: Double? = null,
-        medianIntervalAvgPower: Int? = null
+        medianIntervalAvgPower: Int? = null,
+        medianAvgHeartRate: Int? = null
     ) = TagComparison(
         sampleCount = last5SessionCount,
         medians = PoolMedians(
@@ -106,7 +109,8 @@ class TagComparisonNarrativeTest {
             intervalCount = medianIntervalCountLast5,
             intervalTotalTimeSec = medianIntervalTotalTimeSecLast5,
             timeBelowSixtyPercentFtpSec = medianTimeBelowSixtyPercentFtpSecLast5,
-            intervalAvgPower = medianIntervalAvgPower
+            intervalAvgPower = medianIntervalAvgPower,
+            avgHeartRate = medianAvgHeartRate
         )
     )
 
@@ -147,10 +151,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertEquals(
-            "Your cardiac drift was 2.0%, lower than your typical 4.0% for Recovery rides.",
+            "Your cardiac drift was 2.0%, lower than your typical 4.0% for Tempo rides.",
             result
         )
     }
@@ -171,10 +175,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertEquals(
-            "Your average power was 260W, above your typical 200W for Recovery rides.",
+            "Your average power was 260W, above your typical 200W for Tempo rides.",
             result
         )
     }
@@ -196,10 +200,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertEquals(
-            "Your fat efficiency score was 90, above your typical 60 for Recovery rides.",
+            "Your fat efficiency score was 90, above your typical 60 for Tempo rides.",
             result
         )
     }
@@ -220,10 +224,10 @@ class TagComparisonNarrativeTest {
             medianDistanceKmLast5 = 30.0
         )
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertEquals(
-            "Your power was more variable than usual for Recovery rides (NP:AP 1.10 vs. your typical 1.00).",
+            "Your power was more variable than usual for Tempo rides (NP:AP 1.10 vs. your typical 1.00).",
             result
         )
     }
@@ -233,27 +237,10 @@ class TagComparisonNarrativeTest {
         val session = makeSession(distanceKm = 45.0, hasPower = false)
         val comparison = makeComparison(medianDistanceKmLast5 = 30.0)
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertEquals(
-            "This ride was 45.0 km, longer than your typical 30.0 km for Recovery rides.",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery leads with time below 60% of FTP when available`() {
-        val session = makeSession(
-            tag = "Recovery",
-            hasPower = true,
-            timeBelowSixtyPercentFtpSec = 1800
-        )
-        val comparison = makeComparison(medianTimeBelowSixtyPercentFtpSecLast5 = 1200, medianDistanceKmLast5 = 30.0)
-
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
-
-        assertEquals(
-            "You spent 30m 0s below 60% of FTP, more than your typical 20m 0s for Recovery rides.",
+            "This ride was 45.0 km, longer than your typical 30.0 km for Tempo rides.",
             result
         )
     }
@@ -265,7 +252,7 @@ class TagComparisonNarrativeTest {
         val session = makeSession(hasPower = false)
         val comparison = makeComparison(medianDistanceKmLast5 = null)
 
-        val result = TagComparisonNarrative.generate(session, "Recovery", comparison)
+        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
 
         assertTrue(result.startsWith("Not enough history"))
     }
@@ -376,6 +363,154 @@ class TagComparisonNarrativeTest {
             "Not enough history for Zone 2 rides yet.",
             zone2(zone2Session(), zone2Comparison(null, null, null, null, null))
         )
+    }
+
+    // -- Recovery fixed metric list (#216) ------------------------------------------------------
+
+    private fun recoverySession(
+        netDurationSec: Int = 52 * 60,
+        averagePower: Int? = 165,
+        timeBelowSixtyPercentFtpSec: Int? = 45 * 60,
+        avgHeartRate: Int? = 121
+    ): CyclingSession = makeSession(
+        tag = "Recovery",
+        hasPower = true,
+        averagePower = averagePower,
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+        avgHeartRate = avgHeartRate
+    ).copy(netDurationSec = netDurationSec)
+
+    private fun recoveryComparison(
+        duration: Int? = 59 * 60,
+        power: Int? = 171,
+        below: Int? = 43 * 60,
+        heartRate: Int? = 119
+    ) = makeComparison(
+        medianNetDurationSec = duration,
+        medianAvgPowerLast5 = power,
+        medianTimeBelowSixtyPercentFtpSecLast5 = below,
+        medianAvgHeartRate = heartRate
+    )
+
+    @Test
+    fun `Recovery renders the fixed metric list with all metrics present`() {
+        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison())
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
+                "below 60% of FTP (vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops duration when its median is missing`() {
+        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(duration = null))
+
+        assertEquals(
+            "Your average power was 165 W (vs. 171 W in a typical Recovery ride) and spent 45min below 60% " +
+                "of FTP (vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops avg power when the ride has none`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(averagePower = null), "Recovery", recoveryComparison()
+        )
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) and spent 45min below 60% of FTP " +
+                "(vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops avg power when its median is missing`() {
+        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(power = null))
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) and spent 45min below 60% of FTP " +
+                "(vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops time below 60 percent when the ride has none`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(timeBelowSixtyPercentFtpSec = null), "Recovery", recoveryComparison()
+        )
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W). " +
+                "Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops time below 60 percent when its median is missing`() {
+        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(below = null))
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W). " +
+                "Your average heart rate was 121bpm (vs. 119bpm).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops heart rate when the ride has none`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(avgHeartRate = null), "Recovery", recoveryComparison()
+        )
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
+                "below 60% of FTP (vs. 43min).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery drops heart rate when its median is missing`() {
+        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(heartRate = null))
+
+        assertEquals(
+            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
+                "below 60% of FTP (vs. 43min).",
+            result
+        )
+    }
+
+    @Test
+    fun `Recovery with only heart rate carries the qualifier there`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(), "Recovery", recoveryComparison(duration = null, power = null, below = null)
+        )
+
+        assertEquals("Your average heart rate was 121bpm (vs. 119bpm in a typical Recovery ride).", result)
+    }
+
+    @Test
+    fun `Recovery with insufficient pool shows not-enough-history`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(), "Recovery", makeComparison(last5SessionCount = 1)
+        )
+
+        assertEquals("Not enough history for Recovery rides yet.", result)
+    }
+
+    @Test
+    fun `Recovery with no renderable metric falls back to not-enough-history`() {
+        val result = TagComparisonNarrative.generate(
+            recoverySession(), "Recovery", recoveryComparison(null, null, null, null)
+        )
+
+        assertEquals("Not enough history for Recovery rides yet.", result)
     }
 
     // -- Intervals fixed metric list (#215) -----------------------------------------------------

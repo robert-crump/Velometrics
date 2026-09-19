@@ -1,3 +1,19 @@
+## Issue #216 -- Recovery fixed-metric recap
+Completed: 2026-09-19
+
+### What was done
+
+- `TagComparisonNarrative.recoveryNarrative`: Recovery renders the fixed list ("You rode 52min (vs. 59min in a typical
+  Recovery ride) at 165 W (vs. 171 W) and spent 45min below 60% of FTP (vs. 43min). Your average heart rate was 121bpm
+  (vs. 119bpm)."). Each of the 4 metrics drops independently (connective wording adapts); the qualifier moves to the first
+  rendered one. Removed the old time-below-60% single-sentence main-value path (`mainValueCandidate`); only untagged-model
+  fallback (deviation ranking) remains for other tags.
+- `PoolMedians` gains `avgHeartRate` (all-time tag median from the existing `avgHeartRate` sample column; no query change).
+- Tests: Recovery fixed-list cases (all present, each metric missing, HR-only qualifier, insufficient pool, nothing
+  renderable), comparator HR median. Generic deviation tests moved from the "Recovery" tag to "Tempo".
+
+`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
+
 ## Issue #215 -- Intervals fixed-metric recap + interval-power aggregate
 Completed: 2026-09-19
 
@@ -67,20 +83,3 @@ Completed: 2026-09-19
 
 `testDebugUnitTest` and `assembleDebug` pass.
 
-## Issue #210 -- HomeViewModel rewired onto WorkManager-backed Dropbox sync
-Completed: 2026-09-19
-
-### What was done
-
-- `syncDropbox()`/`autoSyncDropbox()` now `enqueueUniqueWork(DROPBOX_SYNC_WORK_NAME, KEEP)` a `DropboxSyncWorker`
-  (network CONNECTED; pull-to-refresh also expedited with RUN_AS_NON_EXPEDITED fallback; `isUserInitiated` via input data).
-  `DROPBOX_SYNC_WORK_NAME` lives in `DropboxSyncWorker`; `WorkModule` provides `WorkManager` to Hilt.
-- `isSyncing` derives from `getWorkInfosForUniqueWorkFlow`; `dropboxSyncMessage` and the `RideReveal` branch of
-  `importState` derive from `DropboxSyncOutcomeStore.outcome` and are `consume()`d on clear. Manual import unchanged.
-  `HomeViewModel` no longer takes `DropboxSyncService`.
-- Tests: `HomeViewModelTest` reworked (enqueue params, isSyncing, outcome consume);
-  new `HomeViewModelSyncWorkTest` (real test WorkManager: second enqueue is kept out by KEEP).
-- NOT done: emulator-scripted `adb shell am kill` check (no device/emulator attached this run). NeedsReauth persistence
-  is covered at the worker level (`markNeedsReauth`), no new test.
-
-`testDebugUnitTest` and `assembleDebug` pass.

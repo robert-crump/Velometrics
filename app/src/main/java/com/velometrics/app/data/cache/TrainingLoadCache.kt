@@ -23,7 +23,8 @@ import javax.inject.Singleton
  *
  * Recomputing on [UserSettingsRepository.ftp] as well as the session list means changing FTP in
  * Settings immediately reshapes the whole historical chart — the intended (if debatable)
- * behavior given FTP isn't historized anywhere in this app.
+ * behavior given FTP isn't historized anywhere in this app (see ADR 0001 for the interim split
+ * and the FTP-history target).
  *
  * The session Flow is debounced — see [CACHE_DEBOUNCE_MS]'s doc for why.
  */

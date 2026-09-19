@@ -18,12 +18,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-sealed class RecalcState {
-    data object Idle : RecalcState()
-    data object Running : RecalcState()
-    data object Done : RecalcState()
-}
-
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
@@ -41,9 +35,6 @@ class SettingsViewModel @Inject constructor(
     val dropboxSyncFolder = userSettingsRepository.dropboxSyncFolder
     val isDropboxConnected = dropboxAuthRepository.isConnected
     val needsDropboxReauth = dropboxAuthRepository.needsReauth
-
-    private val _recalcState = MutableStateFlow<RecalcState>(RecalcState.Idle)
-    val recalcState: StateFlow<RecalcState> = _recalcState.asStateFlow()
 
     private val _pendingFtp = MutableStateFlow<Int?>(null)
     val pendingFtp: StateFlow<Int?> = _pendingFtp.asStateFlow()
@@ -83,19 +74,22 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun recalculateAllStats() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _recalcState.value = RecalcState.Running
-            // Re-run rule-based tagging too — the same trigger a rider uses to recompute
-            // everything after an FTP/max-HR change also re-runs #169's classifier, e.g. once
-            // its thresholds are tuned by the follow-up issue.
-            rideClassificationService.reclassifyAll(userSettingsRepository.ftp.first())
-            _recalcState.value = RecalcState.Done
-        }
-    }
+    private val _retagStatus = MutableStateFlow<String?>(null)
+    val retagStatus: StateFlow<String?> = _retagStatus.asStateFlow()
 
-    fun clearRecalcState() {
-        _recalcState.value = RecalcState.Idle
+    /**
+     * Debug-only pair to [dumpSessionTagsForReview]: writes the tags the classifier would
+     * produce now (current FTP, current thresholds) onto every stored session. Tags are otherwise
+     * frozen at import (ADR 0001).
+     */
+    fun applyRetag() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _retagStatus.value = "Re-tagging…"
+            val ftp = userSettingsRepository.ftp.first()
+            val stale = rideClassificationService.reviewRows(ftp).count { it.isStale }
+            rideClassificationService.reclassifyAll(ftp)
+            _retagStatus.value = "Re-tagged $stale rides"
+        }
     }
 
     private val _dumpStatus = MutableStateFlow<String?>(null)

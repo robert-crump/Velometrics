@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.*
 import com.velometrics.app.BuildConfig
@@ -35,7 +34,7 @@ fun SettingsScreen(
     onNavigateToHomeAddress: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val recalcState by viewModel.recalcState.collectAsState()
+    val retagStatus by viewModel.retagStatus.collectAsState()
     val dumpStatus by viewModel.dumpStatus.collectAsState()
     val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
     val currentFtp by viewModel.ftp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
@@ -53,7 +52,6 @@ fun SettingsScreen(
     var showFtpDialog by remember { mutableStateOf(false) }
     var showMaxHrDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
-    var showRecalcDialog by remember { mutableStateOf(false) }
 
     // FTP edit dialog
     if (showFtpDialog) {
@@ -146,21 +144,6 @@ fun SettingsScreen(
         )
     }
 
-    // Recalculate confirmation dialog
-    if (showRecalcDialog) {
-        ConfirmDialog(
-            title = "Recalculate session stats?",
-            text = "Re-runs session comparisons. Power zone histograms, sprint data, " +
-                "heart-rate, and elevation stats require re-importing FIT files.",
-            confirmLabel = "Recalculate",
-            onConfirm = {
-                showRecalcDialog = false
-                viewModel.recalculateAllStats()
-            },
-            onDismiss = { showRecalcDialog = false }
-        )
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Settings") })
@@ -244,20 +227,6 @@ fun SettingsScreen(
                 onClick = { showFolderDialog = true }
             )
 
-            val recalcSubtitle = when (recalcState) {
-                is RecalcState.Running -> "Recalculating…"
-                is RecalcState.Done -> "Done"
-                else -> "Re-run session comparisons"
-            }
-            SettingsRow(
-                icon = Icons.Default.Refresh,
-                title = "Recalculate session stats",
-                subtitle = recalcSubtitle,
-                onClick = {
-                    if (recalcState !is RecalcState.Running) showRecalcDialog = true
-                }
-            )
-
             // Debug-only: issue #170 threshold-tuning review tool. Kept as a Settings row
             // (not an instrumented test) so it needs no androidTest install/uninstall cycle.
             if (BuildConfig.DEBUG) {
@@ -266,6 +235,12 @@ fun SettingsScreen(
                     title = "Dump ride tags (debug)",
                     subtitle = dumpStatus ?: "Write ride_tag_dump.csv to app files",
                     onClick = { viewModel.dumpSessionTagsForReview() }
+                )
+                SettingsRow(
+                    icon = Icons.Default.BugReport,
+                    title = "Apply re-tag (debug)",
+                    subtitle = retagStatus ?: "Overwrite stored tags with the classifier's current output",
+                    onClick = { viewModel.applyRetag() }
                 )
             }
 

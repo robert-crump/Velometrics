@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 
 /**
  * Title/body/confirm-or-cancel dialog shared across confirmation flows — originally the
- * FTP-change, Max-HR-change, and recalculate confirmations in Settings, promoted here (#193) so
+ * FTP-change and Max-HR-change confirmations in Settings, promoted here (#193) so
  * Session Detail's and Home's delete-ride confirmations (#193/#194) can reuse the same shell
  * instead of duplicating another AlertDialog wrapper.
  */

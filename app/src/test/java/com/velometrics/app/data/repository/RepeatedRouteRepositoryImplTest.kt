@@ -6,6 +6,8 @@ import com.velometrics.app.data.local.entity.RepeatedRouteEntity
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.slot
 import io.mockk.mockk
 import java.time.Instant
 import kotlinx.coroutines.test.runTest
@@ -51,7 +53,8 @@ class RepeatedRouteRepositoryImplTest {
             id = 1L,
             name = "Repeated Route 1",
             sessionIds = Json.gson.toJson(sessionIds.sorted()),
-            createdAt = 1_000L
+            createdAt = 1_000L,
+            isCustomName = false
         )
         val dao = mockk<RepeatedRouteDao>()
         coEvery { dao.getAllRoutesList() } returns listOf(entity)
@@ -99,5 +102,21 @@ class RepeatedRouteRepositoryImplTest {
         val routes = repository.getAllRoutesList()
 
         assertTrue(routes.isEmpty())
+    }
+
+    @Test
+    fun `renameRoute marks the route as custom-named`() = runTest {
+        val entity = RepeatedRouteEntity(
+            id = 1L, name = "Repeated Route 1", sessionIds = "[1,2,3]", createdAt = 1L, isCustomName = false
+        )
+        val dao = mockk<RepeatedRouteDao>(relaxed = true)
+        coEvery { dao.getById(1L) } returns entity
+        val updated = slot<RepeatedRouteEntity>()
+        coEvery { dao.update(capture(updated)) } returns Unit
+
+        RepeatedRouteRepositoryImpl(dao, FakeCyclingSessionRepository()).renameRoute(1L, "Hill loop")
+
+        assertEquals("Hill loop", updated.captured.name)
+        assertTrue(updated.captured.isCustomName)
     }
 }

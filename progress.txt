@@ -1,3 +1,17 @@
+## Issue #213 -- isCustomName flag on RepeatedRoute
+Completed: 2026-09-19
+
+### What was done
+
+- `RepeatedRouteEntity`/`RepeatedRoute` gain non-null `isCustomName`; DB v18 -> v19 via `MIGRATION_18_19`
+  (`ADD COLUMN isCustomName INTEGER NOT NULL DEFAULT 1`, so pre-existing rows are backfilled to true). 19.json schema exported.
+- `RouteClusteringService`: brand-new clusters get `false`; a cluster matched to an existing route keeps that route's flag
+  (it re-saves the existing name, so the flag must follow it).
+- `renameRoute` in the repository sets `isCustomName = true`. No visible UI effect (prerequisite for #217).
+- Tests: migration test (backfill true), repository rename test, new `RouteClusteringServiceTest` (new = false, matched keeps true).
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #212 -- Floating header controls over the map (Ride Detail Screen)
 Completed: 2026-09-19
 
@@ -59,20 +73,5 @@ Completed: 2026-09-19
   for tests; the `@Inject` one takes the app context.
 - `DropboxSyncOutcomeStoreTest`: null when empty, message/reveal round-trip (with/without elevation),
   A-then-B last-write-wins, consume clears. Nothing reads/writes the store yet (#4/#5 of the parent).
-
-`testDebugUnitTest` and `assembleDebug` pass.
-
-## Issue #207 — Add WorkManager + Hilt-Work infrastructure
-Completed: 2026-09-19
-
-### What was done
-
-- Added `work-runtime-ktx` 2.10.0, `androidx.hilt:hilt-work` and `androidx.hilt:hilt-compiler` (KSP, alongside
-  the Dagger one; versioned off `hiltNavigationCompose`) plus `work-testing` for tests.
-- `VelometricsApplication` implements `Configuration.Provider` with an injected `HiltWorkerFactory`; the manifest
-  removes the default `WorkManagerInitializer` under `androidx.startup.InitializationProvider`.
-- `SmokeTestWorker` (`@HiltWorker`, logs + `Result.success()`) is left as a template; `SmokeTestWorkerTest`
-  enqueues it via `WorkManagerTestInitHelper` and asserts SUCCEEDED.
-- Not verified on device (startup with the real Configuration.Provider path only covered by the build/merge).
 
 `testDebugUnitTest` and `assembleDebug` pass.

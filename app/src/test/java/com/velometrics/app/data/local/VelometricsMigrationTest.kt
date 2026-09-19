@@ -19,6 +19,7 @@ private const val TEST_DB_15 = "migration_14_15_test.db"
 private const val TEST_DB_16 = "migration_15_16_test.db"
 private const val TEST_DB_17 = "migration_16_17_test.db"
 private const val TEST_DB_18 = "migration_17_18_test.db"
+private const val TEST_DB_19 = "migration_18_19_test.db"
 
 /**
  * Speed histogram buckets narrowed from 8 to 5 in #148; MIGRATION_11_12 must merge each existing
@@ -250,6 +251,21 @@ class VelometricsMigrationTest {
             for (col in 0 until it.columnCount) {
                 assertEquals(true, it.isNull(col))
             }
+        }
+    }
+
+    @Test
+    fun `migrate 18 to 19 backfills isCustomName to true on existing repeated routes`() {
+        helper.createDatabase(TEST_DB_19, 18).apply {
+            execSQL("INSERT INTO repeated_routes (id, name, sessionIds, createdAt) VALUES (1, 'Repeated Route 1', '[1,2,3]', 0)")
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB_19, 19, true, DatabaseModule.MIGRATION_18_19)
+
+        migrated.query("SELECT isCustomName FROM repeated_routes WHERE id = 1").use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals(1, it.getInt(0))
         }
     }
 }

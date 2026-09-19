@@ -62,7 +62,7 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
 
     override suspend fun renameRoute(id: Long, newName: String) {
         val entity = dao.getById(id) ?: return
-        dao.update(entity.copy(name = newName))
+        dao.update(entity.copy(name = newName, isCustomName = true))
     }
 
     override suspend fun deleteRoutesByIds(ids: List<Long>) {
@@ -94,6 +94,7 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
         return RepeatedRoute(
             id = entity.id,
             name = entity.name,
+            isCustomName = entity.isCustomName,
             sessions = sessions,
             representativeTrack = representative
         )
@@ -104,6 +105,7 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
         return RepeatedRouteEntity(
             id = route.id,
             name = route.name,
+            isCustomName = route.isCustomName,
             sessionIds = Json.gson.toJson(ids),
             createdAt = createdAt
         )

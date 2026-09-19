@@ -38,6 +38,7 @@ class RepeatedRoutesViewModelTest {
     private fun route(id: Long, name: String) = RepeatedRoute(
         id = id,
         name = name,
+        isCustomName = true,
         sessions = emptyList(),
         representativeTrack = null
     )

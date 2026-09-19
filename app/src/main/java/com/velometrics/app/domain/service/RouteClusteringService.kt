@@ -195,10 +195,13 @@ class RouteClusteringService @Inject constructor(
         }
 
         var counter = 1
+        val customNameById = existingRoutes.associate { it.id to it.isCustomName }
         val finalRoutes = newRoutes.map { (sessions, name, existingId) ->
             RepeatedRoute(
                 id = existingId,
                 name = if (name.isNotEmpty()) name else "Repeated Route ${counter++}",
+                // A matched existing route keeps its flag; a brand-new cluster is on the default name.
+                isCustomName = customNameById[existingId] ?: false,
                 sessions = sessions,
                 representativeTrack = null
             )

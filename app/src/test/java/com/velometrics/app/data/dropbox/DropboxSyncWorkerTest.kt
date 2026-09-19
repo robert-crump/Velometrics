@@ -10,7 +10,14 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.RideRevealContent
+import com.velometrics.app.domain.service.IntervalClusterer
 import com.velometrics.app.domain.service.IntervalClusteringService
+import com.velometrics.app.domain.service.RideLifecycle
+import com.velometrics.app.domain.service.RideLifecycleImpl
+import com.velometrics.app.domain.service.RouteClusterer
+import com.velometrics.app.fakes.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
+import com.velometrics.app.fakes.FakeFitImportService
 import com.velometrics.app.domain.service.RideRevealEvaluator
 import com.velometrics.app.domain.service.RouteClusteringService
 import io.mockk.coEvery
@@ -84,6 +91,14 @@ class DropboxSyncWorkerTest {
         scope.cancel()
     }
 
+    private fun rideLifecycle(): RideLifecycle {
+        val sessions = FakeCyclingSessionRepository()
+        return RideLifecycleImpl(
+            sessions, FakeDropboxSyncCursorRepository(), FakeFitImportService(sessions), evaluator,
+            setOf(RouteClusterer(routeClustering), IntervalClusterer(intervalClustering)), scope
+        )
+    }
+
     private fun run(isUserInitiated: Boolean = true): ListenableWorker.Result {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val worker = TestListenableWorkerBuilder<DropboxSyncWorker>(
@@ -93,8 +108,7 @@ class DropboxSyncWorkerTest {
             override fun createWorker(
                 appContext: Context, workerClassName: String, workerParameters: WorkerParameters
             ) = DropboxSyncWorker(
-                appContext, workerParameters, syncService, auth, evaluator,
-                routeClustering, intervalClustering, store
+                appContext, workerParameters, syncService, auth, rideLifecycle(), store
             )
         }).build()
         return runBlocking { worker.doWork() }

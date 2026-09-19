@@ -2,7 +2,6 @@ package com.velometrics.app.data.dropbox
 
 import android.util.Log
 import com.dropbox.core.DbxException
-import com.dropbox.core.DbxRequestConfig
 import com.dropbox.core.InvalidAccessTokenException
 import com.dropbox.core.oauth.DbxOAuthError
 import com.dropbox.core.oauth.DbxOAuthException
@@ -39,7 +38,7 @@ sealed class DropboxSyncResult {
 @Singleton
 class DropboxSyncService @Inject constructor(
     private val credentialStore: DropboxCredentialStore,
-    private val requestConfig: DbxRequestConfig,
+    private val clientFactory: DropboxClientFactory,
     private val fitImportService: FitImportService,
     private val userSettingsRepository: UserSettingsRepository,
     private val sessionRepository: CyclingSessionRepository
@@ -52,7 +51,7 @@ class DropboxSyncService @Inject constructor(
     suspend fun sync(): DropboxSyncResult = withContext(Dispatchers.IO) {
         val credential = credentialStore.getCredential()
             ?: return@withContext DropboxSyncResult.Completed(emptyList())
-        val client = DbxClientV2(requestConfig, credential)
+        val client = clientFactory.create(credential)
         val syncFolder = userSettingsRepository.dropboxSyncFolder.first()
 
         val results = mutableListOf<ImportResult>()

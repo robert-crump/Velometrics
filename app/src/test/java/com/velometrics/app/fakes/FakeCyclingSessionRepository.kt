@@ -13,6 +13,9 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
 
     val sessions = mutableListOf<CyclingSession>()
 
+    /** Per-session duration-weighted interval power (#215) surfaced through the metric samples. */
+    val intervalAvgPowerBySession = mutableMapOf<Long, Int>()
+
     override fun getAllSessions(): Flow<List<CyclingSession>> = flowOf(sessions.toList())
 
     override fun getAllSessionSummaries(): Flow<List<CyclingSessionSummary>> = flowOf(
@@ -134,7 +137,8 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         hasPower = hasPower,
         intervalCount = intervalCount,
         intervalTotalTimeSec = intervalTotalTimeSec,
-        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+        intervalAvgPower = intervalAvgPowerBySession[id]
     )
 
     override suspend fun getAllClusterData(): List<SessionClusterData> =

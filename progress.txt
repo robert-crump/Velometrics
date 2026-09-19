@@ -1,3 +1,22 @@
+## Issue #215 -- Intervals fixed-metric recap + interval-power aggregate
+Completed: 2026-09-19
+
+### What was done
+
+- New `List<IntervalSession>.durationWeightedAvgPower()` (IntervalPowerAggregate.kt): per-ride "power during intervals",
+  each `avgPower` weighted by `durationSec`. Pool side is a correlated subquery (`intervalAvgPower`) added to the three
+  `SessionMetricSampleEntity` queries in `CyclingSessionDao` (same weighting, no new column/migration, so old rides
+  are covered without backfill). `SessionMetricSample`/`PoolMedians` gain `intervalAvgPower` (all-time tag median).
+- `TagComparisonNarrative`: Intervals now renders the fixed list ("You did 5 intervals (vs. 4 in a typical Intervals ride)
+  and spent 22min in intervals (vs. 18min) at 330 W (vs. 320 W), with 245 W overall (vs. 230 W).") then the unchanged
+  `restGapSentence`. Each of the 4 metrics drops independently (connective wording adapts); the qualifier moves to the
+  first rendered one. Removed the old interval-count single-sentence candidate.
+- Tests: fixed-list cases (all present, each metric missing, rest gap both directions / none / single interval,
+  insufficient pool), weighted-aggregate with uneven durations, comparator interval-power median (fake gets
+  `intervalAvgPowerBySession`). Generic deviation tests moved from the "Intervals" tag to "Recovery".
+
+`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
+
 ## Issue #214 -- Session Narrative assembler + all-time Tag recap + Zone 2 content (supersedes #202)
 Completed: 2026-09-19
 
@@ -63,22 +82,5 @@ Completed: 2026-09-19
   new `HomeViewModelSyncWorkTest` (real test WorkManager: second enqueue is kept out by KEEP).
 - NOT done: emulator-scripted `adb shell am kill` check (no device/emulator attached this run). NeedsReauth persistence
   is covered at the worker level (`markNeedsReauth`), no new test.
-
-`testDebugUnitTest` and `assembleDebug` pass.
-
-## Issue #209 — DropboxSyncWorker runs the Dropbox sync via WorkManager
-Completed: 2026-09-19
-
-### What was done
-
-- New `data/dropbox/DropboxSyncWorker.kt` (`@HiltWorker` `CoroutineWorker`): same call sequence as
-  `HomeViewModel.syncDropbox()` (connected/reauth checks, `captureBaseline`, `DropboxSyncService.sync()` reused as-is,
-  `evaluate`), publishing `Reveal`/`Message` to `DropboxSyncOutcomeStore`. `isUserInitiated` is read from input `Data`
-  (`KEY_IS_USER_INITIATED`, default true).
-- `Completed`/`TransientFailure` -> `Result.success()` (no `retry()`); `NeedsReauth` -> `markNeedsReauth()` + `Result.failure()`.
-- Recluster (route + interval, each failure logged and isolated) runs in `finally`, so on every path.
-- `buildSyncMessage` moved out of `HomeViewModel` to internal `buildDropboxSyncMessage` so both share it.
-  `HomeViewModel` is otherwise unchanged; wiring it to enqueue the worker is #210.
-- `DropboxSyncWorkerTest` (Robolectric, `TestListenableWorkerBuilder`, mocked services, real outcome store).
 
 `testDebugUnitTest` and `assembleDebug` pass.

@@ -272,4 +272,39 @@ class SessionComparatorTest {
 
         assertEquals(2, result.last5SessionCount)
     }
+
+    @Test
+    fun `tag-scoped comparison computes median interval power`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Intervals")
+        val prior = listOf(
+            makeSession(2, 1, 3600, 30.0, tag = "Intervals"),
+            makeSession(3, 2, 3600, 30.0, tag = "Intervals"),
+            makeSession(4, 3, 3600, 30.0, tag = "Intervals")
+        )
+        repository.sessions.addAll(listOf(current) + prior)
+        repository.intervalAvgPowerBySession[2] = 300
+        repository.intervalAvgPowerBySession[3] = 340
+        // Session 4 has no intervals recorded: skipped, not counted as zero.
+
+        val result = comparator.computeTagComparison(current, "Intervals")
+
+        assertEquals(320, result.medians.intervalAvgPower)
+    }
+
+    @Test
+    fun `tag-scoped comparison has no interval power median below 2 rides with intervals`() = runBlocking {
+        val current = makeSession(1, 0, 3600, 30.0, tag = "Intervals")
+        repository.sessions.addAll(
+            listOf(
+                current,
+                makeSession(2, 1, 3600, 30.0, tag = "Intervals"),
+                makeSession(3, 2, 3600, 30.0, tag = "Intervals")
+            )
+        )
+        repository.intervalAvgPowerBySession[2] = 300
+
+        val result = comparator.computeTagComparison(current, "Intervals")
+
+        assertNull(result.medians.intervalAvgPower)
+    }
 }

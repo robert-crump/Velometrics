@@ -69,7 +69,8 @@ data class PoolMedians(
     val npToApRatio: Double?,
     val intervalCount: Int?,
     val intervalTotalTimeSec: Int?,
-    val timeBelowSixtyPercentFtpSec: Int?
+    val timeBelowSixtyPercentFtpSec: Int?,
+    val intervalAvgPower: Int? = null
 )
 
 class SessionComparator @Inject constructor(
@@ -162,6 +163,7 @@ class SessionComparator @Inject constructor(
         val cardiacDrifts = samples.mapNotNull { it.cardiacDriftPercent }
         val intervalCounts = samples.map { it.intervalCount.toDouble() }
         val intervalTotalTimes = samples.map { it.intervalTotalTimeSec.toDouble() }
+        val intervalAvgPowers = samples.mapNotNull { it.intervalAvgPower?.toDouble() }
         val timeBelowSixtyPercentFtpSecs = powerSamples.mapNotNull { it.timeBelowSixtyPercentFtpSec?.toDouble() }
 
         return PoolMedians(
@@ -180,7 +182,8 @@ class SessionComparator @Inject constructor(
             npToApRatio = median(npToApRatios),
             intervalCount = median(intervalCounts)?.toInt(),
             intervalTotalTimeSec = median(intervalTotalTimes)?.toInt(),
-            timeBelowSixtyPercentFtpSec = median(timeBelowSixtyPercentFtpSecs)?.toInt()
+            timeBelowSixtyPercentFtpSec = median(timeBelowSixtyPercentFtpSecs)?.toInt(),
+            intervalAvgPower = median(intervalAvgPowers)?.toInt()
         )
     }
 

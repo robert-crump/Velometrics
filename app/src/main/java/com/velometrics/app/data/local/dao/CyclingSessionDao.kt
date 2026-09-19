@@ -35,7 +35,8 @@ data class SessionMetricSampleEntity(
     @ColumnInfo(name = "hasPower") val hasPower: Boolean,
     @ColumnInfo(name = "intervalCount") val intervalCount: Int,
     @ColumnInfo(name = "intervalTotalTimeSec") val intervalTotalTimeSec: Int,
-    @ColumnInfo(name = "timeBelowSixtyPercentFtpSec") val timeBelowSixtyPercentFtpSec: Int?
+    @ColumnInfo(name = "timeBelowSixtyPercentFtpSec") val timeBelowSixtyPercentFtpSec: Int?,
+    @ColumnInfo(name = "intervalAvgPower") val intervalAvgPower: Int?
 )
 
 @Dao
@@ -132,7 +133,9 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec
+           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec,
+           (SELECT CAST(ROUND(SUM(i.avgPower * i.durationSec) * 1.0 / SUM(i.durationSec)) AS INTEGER)
+            FROM interval_sessions i WHERE i.cyclingSessionId = cycling_sessions.id) AS intervalAvgPower
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC LIMIT :limit"""
     )
     suspend fun getSessionMetricSamplesBeforeDate(beforeEpochMs: Long, limit: Int): List<SessionMetricSampleEntity>
@@ -140,7 +143,9 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec
+           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec,
+           (SELECT CAST(ROUND(SUM(i.avgPower * i.durationSec) * 1.0 / SUM(i.durationSec)) AS INTEGER)
+            FROM interval_sessions i WHERE i.cyclingSessionId = cycling_sessions.id) AS intervalAvgPower
            FROM cycling_sessions WHERE sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDate(beforeEpochMs: Long): List<SessionMetricSampleEntity>
@@ -151,7 +156,9 @@ interface CyclingSessionDao {
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,
-           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec
+           intervalCount, intervalTotalTimeSec, timeBelowSixtyPercentFtpSec,
+           (SELECT CAST(ROUND(SUM(i.avgPower * i.durationSec) * 1.0 / SUM(i.durationSec)) AS INTEGER)
+            FROM interval_sessions i WHERE i.cyclingSessionId = cycling_sessions.id) AS intervalAvgPower
            FROM cycling_sessions WHERE tag = :tag AND sessionStart < :beforeEpochMs ORDER BY sessionStart DESC"""
     )
     suspend fun getAllSessionMetricSamplesBeforeDateForTag(tag: String, beforeEpochMs: Long): List<SessionMetricSampleEntity>

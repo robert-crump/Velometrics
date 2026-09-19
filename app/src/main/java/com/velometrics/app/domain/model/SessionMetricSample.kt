@@ -22,5 +22,8 @@ data class SessionMetricSample(
     val intervalTotalTimeSec: Int,
     // Seconds spent below 60% of FTP (CyclingSession.timeBelowSixtyPercentFtpSec). Null when the
     // ride has no power data, or predates this field (no backfill path — see that field's doc).
-    val timeBelowSixtyPercentFtpSec: Int?
+    val timeBelowSixtyPercentFtpSec: Int?,
+    // Duration-weighted average of the ride's IntervalSession.avgPower (#215), derived in the query
+    // from interval_sessions. Null when the ride has no detected intervals.
+    val intervalAvgPower: Int? = null
 )

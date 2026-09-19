@@ -13,26 +13,18 @@ import kotlin.math.abs
  * every earlier ride sharing its tag ([comparison], from [SessionComparator.computeTagComparison]
  * with this same [tag] — [SessionNarrativeAssembler] is the single call path that guarantees it).
  *
- * [RideTag.ZONE_2] renders a fixed metric list ([zone2Narrative]); the other tags use the older
- * single-sentence model below, until their own fixed lists land.
+ * [RideTag.ZONE_2] and [RideTag.INTERVALS] render fixed metric lists ([zone2Narrative],
+ * [intervalsNarrative]); Recovery uses the older single-sentence model below until its list lands.
  *
  * Each [RideTag] has one designated "main value" the sentence leads with (per-user feedback,
  * 2026-08-31) — the metric that actually defines what that tag is about, not just whichever moved
- * the most this ride: [RideTag.ZONE_2] leads with fat efficiency, [RideTag.INTERVALS] with the
- * interval count, [RideTag.RECOVERY] with time spent below 60% of FTP. When that main value isn't
+ * the most this ride: [RideTag.RECOVERY] leads with time spent below 60% of FTP. When that main value isn't
  * available for this ride or its comparison pool (missing power data, say), the sentence falls
  * back to whichever remaining candidate KPI deviates most from the pool's median, ranked by
  * *relative* deviation (`|current - median| / median`) so metrics on different scales (a
  * percentage, a ratio near 1.0, watts) compare fairly. Distance is the one candidate never gated
  * on power/HR data, guaranteeing a sentence whenever there's enough tag-scoped history at all,
  * even for a power-and-HR-less ride.
- *
- * For [RideTag.INTERVALS], a second sentence is appended naming the total time spent in
- * intervals against the pool's median, whenever that median is available (older rides that
- * predate [CyclingSession.intervalTotalTimeSec]'s tracking may not have one), and a third (#186)
- * flags how many of this ride's rest gaps between intervals ([IntervalSession.restBeforeNextIntervalSec])
- * fell outside the recommended 2-3min recovery band, whenever there are at least 2 intervals (i.e.
- * at least one gap to evaluate).
  */
 object TagComparisonNarrative {
 
@@ -55,6 +47,9 @@ object TagComparisonNarrative {
         if (comparison.sampleCount < MIN_TAG_SCOPED_SAMPLES) return notEnoughHistory
 
         if (tag == RideTag.ZONE_2.label) return zone2Narrative(session, tag, comparison.medians) ?: notEnoughHistory
+        if (tag == RideTag.INTERVALS.label) {
+            return intervalsNarrative(session, tag, comparison.medians, intervals) ?: notEnoughHistory
+        }
 
         val mainValue = mainValueCandidate(session, tag, comparison, intervals)
         if (mainValue != null) return mainValue.sentence
@@ -125,6 +120,58 @@ object TagComparisonNarrative {
         return sentences.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
+    /**
+     * Intervals' fixed metric list (#215): interval count + time in intervals + power during
+     * intervals (duration-weighted, see [durationWeightedAvgPower]) + overall power, then the
+     * rest-gap flag. Each metric drops out independently; the first one rendered carries the
+     * "in a typical [tag] ride" qualifier. Null if nothing renders.
+     */
+    private fun intervalsNarrative(
+        session: CyclingSession,
+        tag: String,
+        m: PoolMedians,
+        intervals: List<IntervalSession>
+    ): String? {
+        val count = m.intervalCount?.let { Metric("${session.intervalCount}", "$it") }
+        val time = m.intervalTotalTimeSec?.let {
+            Metric(compactDuration(session.intervalTotalTimeSec), compactDuration(it))
+        }
+        val intervalPower = intervals.durationWeightedAvgPower()?.let { cur ->
+            m.intervalAvgPower?.let { Metric("$cur W", "$it W") }
+        }
+        val overall = session.averagePower?.let { cur ->
+            m.avgPower?.let { Metric("$cur W", "$it W") }
+        }
+
+        var first = true
+        fun vs(metric: Metric, unitSuffix: String = ""): String {
+            val text = if (first) "${metric.value}$unitSuffix (vs. ${metric.median} in a typical $tag ride)"
+            else "${metric.value}$unitSuffix (vs. ${metric.median})"
+            first = false
+            return text
+        }
+
+        var body: String? = when {
+            count != null && time != null -> "You did ${vs(count, " intervals")} and spent ${vs(time, " in intervals")}"
+            count != null -> "You did ${vs(count, " intervals")}"
+            time != null -> "You spent ${vs(time, " in intervals")}"
+            else -> null
+        }
+        if (intervalPower != null) {
+            body = when {
+                time != null -> "$body at ${vs(intervalPower)}"
+                body != null -> "$body averaging ${vs(intervalPower)} in intervals"
+                else -> "Your power in intervals averaged ${vs(intervalPower)}"
+            }
+        }
+        if (overall != null) {
+            body = if (body != null) "$body, with ${vs(overall, " overall")}"
+            else "Your average power was ${vs(overall)}"
+        }
+        return listOfNotNull(body?.let { "$it." }, restGapSentence(intervals))
+            .takeIf { it.isNotEmpty() }?.joinToString(" ")
+    }
+
     /** "2h41min" / "45min" — compact, no space, as in the #214 recap wording. */
     private fun compactDuration(totalSeconds: Int): String {
         val h = totalSeconds / 3600
@@ -142,32 +189,9 @@ object TagComparisonNarrative {
     ): Candidate? =
         when (tag) {
             RideTag.ZONE_2.label -> fatEfficiencyCandidate(session, tag, comparison)
-            RideTag.INTERVALS.label -> intervalCountCandidate(session, tag, comparison, intervals)
             RideTag.RECOVERY.label -> timeBelowSixtyPercentFtpCandidate(session, tag, comparison)
             else -> null
         }
-
-    private fun intervalCountCandidate(
-        session: CyclingSession,
-        tag: String,
-        comparison: TagComparison,
-        intervals: List<IntervalSession>
-    ): Candidate? {
-        val current = session.intervalCount
-        val median = comparison.medians.intervalCount ?: return null
-        val direction = if (current > median) "more" else "fewer"
-        var sentence = "You did $current intervals, $direction than your typical $median for $tag rides."
-        timeInIntervalsSentence(session, comparison)?.let { sentence = "$sentence $it" }
-        restGapSentence(intervals)?.let { sentence = "$sentence $it" }
-        return Candidate(relativeDeviation(current.toDouble(), median.toDouble()), sentence)
-    }
-
-    private fun timeInIntervalsSentence(session: CyclingSession, comparison: TagComparison): String? {
-        val current = session.intervalTotalTimeSec
-        val median = comparison.medians.intervalTotalTimeSec ?: return null
-        return "You spent ${FormatUtils.formatDuration(current)} in intervals " +
-            "(median: ${FormatUtils.formatDuration(median)})."
-    }
 
     /**
      * Flags rest gaps between intervals (#186) that fall outside the recommended 2-3min recovery

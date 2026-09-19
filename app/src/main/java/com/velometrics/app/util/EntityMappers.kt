@@ -118,7 +118,8 @@ fun SessionMetricSampleEntity.toDomain(): SessionMetricSample {
         hasPower = hasPower,
         intervalCount = intervalCount,
         intervalTotalTimeSec = intervalTotalTimeSec,
-        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec
+        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
+        intervalAvgPower = intervalAvgPower
     )
 }
 

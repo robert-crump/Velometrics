@@ -10,9 +10,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -37,7 +34,6 @@ fun TrainingLoadChart(points: List<DailyTrainingLoadPoint>) {
     val ctlColor = MaterialTheme.colorScheme.primary
     val atlColor = Color(0xFFFFA726) // orange, matches this app's existing secondary-series convention
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val density = LocalDensity.current
 
     Card(
         modifier = Modifier
@@ -78,7 +74,7 @@ fun TrainingLoadChart(points: List<DailyTrainingLoadPoint>) {
             val lastIndex = points.size - 1
 
             // Show at most ~5 x-axis date labels regardless of window length.
-            val labelStride = (points.size / 5).coerceAtLeast(1)
+            val labelStride = labelStride(points.size, 5)
 
             // The line/points are drawn on a Canvas, which carries no semantics of its own.
             val chartDescription = "Fitness trending from ${ctlValues.first().roundToInt()} to " +
@@ -91,23 +87,16 @@ fun TrainingLoadChart(points: List<DailyTrainingLoadPoint>) {
                     .height(CHART_HEIGHT_DP.dp)
                     .semantics { contentDescription = chartDescription }
             ) {
-                val leftPaddingPx = with(density) { 8.dp.toPx() }
-                val rightPaddingPx = with(density) { 8.dp.toPx() }
-                val topPaddingPx = with(density) { 8.dp.toPx() }
-                val bottomPaddingPx = with(density) { 18.dp.toPx() }
-                val innerWidth = size.width - leftPaddingPx - rightPaddingPx
-                val innerHeight = size.height - topPaddingPx - bottomPaddingPx
-
-                fun xFor(i: Int) = if (lastIndex == 0) leftPaddingPx + innerWidth / 2
-                    else leftPaddingPx + innerWidth * i / lastIndex
-                fun yFor(v: Double) = (topPaddingPx + innerHeight * (1f - ((v - minV) / (maxV - minV)).toFloat()))
+                val rect = plotRect(size.width, size.height, 8.dp, 8.dp, 8.dp, 18.dp)
+                val xScale = rect.indexScale(points.size)
+                val yScale = rect.yScale(minV, maxV)
 
                 fun drawSeries(values: List<Double>, color: Color) {
                     for (i in 0 until lastIndex) {
                         drawLine(
                             color = color,
-                            start = Offset(xFor(i), yFor(values[i])),
-                            end = Offset(xFor(i + 1), yFor(values[i + 1])),
+                            start = Offset(xScale.map(i), yScale.map(values[i])),
+                            end = Offset(xScale.map(i + 1), yScale.map(values[i + 1])),
                             strokeWidth = 2.dp.toPx()
                         )
                     }
@@ -116,18 +105,16 @@ fun TrainingLoadChart(points: List<DailyTrainingLoadPoint>) {
                 drawSeries(ctlValues, ctlColor)
                 drawSeries(atlValues, atlColor)
 
-                val labelPaint = android.graphics.Paint().apply {
-                    textSize = 9.dp.toPx()
-                    textAlign = android.graphics.Paint.Align.CENTER
-                    color = onSurfaceVariant.copy(alpha = 0.6f).toArgb()
-                }
+                val labelPainter = ChartLabelPainter(9.dp.toPx())
+                val labelColor = onSurfaceVariant.copy(alpha = 0.6f)
                 var i = 0
                 while (i <= lastIndex) {
-                    drawContext.canvas.nativeCanvas.drawText(
+                    labelPainter.draw(
+                        this,
                         monthDayFormatter.format(points[i].date),
-                        xFor(i),
+                        xScale.map(i),
                         size.height - 2.dp.toPx(),
-                        labelPaint
+                        labelColor
                     )
                     i += labelStride
                 }

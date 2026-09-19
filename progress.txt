@@ -1,3 +1,20 @@
+## Issue #198 — ChartAxis module: one tick/plot-rect/label implementation for the line and scatter charts
+Completed: 2026-09-19
+
+### What was done
+
+- New `ui/components/ChartAxis.kt` (pure, unit-tested in `ChartAxisTest`): `integerAxisTicks`
+  (generalised with `stepUnit` for 50 W / 5-ride grids) and `roundedAxisBounds` moved here from
+  `ScatterPlotChart`, plus `evenAxisTicks`, `labelStride`, `PlotRect` (padding -> plot rect) and
+  `LinearScale` (`map`/`invert`, replaces every per-chart `xFor`/`yFor`).
+- New `ChartLabelPainter` is the only place that builds `android.graphics.Paint` for chart text.
+- `ScatterPlotChart`, `CardiacDriftChart`, `TrainingLoadChart`, `PowerCurveChart` and Home's
+  `MonthlyLineChart` are now thin adapters; the MonthlyLineChart drag hit-test uses `scale.invert`.
+- Not verified on device (no screenshot comparison done); ride-count axis now steps 5 with at most
+  5 intervals, so only counts above 25/month get a coarser step than before.
+
+`testDebugUnitTest` passes.
+
 ## Issue #197 — Unify JSON serialization, duration formatting, and the thousands separator
 Completed: 2026-09-19
 
@@ -157,74 +174,3 @@ session (no emulator/device attached) — this issue is a pure test-seam refacto
 change, so the unit suite is the relevant feedback loop.
 
 ---
-
-## Issue #194 — Bulk delete rides from Home (multiselect)
-Completed: 2026-09-07
-
-### What was done
-
-Third slice of #187: multiselect bulk delete on the Home ride list, reusing #193's shared
-`ConfirmDialog` and the same "no recluster here" rule #192/#193 established for single-ride delete.
-
-**`data/local/dao/CyclingSessionDao.kt`** — new `deleteById(id)` (`@Query DELETE ... WHERE id =
-:id`) and `deleteSessions(ids: List<Long>)`, a `@Transaction`-annotated default method that loops
-`ids.forEach { deleteById(it) }`. Room wraps the whole loop in one transaction, so a failure
-partway through rolls back every delete already issued in that call, rather than leaving some
-sessions deleted and others not. FK `ON DELETE CASCADE` (already in place for #193's single-session
-delete) removes each deleted session's `interval_sessions`/`session_best_efforts` rows the same way.
-**`domain/repository/CyclingSessionRepository.kt`** / **`data/repository/CyclingSessionRepositoryImpl.kt`**
-— new `deleteSessions(ids: List<Long>)`, a thin pass-through to the DAO method.
-**`data/repository/FakeCyclingSessionRepository.kt`** (test) — matching fake implementation
-(`sessions.removeAll { it.id in ids }`).
-
-**`ui/screens/home/HomeViewModel.kt`** — new selection-state surface: `selectionMode:
-StateFlow<Boolean>`, `selectedSessionIds: StateFlow<Set<Long>>`, `deleteError: StateFlow<String?>`.
-`enterSelectionMode(sessionId)` (long-press: turns on selection mode with just that card selected),
-`toggleSessionSelected(sessionId)` (add/remove from the set; no-ops outside selection mode),
-`exitSelectionMode()` (close/back: clears both the mode flag and the selection), `clearDeleteError()`.
-`deleteSelectedSessions()` calls `sessionRepository.deleteSessions(ids)` on
-`Dispatchers.IO`: on success calls `exitSelectionMode()` (Home's list updates on its own via the
-existing Flow-backed `getAllSessionSummaries()` query); on a caught `Exception` sets `deleteError =
-"Couldn't delete rides"` and leaves selection mode + the selection untouched so the user can retry.
-Deliberately does **not** call `recluster()` — out of scope per the issue, matching #193's
-single-delete precedent; that stays on #192's lazy pull-to-refresh path.
-
-**`ui/screens/home/HomeScreen.kt`** — `BackHandler(enabled = selectionMode) {
-viewModel.exitSelectionMode() }`. `Scaffold`'s `topBar` now branches on `selectionMode`: the normal
-title/overflow `TopAppBar` unchanged, or a contextual bar (close/X `navigationIcon`, "N selected"
-title, trash-can `actions` icon disabled when nothing is selected) while selecting. Tapping the
-trash icon opens the shared `ConfirmDialog` ("Delete rides?" / "Delete N rides? This can't be
-undone." / "Delete"); confirming calls `deleteSelectedSessions()`. A new `LaunchedEffect(deleteError)`
-shows it on the existing `snackbarHostState` (same shape as the pre-existing `dropboxSyncMessage`
-effect) and clears it after. `SessionCard` gained `selected`/`onLongClick` params: the card's
-`onClick` shorthand was replaced with `Modifier.combinedClickable(onClick, onLongClick)` (needed for
-long-press), a selected card gets a `secondaryContainer`-tinted background plus a leading
-`Icons.Filled.CheckCircle`, and the list's `onClick` now toggles selection in selection mode instead
-of navigating. Out of scope, per the issue: recluster-on-delete, undo, and hiding the import FAB
-while selecting.
-
-### Tests
-New `CyclingSessionDaoTest` (Robolectric, native SQLite, real `VelometricsDatabase` — same setup as
-`CyclingAssetDatabaseFixtureTest`/`VelometricsMigrationTest`, not a fake): `deleteSessions` cascades
-`interval_sessions`/`session_best_efforts` for every id in a mixed batch while leaving an
-unselected session untouched; a second case exercises the same `db.withTransaction` + `deleteById`
-mechanism `@Transaction` relies on directly (no seam exists to inject a failure inside the
-interface's own generated loop) and confirms a `RuntimeException` thrown after two deletes have
-already been issued rolls both back, proving the underlying rollback guarantee `deleteSessions`
-depends on.
-Five new cases in `HomeViewModelTest`: `enterSelectionMode`/`toggleSessionSelected` (add, remove,
-no-op outside selection mode)/`exitSelectionMode` state transitions, and `deleteSelectedSessions`
-on both a `LatchedDeleteSessionsRepository` success (sessions removed, selection mode exits, no
-error) and forced-failure path (error message set, selection mode + selected ids left untouched for
-retry) — same real-`Dispatchers.IO`-with-`CountDownLatch` pattern `syncDropbox`'s tests already use,
-since `deleteSelectedSessions` also dispatches off the test dispatcher.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 358 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 351
-prior + 7 new (2 DAO + 5 HomeViewModel). No on-device verification this session (no emulator/device
-attached); the selection/delete/error branching is fully covered by the new unit tests, and the
-long-press/contextual-TopAppBar/dialog wiring is otherwise-standard Compose plumbing with no Compose
-UI test harness in this project (same residual gap as every prior UI-touching pass in this repo's
-history).
-
----
-

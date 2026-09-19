@@ -1,5 +1,6 @@
-﻿package com.velometrics.app.ui.components
+package com.velometrics.app.ui.components
 
+import android.graphics.Paint
 import com.velometrics.app.util.FormatUtils
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,54 +10,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.ceil
-import kotlin.math.floor
 
 data class ScatterPoint(val x: Float, val y: Float, val color: Color? = null)
-
-/**
- * Rounds [min]/[max] outward to the nearest [step], e.g. for axis bounds that land on round
- * tick values instead of the raw data range.
- */
-fun roundedAxisBounds(min: Float, max: Float, step: Float = 10f): Pair<Float, Float> {
-    val lo = floor(min / step) * step
-    val hi = ceil(max / step) * step
-    return lo to hi
-}
-
-private val NICE_INTEGER_STEPS = intArrayOf(1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000)
-
-/**
- * Whole-number tick values spanning [lo, hi], spaced by the smallest "nice" integer step
- * (1, 2, 5, 10, ...) that keeps the tick count at or below [maxTicks]. Narrow ranges naturally
- * produce fewer, non-repeating labels instead of always rendering [maxTicks] + 1 of them.
- */
-fun integerAxisTicks(lo: Float, hi: Float, maxTicks: Int = 4): List<Float> {
-    val range = hi - lo
-    val step = if (range <= 0f) {
-        1
-    } else {
-        NICE_INTEGER_STEPS.firstOrNull { range / it <= maxTicks } ?: NICE_INTEGER_STEPS.last()
-    }
-    val start = ceil(lo / step) * step
-    val ticks = mutableListOf<Float>()
-    var v = start
-    while (v <= hi + step * 1e-4f) {
-        ticks.add(v)
-        v += step
-    }
-    if (ticks.isEmpty()) ticks.add(((lo + hi) / 2f))
-    return ticks
-}
 
 @Composable
 fun ScatterPlotChart(
@@ -95,13 +56,7 @@ fun ScatterPlotChart(
             .height(220.dp)
             .semantics { contentDescription = chartDescription }
     ) {
-        val padLeft = 56.dp.toPx()
-        val padRight = 16.dp.toPx()
-        val padTop = 16.dp.toPx()
-        val padBottom = 48.dp.toPx()
-
-        val plotW = size.width - padLeft - padRight
-        val plotH = size.height - padTop - padBottom
+        val rect = plotRect(size.width, size.height, 56.dp, 16.dp, 16.dp, 48.dp)
 
         // Data ranges
         val xDataMin = points.minOf { it.x }
@@ -133,76 +88,40 @@ fun ScatterPlotChart(
             yHi = yDataMax + yPad
         }
 
-        fun mapX(v: Float) = padLeft + (v - xLo) / (xHi - xLo) * plotW
-        fun mapY(v: Float) = padTop + plotH - (v - yLo) / (yHi - yLo) * plotH
+        val xScale = rect.xScale(xLo.toDouble(), xHi.toDouble())
+        val yScale = rect.yScale(yLo.toDouble(), yHi.toDouble())
 
         // Draw axes
-        val axisPaint = android.graphics.Paint().apply {
-            color = axisColor.toArgb()
-            strokeWidth = 1.5f * density.density
-        }
-        drawContext.canvas.nativeCanvas.apply {
-            // X-axis
-            drawLine(padLeft, padTop + plotH, padLeft + plotW, padTop + plotH, axisPaint)
-            // Y-axis
-            drawLine(padLeft, padTop, padLeft, padTop + plotH, axisPaint)
-        }
+        val axisStroke = 1.5f * density.density
+        drawLine(axisColor, Offset(rect.left, rect.bottom), Offset(rect.right, rect.bottom), axisStroke)
+        drawLine(axisColor, Offset(rect.left, rect.top), Offset(rect.left, rect.bottom), axisStroke)
 
         // Draw tick labels
-        val textPaint = android.graphics.Paint().apply {
-            color = labelColor.toArgb()
-            textSize = with(density) { 10.sp.toPx() }
-            isAntiAlias = true
-        }
-
-        val xTicks = 4
-        for (i in 0..xTicks) {
-            val v = xLo + (xHi - xLo) * i / xTicks
-            val x = mapX(v)
-            val label = FormatUtils.formatDecimal(v.toDouble(), xTickDecimals)
-            drawContext.canvas.nativeCanvas.drawText(
-                label,
-                x - textPaint.measureText(label) / 2,
-                padTop + plotH + 14.dp.toPx(),
-                textPaint
+        val tickPainter = ChartLabelPainter(with(density) { 10.sp.toPx() })
+        for (v in evenAxisTicks(xLo, xHi, 4)) {
+            tickPainter.draw(
+                this,
+                FormatUtils.formatDecimal(v.toDouble(), xTickDecimals),
+                xScale.map(v),
+                rect.bottom + 14.dp.toPx(),
+                labelColor
             )
         }
-
         for (v in integerAxisTicks(yLo, yHi)) {
-            val y = mapY(v)
-            val label = FormatUtils.formatDecimal(v.toDouble(), 0)
-            drawContext.canvas.nativeCanvas.drawText(
-                label,
-                padLeft - textPaint.measureText(label) - 4.dp.toPx(),
-                y + textPaint.textSize / 3,
-                textPaint
+            tickPainter.draw(
+                this,
+                FormatUtils.formatDecimal(v.toDouble(), 0),
+                rect.left - 4.dp.toPx(),
+                yScale.map(v) + tickPainter.textSize / 3,
+                labelColor,
+                Paint.Align.RIGHT
             )
         }
 
-        // Axis labels
-        val labelPaint = android.graphics.Paint().apply {
-            color = labelColor.toArgb()
-            textSize = with(density) { 11.sp.toPx() }
-            isAntiAlias = true
-            isFakeBoldText = true
-        }
-        // X label centered below x-axis
-        drawContext.canvas.nativeCanvas.drawText(
-            xLabel,
-            padLeft + plotW / 2 - labelPaint.measureText(xLabel) / 2,
-            size.height - 4.dp.toPx(),
-            labelPaint
-        )
-        // Y label rotated (vertical)
-        drawContext.canvas.nativeCanvas.save()
-        drawContext.canvas.nativeCanvas.rotate(-90f, 12.dp.toPx(), padTop + plotH / 2)
-        drawContext.canvas.nativeCanvas.drawText(
-            yLabel,
-            12.dp.toPx() - labelPaint.measureText(yLabel) / 2,
-            padTop + plotH / 2,
-            labelPaint
-        )
-        drawContext.canvas.nativeCanvas.restore()
+        // Axis labels: x centered below x-axis, y rotated (vertical)
+        val labelPainter = ChartLabelPainter(with(density) { 11.sp.toPx() }, bold = true)
+        labelPainter.draw(this, xLabel, rect.left + rect.width / 2, size.height - 4.dp.toPx(), labelColor)
+        labelPainter.drawVertical(this, yLabel, 12.dp.toPx(), rect.top + rect.height / 2, labelColor)
 
         // Draw dots
         val dotRadiusPx = dotRadius.toPx()
@@ -210,7 +129,7 @@ fun ScatterPlotChart(
             drawCircle(
                 color = pt.color ?: dotColor,
                 radius = dotRadiusPx,
-                center = Offset(mapX(pt.x), mapY(pt.y))
+                center = Offset(xScale.map(pt.x), yScale.map(pt.y))
             )
         }
     }

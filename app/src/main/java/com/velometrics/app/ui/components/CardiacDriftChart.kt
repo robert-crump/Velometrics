@@ -12,9 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +54,6 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
     val lineColor = MaterialTheme.colorScheme.primary
     val referenceLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
-    val density = LocalDensity.current
 
     Card(
         modifier = Modifier
@@ -107,7 +103,7 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
             val maxV = rawMax + padding
 
             // Show at most ~6 x-axis labels regardless of ride length
-            val labelStride = ((maxIndex + 1) / 6).coerceAtLeast(1)
+            val labelStride = labelStride(maxIndex + 1, 6)
 
             // The line/points are drawn on a Canvas, which carries no semantics of its own — the
             // header above already announces the overall decoupling percent and band, so give the
@@ -122,23 +118,16 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
                     .height(CHART_HEIGHT_DP.dp)
                     .semantics { contentDescription = chartDescription }
             ) {
-                val leftPaddingPx = with(density) { 8.dp.toPx() }
-                val rightPaddingPx = with(density) { 8.dp.toPx() }
-                val topPaddingPx = with(density) { 8.dp.toPx() }
-                val bottomPaddingPx = with(density) { 18.dp.toPx() }
-                val innerWidth = size.width - leftPaddingPx - rightPaddingPx
-                val innerHeight = size.height - topPaddingPx - bottomPaddingPx
-
-                fun xFor(i: Int) = if (maxIndex == 0) leftPaddingPx + innerWidth / 2
-                    else leftPaddingPx + innerWidth * i / maxIndex
-                fun yFor(v: Double) = (topPaddingPx + innerHeight * (1f - ((v - minV) / (maxV - minV)).toFloat()))
+                val rect = plotRect(size.width, size.height, 8.dp, 8.dp, 8.dp, 18.dp)
+                val xScale = rect.indexScale(maxIndex + 1)
+                val yScale = rect.yScale(minV, maxV)
 
                 // 100% reference line
-                val refY = yFor(100.0)
+                val refY = yScale.map(100.0)
                 drawLine(
                     color = referenceLineColor,
-                    start = Offset(leftPaddingPx, refY),
-                    end = Offset(size.width - rightPaddingPx, refY),
+                    start = Offset(rect.left, refY),
+                    end = Offset(rect.right, refY),
                     strokeWidth = 1.dp.toPx(),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
                 )
@@ -151,8 +140,8 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
                     if (v0 != null && v1 != null) {
                         drawLine(
                             color = lineColor,
-                            start = Offset(xFor(i), yFor(v0)),
-                            end = Offset(xFor(i + 1), yFor(v1)),
+                            start = Offset(xScale.map(i), yScale.map(v0)),
+                            end = Offset(xScale.map(i + 1), yScale.map(v1)),
                             strokeWidth = 2.dp.toPx()
                         )
                     }
@@ -163,25 +152,17 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
                         drawCircle(
                             color = lineColor,
                             radius = 3.dp.toPx(),
-                            center = Offset(xFor(i), yFor(v))
+                            center = Offset(xScale.map(i), yScale.map(v))
                         )
                     }
                 }
 
-                val labelPaint = android.graphics.Paint().apply {
-                    textSize = 9.dp.toPx()
-                    textAlign = android.graphics.Paint.Align.CENTER
-                    color = onSurfaceVariant.copy(alpha = 0.6f).toArgb()
-                }
+                val labelPainter = ChartLabelPainter(9.dp.toPx())
+                val labelColor = onSurfaceVariant.copy(alpha = 0.6f)
                 var i = 0
                 while (i <= maxIndex) {
                     val minuteMark = (i + 1) * CyclingConstants.CARDIAC_DRIFT_BUCKET_SEC / 60
-                    drawContext.canvas.nativeCanvas.drawText(
-                        "${minuteMark}m",
-                        xFor(i),
-                        size.height - 2.dp.toPx(),
-                        labelPaint
-                    )
+                    labelPainter.draw(this, "${minuteMark}m", xScale.map(i), size.height - 2.dp.toPx(), labelColor)
                     i += labelStride
                 }
             }

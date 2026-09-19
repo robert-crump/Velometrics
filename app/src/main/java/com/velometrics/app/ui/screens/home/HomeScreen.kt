@@ -3,6 +3,7 @@
 import android.app.Activity
 import android.content.ContentResolver
 import android.content.Intent
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -50,13 +51,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.ui.components.ChartLabelPainter
+import com.velometrics.app.ui.components.integerAxisTicks
+import com.velometrics.app.ui.components.plotRect
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import kotlin.math.roundToInt
@@ -694,74 +696,56 @@ private fun MonthlyLineChart(
         val chartWidthPx = with(density) { maxWidth.toPx() }
         val chartHeightPx = with(density) { maxHeight.toPx() }
         // Left padding accommodates y-axis labels; right side uses smaller padding
-        val leftPaddingPx = with(density) { 28.dp.toPx() }
-        val rightPaddingPx = with(density) { 8.dp.toPx() }
+        val rect = density.plotRect(chartWidthPx, chartHeightPx, 28.dp, 8.dp, 8.dp, 20.dp)
+        val xScale = rect.indexScale(pointCount)
+        val yScale = rect.yScale(0.0, maxCount.toDouble())
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .dragToSelectGesture(monthlyData, chartWidthPx) { x ->
                     if (pointCount >= 2) {
-                        val innerWidth = chartWidthPx - leftPaddingPx - rightPaddingPx
-                        val stepX = innerWidth / (pointCount - 1)
-                        val idx = ((x - leftPaddingPx) / stepX)
-                            .roundToInt()
-                            .coerceIn(0, pointCount - 1)
-                        onMonthSelected(idx)
+                        onMonthSelected(xScale.invert(x).roundToInt().coerceIn(0, pointCount - 1))
                     }
                 }
         ) {
             if (pointCount < 2) return@Canvas
 
-            val innerWidth = chartWidthPx - leftPaddingPx - rightPaddingPx
-            val stepX = innerWidth / (pointCount - 1)
-            val paddingTopPx = 8.dp.toPx()
-            val paddingBottomPx = 20.dp.toPx()
-            val availableHeight = chartHeightPx - paddingTopPx - paddingBottomPx
-
-            fun xFor(i: Int) = leftPaddingPx + i * stepX
-            fun yFor(count: Int) = paddingTopPx + availableHeight * (1f - count.toFloat() / maxCount)
-
-            val labelPaint = android.graphics.Paint().apply {
-                textSize = 9.dp.toPx()
-                color = onSurface.copy(alpha = 0.5f).toArgb()
-            }
+            val labelPainter = ChartLabelPainter(9.dp.toPx())
 
             // Horizontal gridlines and y-axis labels at multiples of 5
-            var tick = 0
-            while (tick <= maxCount) {
-                val y = yFor(tick)
-                // Dashed gridline
+            for (tick in integerAxisTicks(0f, maxCount.toFloat(), 5, 5)) {
+                val y = yScale.map(tick)
                 drawLine(
                     color = gridColor,
-                    start = Offset(leftPaddingPx, y),
-                    end = Offset(chartWidthPx - rightPaddingPx, y),
+                    start = Offset(rect.left, y),
+                    end = Offset(rect.right, y),
                     strokeWidth = 1.dp.toPx()
                 )
                 // Y-axis label (right-aligned just before the chart area)
-                labelPaint.textAlign = android.graphics.Paint.Align.RIGHT
-                drawContext.canvas.nativeCanvas.drawText(
-                    "$tick",
-                    leftPaddingPx - 4.dp.toPx(),
-                    y + labelPaint.textSize / 3,
-                    labelPaint
+                labelPainter.draw(
+                    this,
+                    "${tick.toInt()}",
+                    rect.left - 4.dp.toPx(),
+                    y + labelPainter.textSize / 3,
+                    onSurface.copy(alpha = 0.5f),
+                    Paint.Align.RIGHT
                 )
-                tick += 5
             }
 
             // Line path
             val path = Path()
             monthlyData.forEachIndexed { i, summary ->
-                val x = xFor(i)
-                val y = yFor(summary.rideCount)
+                val x = xScale.map(i)
+                val y = yScale.map(summary.rideCount)
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(path = path, color = lineColor, style = Stroke(width = 2.dp.toPx()))
 
             // Dots + month labels
             monthlyData.forEachIndexed { i, summary ->
-                val x = xFor(i)
-                val y = yFor(summary.rideCount)
+                val x = xScale.map(i)
+                val y = yScale.map(summary.rideCount)
                 val isSelected = i == selectedIndex
 
                 drawCircle(
@@ -772,13 +756,12 @@ private fun MonthlyLineChart(
 
                 val abbr = summary.yearMonth.month.name.take(1).uppercase() +
                         summary.yearMonth.month.name.drop(1).take(2).lowercase()
-                labelPaint.textAlign = android.graphics.Paint.Align.CENTER
-                labelPaint.color = onSurface.copy(alpha = if (isSelected) 1f else 0.5f).toArgb()
-                drawContext.canvas.nativeCanvas.drawText(
+                labelPainter.draw(
+                    this,
                     abbr,
                     x,
                     chartHeightPx - 4.dp.toPx(),
-                    labelPaint
+                    onSurface.copy(alpha = if (isSelected) 1f else 0.5f)
                 )
             }
         }

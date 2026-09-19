@@ -1,5 +1,6 @@
 package com.velometrics.app.ui.components
 
+import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,8 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -97,24 +96,12 @@ fun PowerCurveChart(
         ) {
             val chartWidthPx = with(density) { maxWidth.toPx() }
             val chartHeightPx = with(density) { maxHeight.toPx() }
-            val leftPaddingPx = with(density) { 32.dp.toPx() }
-            val rightPaddingPx = with(density) { 8.dp.toPx() }
-            val topPaddingPx = with(density) { 8.dp.toPx() }
-            val bottomPaddingPx = with(density) { 20.dp.toPx() }
-
-            fun xFor(i: Int): Float {
-                val range = (maxLog - minLog).takeIf { it > 0.0 } ?: 1.0
-                val fraction = (logDurations[i] - minLog) / range
-                return leftPaddingPx + fraction.toFloat() * (chartWidthPx - leftPaddingPx - rightPaddingPx)
-            }
-
-            fun yFor(watts: Int): Float {
-                val available = chartHeightPx - topPaddingPx - bottomPaddingPx
-                return topPaddingPx + available * (1f - watts.toFloat() / maxAxis)
-            }
+            val rect = density.plotRect(chartWidthPx, chartHeightPx, 32.dp, 8.dp, 8.dp, 20.dp)
+            val xScale = rect.xScale(minLog, maxLog)
+            val yScale = rect.yScale(0.0, maxAxis.toDouble())
 
             fun nearestAvailableIndex(x: Float): Int =
-                availableIndices.minByOrNull { abs(xFor(it) - x) } ?: availableIndices.first()
+                availableIndices.minByOrNull { abs(xScale.map(logDurations[it]) - x) } ?: availableIndices.first()
 
             // The line/points are drawn on a Canvas, which carries no semantics of its own — the
             // header above already announces the selected point, so give the chart itself a
@@ -131,56 +118,51 @@ fun PowerCurveChart(
                     }
                     .semantics { contentDescription = chartDescription }
             ) {
-                val labelPaint = android.graphics.Paint().apply {
-                    textSize = 9.dp.toPx()
-                }
+                val labelPainter = ChartLabelPainter(9.dp.toPx())
 
-                var tick = 0
-                while (tick <= maxAxis) {
-                    val y = yFor(tick)
+                for (tick in integerAxisTicks(0f, maxAxis.toFloat(), 5, 50)) {
+                    val y = yScale.map(tick)
                     drawLine(
                         color = gridColor,
-                        start = Offset(leftPaddingPx, y),
-                        end = Offset(chartWidthPx - rightPaddingPx, y),
+                        start = Offset(rect.left, y),
+                        end = Offset(rect.right, y),
                         strokeWidth = 1.dp.toPx()
                     )
-                    labelPaint.textAlign = android.graphics.Paint.Align.RIGHT
-                    labelPaint.color = onSurface.copy(alpha = 0.5f).toArgb()
-                    drawContext.canvas.nativeCanvas.drawText(
-                        "$tick",
-                        leftPaddingPx - 4.dp.toPx(),
-                        y + labelPaint.textSize / 3,
-                        labelPaint
+                    labelPainter.draw(
+                        this,
+                        "${tick.toInt()}",
+                        rect.left - 4.dp.toPx(),
+                        y + labelPainter.textSize / 3,
+                        onSurface.copy(alpha = 0.5f),
+                        Paint.Align.RIGHT
                     )
-                    tick += tickStep
                 }
 
                 val path = Path()
                 availableIndices.forEachIndexed { orderIdx, i ->
-                    val x = xFor(i)
-                    val y = yFor(points[i].watts!!)
+                    val x = xScale.map(logDurations[i])
+                    val y = yScale.map(points[i].watts!!)
                     if (orderIdx == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 drawPath(path = path, color = lineColor, style = Stroke(width = 2.dp.toPx()))
 
                 points.forEachIndexed { i, point ->
-                    val x = xFor(i)
+                    val x = xScale.map(logDurations[i])
                     val watts = point.watts
                     if (watts != null) {
                         val isSelected = i == selectedIndex
                         drawCircle(
                             color = if (isSelected) selectedDotColor else unselectedDotColor,
                             radius = if (isSelected) 5.dp.toPx() else 3.dp.toPx(),
-                            center = Offset(x, yFor(watts))
+                            center = Offset(x, yScale.map(watts))
                         )
                     }
-                    labelPaint.textAlign = android.graphics.Paint.Align.CENTER
-                    labelPaint.color = onSurface.copy(alpha = if (i == selectedIndex) 1f else 0.5f).toArgb()
-                    drawContext.canvas.nativeCanvas.drawText(
+                    labelPainter.draw(
+                        this,
                         point.label,
                         x,
                         chartHeightPx - 4.dp.toPx(),
-                        labelPaint
+                        onSurface.copy(alpha = if (i == selectedIndex) 1f else 0.5f)
                     )
                 }
             }

@@ -1,12 +1,12 @@
 package com.velometrics.app.domain.service
 
-import com.velometrics.app.domain.model.AllTimeStatsUiState
+import com.velometrics.app.ui.screens.alltimestats.AllTimeStatsUiState
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.PowerCurvePoint
-import com.velometrics.app.domain.model.PowerSpeedPoint
-import com.velometrics.app.domain.model.RecordEntry
-import com.velometrics.app.domain.model.YearStat
+import com.velometrics.app.ui.screens.alltimestats.PowerSpeedPoint
+import com.velometrics.app.ui.screens.alltimestats.RecordEntry
+import com.velometrics.app.ui.screens.alltimestats.YearStat
 import com.velometrics.app.util.FormatUtils
 import java.time.Instant
 import java.time.Year

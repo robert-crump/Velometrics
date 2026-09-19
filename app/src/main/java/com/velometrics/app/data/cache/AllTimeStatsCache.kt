@@ -1,7 +1,7 @@
 package com.velometrics.app.data.cache
 
 import com.velometrics.app.di.ApplicationScope
-import com.velometrics.app.domain.model.AllTimeStatsUiState
+import com.velometrics.app.ui.screens.alltimestats.AllTimeStatsUiState
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.AllTimeStatsAggregator

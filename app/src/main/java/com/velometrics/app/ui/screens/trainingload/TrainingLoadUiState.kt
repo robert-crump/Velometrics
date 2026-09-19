@@ -1,4 +1,4 @@
-package com.velometrics.app.domain.model
+package com.velometrics.app.ui.screens.trainingload
 
 import java.time.LocalDate
 

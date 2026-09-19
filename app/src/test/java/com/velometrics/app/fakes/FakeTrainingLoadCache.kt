@@ -1,7 +1,7 @@
 package com.velometrics.app.fakes
 
 import com.velometrics.app.data.cache.TrainingLoadCache
-import com.velometrics.app.domain.model.TrainingLoadUiState
+import com.velometrics.app.ui.screens.trainingload.TrainingLoadUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 

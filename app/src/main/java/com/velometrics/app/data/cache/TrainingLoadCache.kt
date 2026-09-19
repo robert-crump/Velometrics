@@ -2,7 +2,7 @@ package com.velometrics.app.data.cache
 
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.di.ApplicationScope
-import com.velometrics.app.domain.model.TrainingLoadUiState
+import com.velometrics.app.ui.screens.trainingload.TrainingLoadUiState
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.TrainingLoadAggregator
 import kotlinx.coroutines.CoroutineScope

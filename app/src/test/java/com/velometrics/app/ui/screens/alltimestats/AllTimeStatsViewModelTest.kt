@@ -1,7 +1,5 @@
 package com.velometrics.app.ui.screens.alltimestats
 
-import com.velometrics.app.domain.model.AllTimeStatsUiState
-import com.velometrics.app.domain.model.YearStat
 import com.velometrics.app.fakes.FakeAllTimeStatsCache
 import org.junit.Assert.assertEquals
 import org.junit.Test

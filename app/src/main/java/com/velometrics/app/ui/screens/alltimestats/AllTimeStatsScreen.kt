@@ -1,5 +1,6 @@
 package com.velometrics.app.ui.screens.alltimestats
 
+import com.velometrics.app.domain.model.PowerCurvePoint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,10 +19,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.velometrics.app.domain.model.PowerCurvePoint
-import com.velometrics.app.domain.model.PowerSpeedPoint
-import com.velometrics.app.domain.model.RecordEntry
-import com.velometrics.app.domain.model.YearStat
 import com.velometrics.app.ui.components.LoadingBox
 import com.velometrics.app.ui.components.MetricCell
 import com.velometrics.app.ui.components.NotFoundBox

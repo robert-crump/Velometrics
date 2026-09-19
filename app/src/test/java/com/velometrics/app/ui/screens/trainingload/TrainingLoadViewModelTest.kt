@@ -1,6 +1,5 @@
 package com.velometrics.app.ui.screens.trainingload
 
-import com.velometrics.app.domain.model.TrainingLoadUiState
 import com.velometrics.app.fakes.FakeTrainingLoadCache
 import org.junit.Assert.assertEquals
 import org.junit.Test

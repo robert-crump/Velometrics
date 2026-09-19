@@ -16,7 +16,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.velometrics.app.domain.model.DailyTrainingLoadPoint
+import com.velometrics.app.ui.screens.trainingload.DailyTrainingLoadPoint
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt

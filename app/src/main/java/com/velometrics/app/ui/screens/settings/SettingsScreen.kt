@@ -257,8 +257,8 @@ fun SettingsScreen(
                 }
             )
 
-            // Debug-only: issue #170 threshold-tuning review tool. See RideTagDumper's doc
-            // comment for why this is a Settings row instead of an instrumented test.
+            // Debug-only: issue #170 threshold-tuning review tool. Kept as a Settings row
+            // (not an instrumented test) so it needs no androidTest install/uninstall cycle.
             if (BuildConfig.DEBUG) {
                 SettingsRow(
                     icon = Icons.Default.BugReport,

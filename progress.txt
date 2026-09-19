@@ -1,3 +1,23 @@
+## Issue #196 — Delete dead route-composition modules; fold RideTagDumper into RideClassificationService; move UiState files out of domain
+Completed: 2026-09-19
+
+### What was done
+
+- Deleted `RideEstimator`, `RewardComposer`, `RideDirection` (no production callers after #155) and
+  their tests; the deferred/rejected routing-term notes went to `docs/ideas/route-reward-terms.md`.
+- `RideTagDumper` is gone (plus the unused `DumpSessionTagsForReview` androidTest). `RideClassificationService`
+  now has `reviewRows(ftp): List<TagReviewRow>`; `TagReviewRow.isStale` is the single home of the
+  staleness rule and `reclassifyAll` uses it. CSV rendering moved to `ui/screens/settings/RideTagCsv`;
+  the debug Settings row stays and does the file write.
+- `AllTimeStatsUiState` (with `RecordEntry`, `YearStat`, `PowerSpeedPoint`) moved to
+  `ui/screens/alltimestats`, `TrainingLoadUiState` (with `DailyTrainingLoadPoint`) to
+  `ui/screens/trainingload`. `PowerCurvePoint` stays in `domain/model` (own file) since domain
+  `BestEffort` uses it.
+- Removed the discarded-result `computeComparison` loop from `SettingsViewModel.recalculateAllStats`
+  and the now-unused `SessionComparator` constructor dependency.
+
+`testDebugUnitTest` passes.
+
 ## Issue #199 — Map View: extract user-location renderer and feature query, remove MapLibre types from ViewModels, fix stale CONTEXT.md entry
 Completed: 2026-09-18
 
@@ -190,118 +210,3 @@ history).
 
 ---
 
-## Issue #192 — Cluster hygiene: keep Repeated Routes/Intervals correct after ride deletion
-Completed: 2026-09-07
-
-### What was done
-
-Second slice of #187: keeps Repeated Routes/Intervals correct after #193's ride-delete, without
-delete itself triggering a recompute (clustering's full-recompute cost stays off the delete path).
-
-**`ui/screens/home/HomeViewModel.kt`** — `syncDropbox()`'s `recluster()` call moved into the
-`finally` block (was: only inside the `DropboxSyncResult.Completed` branch, and only when an import
-actually succeeded). `finally` runs on every path — not connected, needs reauth, or a completed sync
-regardless of outcome — so pull-to-refresh now reclusters unconditionally, becoming the general
-"resync cluster state" action for a user who just deleted a ride. The existing "Connect Dropbox in
-Settings" message still shows exactly as before; only the recluster gating changed. Both
-`RouteClusteringService.runClustering()`/`IntervalClusteringService.runClustering()` already do a
-full recompute straight from the current DB state, so a deleted session/interval simply isn't in
-their input on the next pass — no clustering-service change needed for this half.
-
-**`util/Constants.kt`** — new `CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE = 3`, hoisted out of
-`RouteClusteringService`'s previously-private `MIN_GROUP_SIZE` so the repository layer (below) can
-enforce the same floor. `RouteClusteringService` now defines its own `MIN_GROUP_SIZE` as a reference
-to the shared constant — no behavior change there.
-
-**`data/repository/RepeatedRouteRepositoryImpl.kt`** — `entityToDomain`'s existing
-`ids.mapNotNull { sessionMap[it] }` already silently drops a stale id (a session deleted since the
-last recluster; `RepeatedRouteEntity.sessionIds` carries no FK); the gap was that the group was only
-hidden once *every* member went stale (`sessions.isEmpty()`). Changed the guard to
-`sessions.size < ROUTE_CLUSTER_MIN_GROUP_SIZE`, so a route whose surviving count falls to 1 or 2
-(below clustering's own minimum group size) is hidden entirely, same as a group that never reached
-that size during clustering — rather than rendering an under-strength "repeated" route.
-
-**`data/repository/RepeatedIntervalRepositoryImpl.kt`** — no behavior change; `entityToDomain`
-already filters stale ids the same way and correctly hides only a fully-emptied entry, which is
-already right here since `IntervalClusteringService` has no minimum group size (documented/tested
-as "no minimum group size" — a lone surviving interval is a valid archetype on its own). Added a
-comment explaining why this file needed no floor-check unlike the route one.
-
-Out of scope, per the issue: `IntervalSessionEntity.achievementRank`/`achievementScope` staleness
-after a rank-holder is deleted (pre-existing, accepted, unrelated to this issue's cluster-hygiene
-scope).
-
-### Tests
-`RepeatedRouteRepositoryImplTest` (new, 3 cases, `mockk<RepeatedRouteDao>` + real
-`FakeCyclingSessionRepository`): a route with one stale member id (4 → 3 survivors) still resolves
-with the remaining valid sessions; a route whose survivor count drops to 2 (below the minimum of 3)
-is hidden entirely; a route with zero survivors is hidden (not just filtered down).
-`RepeatedIntervalRepositoryImplTest` (new, 2 cases, `mockk<RepeatedIntervalDao>`/`IntervalRepository`/
-`MapGraphRepository`): a repeated interval with one stale member id (3 → 2 survivors) still resolves
-with the remaining valid intervals (no minimum group size, unlike routes); one with zero survivors
-is hidden. `HomeViewModelTest` (new, first test for this ViewModel; 3 cases, real `CountDownLatch`
-wait rather than virtual time since `syncDropbox` explicitly dispatches onto the real
-`Dispatchers.IO`, not a swappable test dispatcher): `syncDropbox` reclusters (both services) when
-Dropbox is disconnected, when connected but sync finds nothing new, and when Dropbox needs reauth —
-each previously would have skipped the recluster call entirely.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 351 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 341
-prior + 8 new (3 route-repo + 2 interval-repo + 3 HomeViewModel) + 2 more from other work landed on
-main since #193's count was recorded. No on-device verification this session (no emulator/device
-attached); the resolve/hide branching and the unconditional-recluster wiring are fully covered by
-the new unit tests.
-
----
-
-## Issue #193 — Delete a ride from Session Detail
-Completed: 2026-09-07
-
-### What was done
-
-First slice of #187 (no way to delete an imported ride): a single-ride delete action on Session
-Detail, behind the shared confirm-dialog pattern already used in Settings.
-
-**`ui/components/ConfirmDialog.kt`** (new) — the title/body/confirm-or-cancel `AlertDialog` shell
-promoted out of `SettingsScreen.kt` (was `private`, used 3x there for FTP/Max-HR/recalculate
-confirmations) unchanged in shape, just made public and moved to a shared components file so
-Session Detail (this issue) and Home's upcoming bulk-delete (#194) can both use it.
-**`ui/screens/settings/SettingsScreen.kt`** — the private `ConfirmDialog` composable removed; its 3
-call sites now resolve via a new `import com.velometrics.app.ui.components.ConfirmDialog` — no
-behavior change.
-
-**`ui/screens/sessiondetail/SessionDetailViewModel.kt`** — new `deleteRide()`: calls the
-already-existing (but previously uncalled in production) `CyclingSessionRepository.deleteSession`
-on the currently loaded session, then emits on a new `navigateBack: SharedFlow<Unit>`
-(`MutableSharedFlow<Unit>(extraBufferCapacity = 1)`, the same one-off-event shape
-`RepeatedRouteDetailViewModel.shareIntent` already uses) on success, or sets `deleteError:
-StateFlow<String?>` to `"Couldn't delete ride"` on a caught `Exception` (matching this codebase's
-existing `catch (e: Exception)` convention, e.g. `RepeatedRouteDetailViewModel.exportGpx`). FK
-cascades already remove `interval_sessions`/`session_best_efforts` rows — no schema change needed.
-No recluster is triggered here, per the resolved #187 design; see #192 for the lazy
-pull-to-refresh path that keeps Repeated Routes/Intervals in sync afterward.
-
-**`ui/screens/sessiondetail/SessionDetailScreen.kt`** — `TopAppBar` gained an `actions` overflow
-(kebab, `MoreVert`) menu with one `DropdownMenuItem`, "Delete ride", which opens the shared
-`ConfirmDialog` (title "Delete ride?", body "This can't be undone.", confirm label "Delete").
-Confirming calls `viewModel.deleteRide()`. A `LaunchedEffect(viewModel) { navigateBack.collect {
-onNavigateBack() } }` pops back to Home on success; a `SnackbarHost` + `LaunchedEffect(deleteError)`
-(same shape as `RepeatedRouteDetailScreen`'s `exportError` handling) shows the error message and
-clears it on failure, leaving the user on Session Detail.
-
-### Tests
-New `SessionDetailViewModelTest` (first ViewModel test for this screen) with local `Fake*`
-doubles for `IntervalRepository`/`BestEffortRepository`/`RepeatedIntervalRepository` (the existing
-ones in `MapViewViewModelTest.kt` are `private` to that file) plus the shared
-`FakeCyclingSessionRepository`; `GlobalAverageCache`/`RepeatedIntervalsCache` are constructed for
-real against `backgroundScope` from `runTest`, since they're concrete classes, not interfaces.
-Two cases: `deleteRide` on a successful repository delete removes the session from the fake store
-and emits on `navigateBack`, with `deleteError` staying null; on a `FailingDeleteCyclingSessionRepository`
-(interface-delegation wrapper — `by delegate` — that throws only from `deleteSession`) `deleteRide`
-leaves the session in place, sets `deleteError` to the expected message, and never emits
-`navigateBack`.
-`compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, full `testDebugUnitTest`: all
-pass, 341 tests, zero failures/errors across the whole suite (aggregated test-result XML) — 339
-prior + 2 new. No on-device verification this session (no emulator/device attached); the
-delete/error/navigate branching is fully covered by the new unit tests, and the kebab menu +
-dialog + snackbar wiring is otherwise-standard Compose plumbing with no Compose UI test harness in
-this project (same residual gap as every prior UI-touching pass in this repo's history).

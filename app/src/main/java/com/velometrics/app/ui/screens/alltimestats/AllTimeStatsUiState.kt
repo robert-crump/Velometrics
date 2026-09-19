@@ -1,17 +1,11 @@
-package com.velometrics.app.domain.model
+package com.velometrics.app.ui.screens.alltimestats
+
+import com.velometrics.app.domain.model.PowerCurvePoint
 
 data class RecordEntry(
     val label: String,
     val value: String?,
     val emptyMessage: String,
-    val sessionId: Long?,
-    val date: String?
-)
-
-data class PowerCurvePoint(
-    val durationSec: Int,
-    val label: String,
-    val watts: Int?,
     val sessionId: Long?,
     val date: String?
 )

@@ -1,8 +1,8 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
-import com.velometrics.app.domain.model.DailyTrainingLoadPoint
-import com.velometrics.app.domain.model.TrainingLoadUiState
+import com.velometrics.app.ui.screens.trainingload.DailyTrainingLoadPoint
+import com.velometrics.app.ui.screens.trainingload.TrainingLoadUiState
 import com.velometrics.app.util.CyclingConstants
 import java.time.LocalDate
 import java.time.ZoneId

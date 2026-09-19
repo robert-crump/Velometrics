@@ -7,8 +7,6 @@ import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.RideClassificationService
-import com.velometrics.app.domain.service.RideTagDumper
-import com.velometrics.app.domain.service.SessionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -30,7 +28,6 @@ sealed class RecalcState {
 class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val sessionRepository: CyclingSessionRepository,
-    private val sessionComparator: SessionComparator,
     private val rideClassificationService: RideClassificationService,
     private val dropboxAuthRepository: DropboxAuthRepository,
     @ApplicationContext private val appContext: Context
@@ -89,10 +86,6 @@ class SettingsViewModel @Inject constructor(
     fun recalculateAllStats() {
         viewModelScope.launch(Dispatchers.IO) {
             _recalcState.value = RecalcState.Running
-            val allSessions = sessionRepository.getAllSessions().first()
-            for (session in allSessions) {
-                sessionComparator.computeComparison(session)
-            }
             // Re-run rule-based tagging too — the same trigger a rider uses to recompute
             // everything after an FTP/max-HR change also re-runs #169's classifier, e.g. once
             // its thresholds are tuned by the follow-up issue.
@@ -109,18 +102,18 @@ class SettingsViewModel @Inject constructor(
     val dumpStatus: StateFlow<String?> = _dumpStatus.asStateFlow()
 
     /**
-     * Debug-only entry point for [RideTagDumper] (#170 threshold-tuning review) — see
-     * [com.velometrics.app.domain.service.RideTagDumper] for why this replaced the
-     * `connectedDebugAndroidTest` approach it was originally written as. Pull the result with:
+     * Debug-only entry point for the #170 threshold-tuning review. Pull the result with:
      * `adb shell run-as com.velometrics.app cat files/ride_tag_dump.csv > ride_tag_dump.csv`
      */
     fun dumpSessionTagsForReview() {
         viewModelScope.launch(Dispatchers.IO) {
             _dumpStatus.value = "Dumping…"
-            val sessions = sessionRepository.getAllSessions().first()
+            val ftp = userSettingsRepository.ftp.first()
+            val rows = rideClassificationService.reviewRows(ftp)
             val outFile = File(appContext.filesDir, "ride_tag_dump.csv")
-            val byTag = RideTagDumper.dumpToCsv(sessions, outFile, userSettingsRepository.ftp.first())
-            _dumpStatus.value = "Wrote ${sessions.size} rows ($byTag) to ${outFile.name}"
+            outFile.writeText(RideTagCsv.render(rows, ftp))
+            val byTag = rows.groupingBy { it.storedTag ?: "(none)" }.eachCount()
+            _dumpStatus.value = "Wrote ${rows.size} rows ($byTag) to ${outFile.name}"
         }
     }
 

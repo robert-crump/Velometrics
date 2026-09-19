@@ -1,7 +1,7 @@
 package com.velometrics.app.fakes
 
 import com.velometrics.app.data.cache.AllTimeStatsCache
-import com.velometrics.app.domain.model.AllTimeStatsUiState
+import com.velometrics.app.ui.screens.alltimestats.AllTimeStatsUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 

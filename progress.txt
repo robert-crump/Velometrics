@@ -1,3 +1,18 @@
+## Issue #208 — DropboxSyncOutcomeStore for persisted sync-result hand-off
+Completed: 2026-09-19
+
+### What was done
+
+- New `data/dropbox/DropboxSyncOutcomeStore.kt` (`@Singleton`, Preferences DataStore `dropbox_sync_outcome`):
+  sealed `DropboxSyncOutcome` (`Message`, `Reveal(RideRevealContent)` flattened to primitive keys),
+  `publish()` (last-write-wins, clears prior keys, strictly increasing run id), `outcome` Flow, `consume()`.
+- The run id is kept across `consume()` so it stays monotonic. An internal constructor takes a `DataStore`
+  for tests; the `@Inject` one takes the app context.
+- `DropboxSyncOutcomeStoreTest`: null when empty, message/reveal round-trip (with/without elevation),
+  A-then-B last-write-wins, consume clears. Nothing reads/writes the store yet (#4/#5 of the parent).
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #207 — Add WorkManager + Hilt-Work infrastructure
 Completed: 2026-09-19
 
@@ -60,24 +75,6 @@ Completed: 2026-09-19
   `MonthlyLineChart` are now thin adapters; the MonthlyLineChart drag hit-test uses `scale.invert`.
 - Not verified on device (no screenshot comparison done); ride-count axis now steps 5 with at most
   5 intervals, so only counts above 25/month get a coarser step than before.
-
-`testDebugUnitTest` passes.
-
-## Issue #197 — Unify JSON serialization, duration formatting, and the thousands separator
-Completed: 2026-09-19
-
-### What was done
-
-- New `util/Json` is the single owner of the app's only `Gson` instance (plus `toJson`/`parseOrDefault`);
-  it replaces `JsonSafeParser` and the seven other `Gson()` forks (main + tests).
-- `FormatUtils` is the one home for duration/thousands formatting: added `formatDurationMinSec`
-  (moved from `MapOverlayUtils`) and `formatDecimal`; `formatDistanceRounded`,
-  `formatElevationGainRounded`, `formatElevationGainPer100km` now use the period separator via
-  `formatWithThousandsSeparator` (now negative-safe), so Home and All-time Stats agree ("1.234 km").
-- `HomeAddressScreen`, `SettingsScreen`, `ScatterPlotChart` (`xTickFormat` -> `xTickDecimals`) and the
-  InfoScreen kcal axis use `FormatUtils` instead of inline `"%.Nf".format`.
-- `MapOverlayUtils` keeps only colour interpolation; `groupIntervals`, `avgDurationNormalizedSec`,
-  `avgPower`, `isFlowSegment` moved to `domain/service/OverlayAggregation` (tests moved too).
 
 `testDebugUnitTest` passes.
 

@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncResult
 import com.velometrics.app.data.dropbox.DropboxSyncService
+import com.velometrics.app.data.dropbox.buildDropboxSyncMessage
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
@@ -332,7 +333,7 @@ class HomeViewModel @Inject constructor(
                         if (reveal != null) {
                             _importState.value = ImportUiState.RideReveal(reveal)
                         } else if (isUserInitiated || result.importResults.isNotEmpty()) {
-                            _dropboxSyncMessage.value = buildSyncMessage(result.importResults)
+                            _dropboxSyncMessage.value = buildDropboxSyncMessage(result.importResults)
                         }
                     }
                     DropboxSyncResult.TransientFailure -> {
@@ -353,25 +354,6 @@ class HomeViewModel @Inject constructor(
     private fun autoSyncDropbox() {
         if (!dropboxAuthRepository.isConnected.value) return
         syncDropbox(isUserInitiated = false)
-    }
-
-    private fun buildSyncMessage(results: List<ImportResult>): String {
-        val successCount = results.count { it is ImportResult.Success }
-        val errors = results.filterIsInstance<ImportResult.Error>()
-        val smallFileCount = results.count { it is ImportResult.SmallFile }
-
-        val parts = mutableListOf<String>()
-        if (successCount > 0) {
-            parts.add("Imported $successCount new ride${if (successCount == 1) "" else "s"}")
-        }
-        if (errors.isNotEmpty()) {
-            parts.add("${errors.size} failed: ${errors.first().message}")
-        }
-        if (smallFileCount > 0) {
-            parts.add("$smallFileCount skipped (too short)")
-        }
-
-        return if (parts.isEmpty()) "No new rides found in Dropbox" else parts.joinToString(", ")
     }
 
     private fun getFileName(uri: Uri): String? {

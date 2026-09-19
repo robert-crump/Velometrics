@@ -1,3 +1,20 @@
+## Issue #209 — DropboxSyncWorker runs the Dropbox sync via WorkManager
+Completed: 2026-09-19
+
+### What was done
+
+- New `data/dropbox/DropboxSyncWorker.kt` (`@HiltWorker` `CoroutineWorker`): same call sequence as
+  `HomeViewModel.syncDropbox()` (connected/reauth checks, `captureBaseline`, `DropboxSyncService.sync()` reused as-is,
+  `evaluate`), publishing `Reveal`/`Message` to `DropboxSyncOutcomeStore`. `isUserInitiated` is read from input `Data`
+  (`KEY_IS_USER_INITIATED`, default true).
+- `Completed`/`TransientFailure` -> `Result.success()` (no `retry()`); `NeedsReauth` -> `markNeedsReauth()` + `Result.failure()`.
+- Recluster (route + interval, each failure logged and isolated) runs in `finally`, so on every path.
+- `buildSyncMessage` moved out of `HomeViewModel` to internal `buildDropboxSyncMessage` so both share it.
+  `HomeViewModel` is otherwise unchanged; wiring it to enqueue the worker is #210.
+- `DropboxSyncWorkerTest` (Robolectric, `TestListenableWorkerBuilder`, mocked services, real outcome store).
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #208 — DropboxSyncOutcomeStore for persisted sync-result hand-off
 Completed: 2026-09-19
 
@@ -60,21 +77,3 @@ Completed: 2026-09-19
   now stateful and `fakes/TestSessions.kt` shares a session builder.
 
 `testDebugUnitTest` and `assembleDebug` pass.
-
-## Issue #198 — ChartAxis module: one tick/plot-rect/label implementation for the line and scatter charts
-Completed: 2026-09-19
-
-### What was done
-
-- New `ui/components/ChartAxis.kt` (pure, unit-tested in `ChartAxisTest`): `integerAxisTicks`
-  (generalised with `stepUnit` for 50 W / 5-ride grids) and `roundedAxisBounds` moved here from
-  `ScatterPlotChart`, plus `evenAxisTicks`, `labelStride`, `PlotRect` (padding -> plot rect) and
-  `LinearScale` (`map`/`invert`, replaces every per-chart `xFor`/`yFor`).
-- New `ChartLabelPainter` is the only place that builds `android.graphics.Paint` for chart text.
-- `ScatterPlotChart`, `CardiacDriftChart`, `TrainingLoadChart`, `PowerCurveChart` and Home's
-  `MonthlyLineChart` are now thin adapters; the MonthlyLineChart drag hit-test uses `scale.invert`.
-- Not verified on device (no screenshot comparison done); ride-count axis now steps 5 with at most
-  5 intervals, so only counts above 25/month get a coarser step than before.
-
-`testDebugUnitTest` passes.
-

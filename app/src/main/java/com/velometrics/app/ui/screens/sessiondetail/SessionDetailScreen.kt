@@ -38,7 +38,6 @@ import com.velometrics.app.util.MapOverlayUtils
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionDetailScreen(
     onNavigateBack: () -> Unit = {},
@@ -87,37 +86,6 @@ fun SessionDetailScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Ride details") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { overflowMenuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                    }
-                    DropdownMenu(
-                        expanded = overflowMenuExpanded,
-                        onDismissRequest = { overflowMenuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Delete ride") },
-                            onClick = {
-                                overflowMenuExpanded = false
-                                showDeleteConfirm = true
-                            }
-                        )
-                    }
-                }
-            )
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (isLoading) {
@@ -130,7 +98,7 @@ fun SessionDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
+                    .padding(bottom = padding.calculateBottomPadding())
             ) {
                 // Full-screen map background (interactive)
                 SessionDetailMap(
@@ -300,6 +268,62 @@ fun SessionDetailScreen(
                 }
             }
         }
+
+        // Floating header controls over the map (replaces the former TopAppBar)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            FloatingCircleButton(
+                onClick = onNavigateBack,
+                modifier = Modifier.align(Alignment.TopStart)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                FloatingCircleButton(onClick = { overflowMenuExpanded = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                DropdownMenu(
+                    expanded = overflowMenuExpanded,
+                    onDismissRequest = { overflowMenuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Delete ride") },
+                        onClick = {
+                            overflowMenuExpanded = false
+                            showDeleteConfirm = true
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingCircleButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(44.dp)
+            .background(MaterialTheme.colorScheme.surface, CircleShape)
+    ) {
+        content()
     }
 }
 

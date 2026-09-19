@@ -1,3 +1,18 @@
+## Issue #207 — Add WorkManager + Hilt-Work infrastructure
+Completed: 2026-09-19
+
+### What was done
+
+- Added `work-runtime-ktx` 2.10.0, `androidx.hilt:hilt-work` and `androidx.hilt:hilt-compiler` (KSP, alongside
+  the Dagger one; versioned off `hiltNavigationCompose`) plus `work-testing` for tests.
+- `VelometricsApplication` implements `Configuration.Provider` with an injected `HiltWorkerFactory`; the manifest
+  removes the default `WorkManagerInitializer` under `androidx.startup.InitializationProvider`.
+- `SmokeTestWorker` (`@HiltWorker`, logs + `Result.success()`) is left as a template; `SmokeTestWorkerTest`
+  enqueues it via `WorkManagerTestInitHelper` and asserts SUCCEEDED.
+- Not verified on device (startup with the real Configuration.Provider path only covered by the build/merge).
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #206 — Atomic per-file import: FitImportService writes in one Room transaction
 Completed: 2026-09-19
 
@@ -66,22 +81,3 @@ Completed: 2026-09-19
 
 `testDebugUnitTest` passes.
 
-## Issue #196 — Delete dead route-composition modules; fold RideTagDumper into RideClassificationService; move UiState files out of domain
-Completed: 2026-09-19
-
-### What was done
-
-- Deleted `RideEstimator`, `RewardComposer`, `RideDirection` (no production callers after #155) and
-  their tests; the deferred/rejected routing-term notes went to `docs/ideas/route-reward-terms.md`.
-- `RideTagDumper` is gone (plus the unused `DumpSessionTagsForReview` androidTest). `RideClassificationService`
-  now has `reviewRows(ftp): List<TagReviewRow>`; `TagReviewRow.isStale` is the single home of the
-  staleness rule and `reclassifyAll` uses it. CSV rendering moved to `ui/screens/settings/RideTagCsv`;
-  the debug Settings row stays and does the file write.
-- `AllTimeStatsUiState` (with `RecordEntry`, `YearStat`, `PowerSpeedPoint`) moved to
-  `ui/screens/alltimestats`, `TrainingLoadUiState` (with `DailyTrainingLoadPoint`) to
-  `ui/screens/trainingload`. `PowerCurvePoint` stays in `domain/model` (own file) since domain
-  `BestEffort` uses it.
-- Removed the discarded-result `computeComparison` loop from `SettingsViewModel.recalculateAllStats`
-  and the now-unused `SessionComparator` constructor dependency.
-
-`testDebugUnitTest` passes.

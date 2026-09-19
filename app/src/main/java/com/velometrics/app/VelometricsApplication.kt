@@ -1,6 +1,8 @@
 ﻿package com.velometrics.app
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import com.velometrics.app.data.cache.AllTimeStatsCache
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
@@ -9,7 +11,12 @@ import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
 @HiltAndroidApp
-class VelometricsApplication : Application() {
+class VelometricsApplication : Application(), Configuration.Provider {
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+
     // Injecting the caches here forces Hilt to instantiate them at app startup,
     // so their SharingStarted.Eagerly collection begins immediately and the Routes
     // tab data is ready before the user navigates there.

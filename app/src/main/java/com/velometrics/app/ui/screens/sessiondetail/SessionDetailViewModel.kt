@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
+import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
@@ -34,6 +35,7 @@ class SessionDetailViewModel @Inject constructor(
     private val sessionComparator: SessionComparator,
     sessionNarrativeAssembler: SessionNarrativeAssembler,
     private val rideLifecycle: RideLifecycle,
+    userSettingsRepository: UserSettingsRepository,
     globalAverageCache: GlobalAverageCache,
     repeatedIntervalsCache: RepeatedIntervalsCache
 ) : ViewModel() {
@@ -41,6 +43,10 @@ class SessionDetailViewModel @Inject constructor(
     val powerZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.powerZoneAverages
     val hrZoneAverages: StateFlow<Map<String, Float>> = globalAverageCache.hrZoneAverages
     val speedHistogramAverages: StateFlow<Map<String, Float>> = globalAverageCache.speedHistogramAverages
+
+    /** Current max HR setting; the HR-vs-distance zone bands are drawn from it at view time (#204). */
+    val maxHr: StateFlow<Int> = userSettingsRepository.maxHr
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CyclingConstants.DEFAULT_MAX_HR)
 
     private val sessionId: Long = savedStateHandle.get<Long>("sessionId") ?: 0L
 

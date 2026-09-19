@@ -1,3 +1,22 @@
+## Issue #204 -- Heart rate vs. distance chart on Session Detail
+Completed: 2026-09-19
+
+### What was done
+
+- New nullable `cycling_sessions.hrDistanceSeries` JSON column (Room v21, MIGRATION_20_21): 100 `HrDistancePoint`
+  (distanceKm, heartRate, altitudeM) per ride, built at import by `HrDistanceSeriesBuilder` (called from
+  `SessionMetricsCalculator`). Point k = first record whose cumulative haversine distance reaches k/100 of the ride;
+  point 100 = last record. `computeDistance` now shares the builder's cumulative-distance helper, so the chart's
+  X axis ends at `distanceKm`.
+- Missing HR (or 0) / altitude at a sampled record falls back to the nearest record within +-5 (earlier wins ties),
+  else null. Series is null under 1 km (indoor/no GPS) or with no HR at all. No backfill for pre-existing rides.
+- `HrDistanceChart` (Canvas): HR line (null breaks it) over a filled elevation backdrop with faint HR zone bands from
+  the *current* max HR setting (`SessionDetailViewModel.maxHr`), drag cursor with distance + bpm readout (no altitude).
+  Sits at the top of the Heart Rate section, gated on the series existing.
+- Tests: `HrDistanceSeriesBuilderTest` (sampling, fallback window/ties, zero HR, thresholds), migration 20->21.
+
+`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
+
 ## Issue #217 -- Repeated Route recap on Session Detail
 Completed: 2026-09-19
 
@@ -70,18 +89,3 @@ Completed: 2026-09-19
   `SessionComparatorTest`, recap assertions in `SessionDetailViewModelTest`.
 
 `testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
-
-## Issue #213 -- isCustomName flag on RepeatedRoute
-Completed: 2026-09-19
-
-### What was done
-
-- `RepeatedRouteEntity`/`RepeatedRoute` gain non-null `isCustomName`; DB v18 -> v19 via `MIGRATION_18_19`
-  (`ADD COLUMN isCustomName INTEGER NOT NULL DEFAULT 1`, so pre-existing rows are backfilled to true). 19.json schema exported.
-- `RouteClusteringService`: brand-new clusters get `false`; a cluster matched to an existing route keeps that route's flag
-  (it re-saves the existing name, so the flag must follow it).
-- `renameRoute` in the repository sets `isCustomName = true`. No visible UI effect (prerequisite for #217).
-- Tests: migration test (backfill true), repository rename test, new `RouteClusteringServiceTest` (new = false, matched keeps true).
-
-`testDebugUnitTest` and `assembleDebug` pass.
-

@@ -269,6 +269,14 @@ object DatabaseModule {
         }
     }
 
+    // HR / elevation vs. distance series (#204): nullable JSON column, populated at import only
+    // (no backfill -- the FIT data it derives from isn't retained).
+    internal val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE cycling_sessions ADD COLUMN hrDistanceSeries TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): VelometricsDatabase {
@@ -277,7 +285,7 @@ object DatabaseModule {
             VelometricsDatabase::class.java,
             "velometrics_database"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
             .fallbackToDestructiveMigration()
             .build()
     }

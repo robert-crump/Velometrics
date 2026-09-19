@@ -21,6 +21,7 @@ private const val TEST_DB_17 = "migration_16_17_test.db"
 private const val TEST_DB_18 = "migration_17_18_test.db"
 private const val TEST_DB_19 = "migration_18_19_test.db"
 private const val TEST_DB_20 = "migration_19_20_test.db"
+private const val TEST_DB_21 = "migration_20_21_test.db"
 
 /**
  * Speed histogram buckets narrowed from 8 to 5 in #148; MIGRATION_11_12 must merge each existing
@@ -287,6 +288,30 @@ class VelometricsMigrationTest {
         migrated.query("SELECT COUNT(*) FROM repeated_routes").use {
             assertEquals(true, it.moveToFirst())
             assertEquals(1, it.getInt(0))
+        }
+    }
+
+    @Test
+    fun `migrate 20 to 21 adds a nullable hrDistanceSeries column defaulting to null`() {
+        helper.createDatabase(TEST_DB_21, 20).apply {
+            execSQL(
+                """
+                INSERT INTO cycling_sessions
+                    (id, fileName, fileSha1, sessionStart, sessionEnd, totalDurationSec,
+                     pauseDurationSec, netDurationSec, distanceKm, speedHistogram, intervalCount,
+                     intervalTotalTimeSec, gpsQualityPercent, hasPower, sprintCount, hasHR)
+                VALUES
+                    (1, 'ride.fit', 'sha1', 0, 3600, 3600, 0, 3600, 30.0, '{}', 0, 0, 100.0, 0, 0, 0)
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB_21, 21, true, DatabaseModule.MIGRATION_20_21)
+
+        migrated.query("SELECT hrDistanceSeries FROM cycling_sessions WHERE id = 1").use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals(true, it.isNull(0))
         }
     }
 }

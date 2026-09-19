@@ -1,5 +1,7 @@
 package com.velometrics.app.ui.screens.sessiondetail
 
+import io.mockk.mockk
+import io.mockk.every
 import androidx.lifecycle.SavedStateHandle
 import com.velometrics.app.data.cache.GlobalAverageCacheImpl
 import com.velometrics.app.data.cache.RepeatedIntervalsCacheImpl
@@ -86,6 +88,9 @@ class SessionDetailViewModelTest {
             com.velometrics.app.fakes.FakeRepeatedRoutesCache()
         ),
         rideLifecycle = RideLifecycleFixture().lifecycle(sessionRepository, dropboxSyncCursorRepository),
+        userSettingsRepository = mockk<com.velometrics.app.data.preferences.UserSettingsRepository> {
+            every { maxHr } returns kotlinx.coroutines.flow.flowOf(190)
+        },
         globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),
         repeatedIntervalsCache = RepeatedIntervalsCacheImpl(FakeRepeatedIntervalRepository(), scope)
     )

@@ -81,6 +81,9 @@ class SessionMetricsCalculator @Inject constructor() {
         // informational -- does not gate IntervalDetector's per-interval HRR computation.
         val hasHR = computeHasHR(datapoints)
 
+        // 17. HR / elevation vs. distance profile (#204)
+        val hrDistanceSeries = HrDistanceSeriesBuilder.build(datapoints)
+
         return CyclingSession(
             fileName = fileName,
             fileSha1 = fileSha1,
@@ -110,7 +113,8 @@ class SessionMetricsCalculator @Inject constructor() {
             cardiacDriftBuckets = cardiacDrift?.buckets,
             cardiacDriftPercent = cardiacDrift?.decouplingPercent,
             timeBelowSixtyPercentFtpSec = powerMetrics?.timeBelowSixtyPercentFtpSec,
-            hasHR = hasHR
+            hasHR = hasHR,
+            hrDistanceSeries = hrDistanceSeries
         )
     }
 
@@ -206,13 +210,8 @@ class SessionMetricsCalculator @Inject constructor() {
     }
 
     private fun computeDistance(datapoints: List<Datapoint>): Double {
-        var totalMeters = 0.0
-        for (i in 1 until datapoints.size) {
-            val prev = datapoints[i - 1]
-            val curr = datapoints[i]
-            totalMeters += GeoUtils.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon)
-        }
-        return totalMeters / 1000.0
+        if (datapoints.isEmpty()) return 0.0
+        return HrDistanceSeriesBuilder.cumulativeMeters(datapoints).last() / 1000.0
     }
 
     private fun computeSpeedHistogram(datapoints: List<Datapoint>): Map<String, Int> {

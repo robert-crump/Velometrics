@@ -26,6 +26,7 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
     val sprintHist: Map<String, Int>? = sprintHistogram.parseJsonOrNull()
     val hrZoneDist: Map<String, Int>? = hrZoneDistribution.parseJsonOrNull()
     val cardiacDrift: Map<String, Double>? = cardiacDriftBuckets.parseJsonOrNull()
+    val hrSeries: List<HrDistancePoint>? = hrDistanceSeries.parseJsonOrNull()
 
     return CyclingSession(
         id = id,
@@ -60,7 +61,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         cardiacDriftPercent = cardiacDriftPercent,
         tag = tag,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
-        hasHR = hasHR
+        hasHR = hasHR,
+        hrDistanceSeries = hrSeries
     )
 }
 
@@ -98,7 +100,8 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         cardiacDriftPercent = cardiacDriftPercent,
         tag = tag,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
-        hasHR = hasHR
+        hasHR = hasHR,
+        hrDistanceSeries = hrDistanceSeries?.toJsonString()
     )
 }
 

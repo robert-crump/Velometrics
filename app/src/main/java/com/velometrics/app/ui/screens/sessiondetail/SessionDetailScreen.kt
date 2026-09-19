@@ -60,6 +60,7 @@ fun SessionDetailScreen(
     val speedHistogram by viewModel.speedHistogram.collectAsState()
     val speedHistogramAverages by viewModel.speedHistogramAverages.collectAsState()
     val deleteError by viewModel.deleteError.collectAsState()
+    val maxHr by viewModel.maxHr.collectAsState()
 
     var overflowMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -123,7 +124,8 @@ fun SessionDetailScreen(
                 val showHrZones = s.hrZoneDistribution != null
                 val showCardiacDrift = s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null
                 val showFatEfficiency = s.hasPower && s.fatEfficiencyHistogram != null
-                val heartRateSectionVisible = showHrZones || showCardiacDrift || showFatEfficiency
+                val showHrDistance = s.hrDistanceSeries != null
+                val heartRateSectionVisible = showHrDistance || showHrZones || showCardiacDrift || showFatEfficiency
 
                 val intervalsSectionVisible = s.hasPower && intervals.isNotEmpty()
 
@@ -234,6 +236,10 @@ fun SessionDetailScreen(
                                     fatCarbText?.let { "Fat / Carbs" to it }
                                 )
                             )
+
+                            if (showHrDistance) {
+                                HrDistanceChart(points = s.hrDistanceSeries!!, maxHr = maxHr)
+                            }
 
                             if (showHrZones) {
                                 HeartRateZoneChart(

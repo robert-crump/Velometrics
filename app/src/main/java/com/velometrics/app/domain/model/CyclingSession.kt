@@ -47,5 +47,8 @@ data class CyclingSession(
     val timeBelowSixtyPercentFtpSec: Int? = null,
     // Coverage flag for HR data quality (#178), mirroring hasPower's coverage-threshold pattern.
     // Informational only -- does not gate per-interval HRR computation in IntervalDetector.
-    val hasHR: Boolean = false
+    val hasHR: Boolean = false,
+    // 100 equal-distance HR/elevation samples (#204); null for rides under 1 km, without HR, or
+    // imported before this existed (no backfill path -- FIT data isn't retained).
+    val hrDistanceSeries: List<HrDistancePoint>? = null
 )

@@ -1,6 +1,7 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.FtpHistory
 import com.velometrics.app.ui.screens.trainingload.DailyTrainingLoadPoint
 import com.velometrics.app.ui.screens.trainingload.TrainingLoadUiState
 import com.velometrics.app.util.CyclingConstants
@@ -10,23 +11,22 @@ import java.time.ZoneId
 /**
  * Pure computation of [TrainingLoadUiState] (#190) — a CTL/ATL/TSB fitness-fatigue trend, in the
  * style of TrainingPeaks' Performance Management Chart / Strava's Fitness & Freshness — from raw
- * sessions plus the rider's current FTP, mirroring [AllTimeStatsAggregator]'s split from its
+ * sessions plus the rider's [FtpHistory], mirroring [AllTimeStatsAggregator]'s split from its
  * cache so the reactive computation is shared across ViewModel instances.
  *
- * FTP is applied as a single current value across all of history (no per-ride FTP snapshot is
- * stored anywhere in this app), so changing FTP in Settings reshapes the entire historical
- * chart on the next recompute — this is a deliberate simplification (#190 grill-me), not a bug.
+ * Each ride is scored against the FTP in force on its local ride date (ADR 0001, #218), so a
+ * retest only affects rides from its effective date onward.
  */
 object TrainingLoadAggregator {
 
-    fun buildUiState(sessions: List<CyclingSession>, ftp: Int): TrainingLoadUiState {
+    fun buildUiState(sessions: List<CyclingSession>, ftpHistory: FtpHistory): TrainingLoadUiState {
         if (sessions.isEmpty()) {
             return TrainingLoadUiState(isLoading = false, hasAnySessions = false)
         }
 
         val loadByDay = sessions
-            .groupingBy { it.sessionStart.atZone(ZoneId.systemDefault()).toLocalDate() }
-            .fold(0.0) { acc, session -> acc + rideLoad(session, ftp) }
+            .groupingBy { rideDate(it) }
+            .fold(0.0) { acc, session -> acc + rideLoad(session, ftpHistory.ftpOn(rideDate(session))) }
 
         val firstDay = loadByDay.keys.min()
         val today = LocalDate.now(ZoneId.systemDefault())
@@ -55,6 +55,9 @@ object TrainingLoadAggregator {
             chartPoints = points.takeLast(CyclingConstants.TRAINING_LOAD_CHART_WINDOW_DAYS)
         )
     }
+
+    private fun rideDate(session: CyclingSession): LocalDate =
+        session.sessionStart.atZone(ZoneId.systemDefault()).toLocalDate()
 
     /**
      * A single ride's training-load contribution: power-based TSS when available, an HR-zone

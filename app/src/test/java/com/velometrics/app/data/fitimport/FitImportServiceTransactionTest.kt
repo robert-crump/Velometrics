@@ -10,10 +10,13 @@ import com.garmin.fit.FileIdMesg
 import com.garmin.fit.Fit
 import com.garmin.fit.RecordMesg
 import com.velometrics.app.data.local.VelometricsDatabase
+import com.velometrics.app.data.preferences.FtpHistoryRepository
+import com.velometrics.app.data.preferences.LegacyFtpStore
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.data.repository.BestEffortRepositoryImpl
 import com.velometrics.app.data.repository.CyclingSessionRepositoryImpl
 import com.velometrics.app.data.repository.IntervalRepositoryImpl
+import com.velometrics.app.domain.model.RideTag
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
@@ -22,6 +25,7 @@ import com.velometrics.app.domain.service.SprintDetector
 import io.mockk.every
 import io.mockk.mockk
 import java.io.File
+import java.time.LocalDate
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -68,10 +72,13 @@ class FitImportServiceTransactionTest {
         context.deleteDatabase(dbName)
     }
 
-    private fun service(sessions: CyclingSessionRepository): FitImportService {
+    private fun service(sessions: CyclingSessionRepository, retest: Pair<LocalDate, Int>? = null): FitImportService {
         val settings = mockk<UserSettingsRepository>()
-        every { settings.ftp } returns flowOf(250)
         every { settings.maxHr } returns flowOf(190)
+        val ftpHistory = FtpHistoryRepository(db.ftpHistoryDao(), object : LegacyFtpStore {
+            override suspend fun takeLegacyFtp(): Int = 250
+        })
+        retest?.let { (date, ftp) -> runBlocking { ftpHistory.save(date, ftp) } }
         return FitImportService(
             sessionRepository = sessions,
             metricsCalculator = SessionMetricsCalculator(),
@@ -80,6 +87,7 @@ class FitImportServiceTransactionTest {
             intervalRepository = IntervalRepositoryImpl(db.intervalSessionDao()),
             sprintDetector = SprintDetector(),
             userSettingsRepository = settings,
+            ftpHistoryRepository = ftpHistory,
             bestEffortRepository = BestEffortRepositoryImpl(db.sessionBestEffortDao()),
             velometricsDatabase = db
         )
@@ -142,5 +150,17 @@ class FitImportServiceTransactionTest {
         assertFalse(realSessions.existsByFileName("ride.fit"))
         assertEquals(0, realSessions.getSessionCount())
         assertNotNull(service(realSessions).importFile("ride.fit", bytes).takeIf { it is ImportResult.Success })
+    }
+
+    @Test
+    fun `import scores the ride against the FTP in force on its ride date, not the current one`() = runBlocking {
+        // The ride's 130 W is 52% of the seeded 250 W (Recovery band), but only 26% of the 500 W
+        // retest that took effect before the ride date -> not Recovery.
+        val result = service(realSessions, retest = LocalDate.of(2015, 1, 1) to 500)
+            .importFile("ride.fit", buildFitBytes())
+
+        val stored = realSessions.getSessionById((result as ImportResult.Success).sessionId)!!
+        assertEquals(RideClassifier.classify(stored, 500)?.label, stored.tag)
+        assertFalse(stored.tag == RideTag.RECOVERY.label)
     }
 }

@@ -1,7 +1,9 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.FtpHistory
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -18,12 +20,14 @@ import kotlinx.coroutines.flow.first
 /**
  * One session's persisted tag next to a freshly-recomputed one, for reviewing/tuning
  * [RideClassifier] thresholds (#170). [isStale] is the single definition of "persisted tag no
- * longer matches what the classifier would produce".
+ * longer matches what the classifier would produce". [ftp] is the ride-date FTP the computed tag
+ * was judged against (ADR 0001).
  */
 data class TagReviewRow(
     val session: CyclingSession,
     val storedTag: String?,
-    val computedTag: String?
+    val computedTag: String?,
+    val ftp: Int
 ) {
     val isStale: Boolean get() = storedTag != computedTag
 }
@@ -32,16 +36,17 @@ data class TagReviewRow(
 class RideClassificationService @Inject constructor(
     private val sessionRepository: CyclingSessionRepository
 ) {
-    suspend fun reclassifyAll(ftp: Int) {
-        for (row in reviewRows(ftp)) {
+    suspend fun reclassifyAll(ftpHistory: FtpHistory) {
+        for (row in reviewRows(ftpHistory)) {
             if (row.isStale) {
                 sessionRepository.updateTag(row.session.id, row.computedTag)
             }
         }
     }
 
-    suspend fun reviewRows(ftp: Int): List<TagReviewRow> =
+    suspend fun reviewRows(ftpHistory: FtpHistory): List<TagReviewRow> =
         sessionRepository.getAllSessions().first().map { session ->
-            TagReviewRow(session, session.tag, RideClassifier.classify(session, ftp)?.label)
+            val ftp = ftpHistory.ftpOn(session.sessionStart.atZone(ZoneId.systemDefault()).toLocalDate())
+            TagReviewRow(session, session.tag, RideClassifier.classify(session, ftp)?.label, ftp)
         }
 }

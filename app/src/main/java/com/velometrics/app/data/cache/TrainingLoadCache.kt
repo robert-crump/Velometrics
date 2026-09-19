@@ -1,6 +1,6 @@
 package com.velometrics.app.data.cache
 
-import com.velometrics.app.data.preferences.UserSettingsRepository
+import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.di.ApplicationScope
 import com.velometrics.app.ui.screens.trainingload.TrainingLoadUiState
 import com.velometrics.app.domain.repository.CyclingSessionRepository
@@ -21,10 +21,9 @@ import javax.inject.Singleton
  * [TrainingLoadCacheImpl]) so a test can supply a fake instead of standing up Hilt or a real
  * [CoroutineScope].
  *
- * Recomputing on [UserSettingsRepository.ftp] as well as the session list means changing FTP in
- * Settings immediately reshapes the whole historical chart — the intended (if debatable)
- * behavior given FTP isn't historized anywhere in this app (see ADR 0001 for the interim split
- * and the FTP-history target).
+ * Recomputing on [FtpHistoryRepository.history] as well as the session list means adding or
+ * editing an FTP entry reshapes Training Load from that entry's effective date onward (each ride
+ * is scored against its ride-date FTP, ADR 0001); rides before it are unaffected.
  *
  * The session Flow is debounced — see [CACHE_DEBOUNCE_MS]'s doc for why.
  */
@@ -35,13 +34,13 @@ interface TrainingLoadCache {
 @Singleton
 class TrainingLoadCacheImpl @Inject constructor(
     sessionRepository: CyclingSessionRepository,
-    userSettingsRepository: UserSettingsRepository,
+    ftpHistoryRepository: FtpHistoryRepository,
     @ApplicationScope scope: CoroutineScope
 ) : TrainingLoadCache {
     override val uiState: StateFlow<TrainingLoadUiState> = combine(
         sessionRepository.getAllSessions().debounced(),
-        userSettingsRepository.ftp
-    ) { sessions, ftp ->
-        TrainingLoadAggregator.buildUiState(sessions, ftp)
+        ftpHistoryRepository.history
+    ) { sessions, ftpHistory ->
+        TrainingLoadAggregator.buildUiState(sessions, ftpHistory)
     }.stateIn(scope, SharingStarted.Eagerly, TrainingLoadUiState())
 }

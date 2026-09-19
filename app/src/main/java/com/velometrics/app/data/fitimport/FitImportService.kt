@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.velometrics.app.data.local.VelometricsDatabase
 import com.velometrics.app.domain.model.Datapoint
+import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
@@ -25,6 +26,7 @@ import com.garmin.fit.RecordMesgListener
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
 import java.time.Duration
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -40,6 +42,7 @@ class FitImportService @Inject constructor(
     private val intervalRepository: IntervalRepository,
     private val sprintDetector: SprintDetector,
     private val userSettingsRepository: UserSettingsRepository,
+    private val ftpHistoryRepository: FtpHistoryRepository,
     private val bestEffortRepository: BestEffortRepository,
     private val velometricsDatabase: VelometricsDatabase
 ) {
@@ -50,8 +53,6 @@ class FitImportService @Inject constructor(
 
     suspend fun importFile(fileName: String, bytes: ByteArray, forceImport: Boolean = false): ImportResult {
         return try {
-            // Read user FTP setting for this import
-            val ftp = userSettingsRepository.ftp.first()
             val maxHr = userSettingsRepository.maxHr.first()
 
             // 1. SHA-1 hash and duplicate check
@@ -102,7 +103,9 @@ class FitImportService @Inject constructor(
                 datapoints = interpolatePower(datapoints)
             }
 
-            // 8. Compute metrics
+            // 8. Compute metrics against the FTP in force on the ride date (ADR 0001, #218)
+            val rideDate = datapoints.first().timestamp.atZone(ZoneId.systemDefault()).toLocalDate()
+            val ftp = ftpHistoryRepository.history.first().ftpOn(rideDate)
             val session = metricsCalculator.compute(
                 fileName = fileName,
                 fileSha1 = fileSha1,

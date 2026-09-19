@@ -20,7 +20,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @Singleton
 class UserSettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : LegacyFtpStore {
     companion object {
         private val KEY_FTP = intPreferencesKey("ftp")
         private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
@@ -28,10 +28,6 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_HOME_DISPLAY_NAME = stringPreferencesKey("home_display_name")
         private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
         private val KEY_MAX_HR = intPreferencesKey("max_hr")
-    }
-
-    val ftp: Flow<Int> = context.dataStore.data.map { prefs ->
-        prefs[KEY_FTP] ?: CyclingConstants.DEFAULT_FTP
     }
 
     val homeLat: Flow<Double> = context.dataStore.data.map { prefs ->
@@ -54,10 +50,14 @@ class UserSettingsRepository @Inject constructor(
         prefs[KEY_MAX_HR] ?: CyclingConstants.DEFAULT_MAX_HR
     }
 
-    suspend fun saveFtp(ftp: Int) {
+    // FTP now lives in FtpHistoryRepository (#218); this reads and clears the old single setting once.
+    override suspend fun takeLegacyFtp(): Int? {
+        var legacy: Int? = null
         context.dataStore.edit { prefs ->
-            prefs[KEY_FTP] = ftp
+            legacy = prefs[KEY_FTP]
+            prefs.remove(KEY_FTP)
         }
+        return legacy
     }
 
     suspend fun saveHomeLocation(lat: Double, lon: Double, displayName: String = "") {

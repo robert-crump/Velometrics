@@ -136,11 +136,11 @@ private fun ExplainerCard() {
             Spacer(modifier = Modifier.height(8.dp))
             Text("Limitations:", style = MaterialTheme.typography.labelMedium)
             Text(
-                "Rides with power use a standard Training Stress Score off your current FTP; " +
+                "Rides with power use a standard Training Stress Score off the FTP in force on the " +
+                "ride's date (see your FTP history in Settings); " +
                 "rides with only heart rate use an approximate heart-rate-zone-based score; " +
-                "rides with neither don't contribute load. Because FTP isn't tracked " +
-                "historically, changing it in Settings reshapes this entire chart, not just " +
-                "new rides.",
+                "rides with neither don't contribute load. Retesting only affects rides from " +
+                "the new FTP's effective date onward.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

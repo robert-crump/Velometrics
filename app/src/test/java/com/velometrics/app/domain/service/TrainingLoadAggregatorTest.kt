@@ -1,6 +1,8 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.CyclingSession
+import com.velometrics.app.domain.model.FtpEntry
+import com.velometrics.app.domain.model.FtpHistory
 import com.velometrics.app.util.CyclingConstants
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,9 +63,24 @@ class TrainingLoadAggregatorTest {
         val ftp = 250
         val sessions = listOf(session(1, today, hasPower = true, normalizedPower = ftp))
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, ftp)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(ftp))
 
         assertEquals(100.0, state.chartPoints.single().load, 0.001)
+    }
+
+    @Test
+    fun `each ride is scored against the FTP in force on its ride date`() {
+        // Retesting from 200 to 250 W two days ago must not rescore the older ride.
+        val retestDay = today.minusDays(2)
+        val history = FtpHistory(listOf(FtpEntry(null, 200), FtpEntry(retestDay, 250)))
+        val sessions = listOf(
+            session(1, today.minusDays(3), hasPower = true, normalizedPower = 200),
+            session(2, today, hasPower = true, normalizedPower = 250)
+        )
+
+        val state = TrainingLoadAggregator.buildUiState(sessions, history)
+
+        assertEquals(listOf(100.0, 0.0, 0.0, 100.0), state.chartPoints.map { it.load })
     }
 
     @Test
@@ -74,7 +91,7 @@ class TrainingLoadAggregatorTest {
             session(1, today, hasHR = true, hrZoneDistribution = mapOf("Zone 3" to 3600))
         )
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, 250)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(250))
 
         assertEquals(64.8, state.chartPoints.single().load, 0.001)
     }
@@ -87,7 +104,7 @@ class TrainingLoadAggregatorTest {
             session(1, today, hasHR = true, hrZoneDistribution = mapOf("Zone 1" to 2400, "Zone 5" to 1200))
         )
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, 250)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(250))
 
         assertEquals(50.4, state.chartPoints.single().load, 0.001)
     }
@@ -96,7 +113,7 @@ class TrainingLoadAggregatorTest {
     fun `ride with neither power nor HR scores zero but still counts as a day`() {
         val sessions = listOf(session(1, today))
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, 250)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(250))
 
         assertTrue(state.hasAnySessions)
         assertEquals(0.0, state.chartPoints.single().load, 0.001)
@@ -110,7 +127,7 @@ class TrainingLoadAggregatorTest {
             session(2, today, hasPower = true, normalizedPower = ftp)
         )
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, ftp)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(ftp))
 
         assertEquals(1, state.chartPoints.size)
         assertEquals(200.0, state.chartPoints.single().load, 0.001)
@@ -128,7 +145,7 @@ class TrainingLoadAggregatorTest {
             session(2, today, hasPower = true, normalizedPower = ftp)
         )
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, ftp)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(ftp))
 
         val dates = state.chartPoints.map { it.date }
         assertEquals(
@@ -153,7 +170,7 @@ class TrainingLoadAggregatorTest {
             session(1, today.minusDays(2), hasPower = true, normalizedPower = ftp) // TSS = 1^2 * 1h * 100 = 100
         )
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, ftp)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(ftp))
 
         assertEquals(3, state.chartPoints.size)
 
@@ -188,7 +205,7 @@ class TrainingLoadAggregatorTest {
         // One ride at the very start of a >182-day history, no rides since.
         val sessions = listOf(session(1, firstDay, hasPower = true, normalizedPower = ftp))
 
-        val state = TrainingLoadAggregator.buildUiState(sessions, ftp)
+        val state = TrainingLoadAggregator.buildUiState(sessions, FtpHistory.constant(ftp))
 
         val fullSeriesLength = ChronoUnit.DAYS.between(firstDay, today) + 1
         assertTrue(fullSeriesLength > CyclingConstants.TRAINING_LOAD_CHART_WINDOW_DAYS)
@@ -205,7 +222,7 @@ class TrainingLoadAggregatorTest {
 
     @Test
     fun `no sessions yields hasAnySessions false and an empty chart with no exception`() {
-        val state = TrainingLoadAggregator.buildUiState(emptyList(), 250)
+        val state = TrainingLoadAggregator.buildUiState(emptyList(), FtpHistory.constant(250))
 
         assertFalse(state.hasAnySessions)
         assertFalse(state.isLoading)

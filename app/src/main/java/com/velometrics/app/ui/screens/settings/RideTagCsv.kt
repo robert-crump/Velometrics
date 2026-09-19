@@ -9,15 +9,15 @@ object RideTagCsv {
     private val HEADER = listOf(
         "id", "sessionStart", "fileName", "distanceKm", "netDurationMin",
         "storedTag", "computedTag", "tagStale",
-        "intervalCount", "fatEfficiencyScore", "averagePower", "percentOfFtp", "hasPower"
+        "intervalCount", "fatEfficiencyScore", "averagePower", "ftp", "percentOfFtp", "hasPower"
     ).joinToString(",")
 
-    fun render(rows: List<TagReviewRow>, ftp: Int): String =
-        (listOf(HEADER) + rows.map { rowFor(it, ftp) }).joinToString("\n", postfix = "\n")
+    fun render(rows: List<TagReviewRow>): String =
+        (listOf(HEADER) + rows.map { rowFor(it) }).joinToString("\n", postfix = "\n")
 
-    private fun rowFor(row: TagReviewRow, ftp: Int): String {
+    private fun rowFor(row: TagReviewRow): String {
         val session = row.session
-        val percentOfFtp = session.averagePower?.let { it.toDouble() / ftp }
+        val percentOfFtp = session.averagePower?.let { it.toDouble() / row.ftp }
         return listOf(
             session.id,
             session.sessionStart,
@@ -30,6 +30,7 @@ object RideTagCsv {
             session.intervalCount,
             session.fatEfficiencyScore ?: "",
             session.averagePower ?: "",
+            row.ftp,
             percentOfFtp?.let { "%.3f".format(Locale.US, it) } ?: "",
             session.hasPower
         ).joinToString(",")

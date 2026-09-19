@@ -1,6 +1,6 @@
 # 0001. FTP-derived metrics are as of ride time
 
-Status: Accepted (2026-09-19) — issue #200
+Status: Accepted (2026-09-19) — issue #200; FTP history implemented in #218
 
 ## Context
 
@@ -27,19 +27,33 @@ and Training Load all read the FTP in force on the ride date. Persisting downsam
 per-record samples so metrics can be recomputed ("as of today") was rejected: heavy storage and
 a schema migration for a rare action, with no backfill for existing rides.
 
-Until FTP history exists (follow-up issue):
+## Implementation (#218)
 
-- The stored metrics stay frozen at import, using the FTP current at import time.
-- Training Load and the Recovery rule still follow the *current* FTP for all rides. This is a
-  known deviation from the decision, not the intended behavior.
-- The "Recalculate session stats" Settings action is removed. Tags are import-time only; a
-  debug-only "Apply re-tag" row (next to the tag dump) runs `reclassifyAll` for threshold
-  tuning.
-- The FTP-change dialog is left as is; FTP history makes it obsolete.
+FTP history is a Room table `ftp_history(effectiveEpochDay, ftp)` (DB v20), edited in Settings as a
+list of dated entries. Dates are local dates in the device zone; future dates are blocked; saving on
+an existing date overwrites it. The pure `FtpHistory.ftpOn(date)` resolves the FTP in force on a ride
+date (latest entry not after it, else the seed).
+
+- Import (`FitImportService`) computes the stored metrics and the ride tag against the ride-date FTP.
+- `TrainingLoadAggregator` / `TrainingLoadCache` score each ride against its ride-date FTP and stay
+  live: adding or editing an entry reshapes Training Load from its effective date onward.
+- The debug "Apply re-tag" and tag dump resolve FTP per ride (the CSV has a per-row `ftp` column).
+- The "Change FTP?" dialog and "Recalculate session stats" are gone.
+
+**Backfill.** Migration 19→20 creates the table empty (SQL can't read DataStore); on first use
+`FtpHistoryRepository` seeds one "Before first test" row from the legacy DataStore FTP setting (or the
+default) and removes that key. Every existing ride therefore resolves to the FTP the user had
+configured until they add dated entries.
+
+**Known inconsistency.** Only Training Load is live. Import-time metrics (power zones, fat efficiency,
+time below 60% FTP, sprints, intervals, cardiac drift) and the stored ride tag are frozen at import and
+never recompute, because the raw samples aren't stored. So adding or editing an *earlier* FTP entry
+reshapes Training Load but not those stored metrics or tags, and existing rides keep the FTP that was
+current at their import time for those metrics. Settings says so next to the history list.
 
 ## Consequences
 
 - One coherent story for users once FTP history lands; no misleading recompute affordance now.
 - Existing rides carry the FTP that was current at import, which may differ from their ride-time
-  FTP. The FTP-history work must decide how to backfill (e.g. "FTP effective from date X").
+  FTP; see the backfill and known inconsistency above.
 - Metric-definition changes still require re-importing FIT files.

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.material.icons.filled.FavoriteBorder
 import com.velometrics.app.ui.components.ConfirmDialog
+import java.time.LocalDate
 import com.velometrics.app.util.CyclingConstants
 import kotlin.math.roundToInt
 
@@ -37,11 +38,11 @@ fun SettingsScreen(
     val retagStatus by viewModel.retagStatus.collectAsState()
     val dumpStatus by viewModel.dumpStatus.collectAsState()
     val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
-    val currentFtp by viewModel.ftp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
+    val currentFtp by viewModel.currentFtp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
+    val ftpEntries by viewModel.ftpEntries.collectAsState(initial = emptyList())
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
     val homeDisplayName by viewModel.homeDisplayName.collectAsState(initial = "")
-    val pendingFtp by viewModel.pendingFtp.collectAsState()
     val pendingMaxHr by viewModel.pendingMaxHr.collectAsState()
     val isDropboxConnected by viewModel.isDropboxConnected.collectAsState()
     val needsDropboxReauth by viewModel.needsDropboxReauth.collectAsState()
@@ -49,38 +50,22 @@ fun SettingsScreen(
         initial = CyclingConstants.DEFAULT_DROPBOX_SYNC_FOLDER
     )
 
-    var showFtpDialog by remember { mutableStateOf(false) }
+    var ftpDialog by remember { mutableStateOf<FtpDialogTarget?>(null) }
     var showMaxHrDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
 
-    // FTP edit dialog
-    if (showFtpDialog) {
-        NumberEditDialog(
-            title = "FTP (Functional Threshold Power)",
-            label = "FTP (W)",
-            currentValue = currentFtp,
-            helperText = "The average power you can sustain for one hour. " +
-                "Defines power zones, sprint detection (≥${(CyclingConstants.SPRINT_THRESHOLD_FACTOR * 100).roundToInt()}% FTP), " +
-                "and interval detection (≥${(CyclingConstants.INTERVAL_THRESHOLD_FACTOR * 100).roundToInt()}% FTP). " +
-                "Requires a power meter.",
-            onDismiss = { showFtpDialog = false },
-            onConfirm = { parsed ->
-                showFtpDialog = false
-                viewModel.requestFtpChange(parsed)
+    ftpDialog?.let { target ->
+        FtpEntryDialog(
+            target = target,
+            onDismiss = { ftpDialog = null },
+            onSave = { date, ftp ->
+                ftpDialog = null
+                viewModel.saveFtpEntry(date, ftp)
+            },
+            onDelete = { date ->
+                ftpDialog = null
+                viewModel.deleteFtpEntry(date)
             }
-        )
-    }
-
-    // FTP change confirmation dialog
-    pendingFtp?.let { newFtp ->
-        ConfirmDialog(
-            title = "Change FTP?",
-            text = "New FTP = $newFtp W will be used for all future file imports.\n\n" +
-                "Existing session data (power zones, fat efficiency, sprints) remains based on " +
-                "FTP = $currentFtp W and cannot be updated without re-importing those files.",
-            confirmLabel = "Confirm",
-            onConfirm = { viewModel.confirmFtpChange() },
-            onDismiss = { viewModel.cancelFtpChange() }
         )
     }
 
@@ -160,9 +145,24 @@ fun SettingsScreen(
 
             SettingsRow(
                 icon = Icons.Default.Bolt,
-                title = "FTP",
-                subtitle = "$currentFtp W",
-                onClick = { showFtpDialog = true }
+                title = "FTP: $currentFtp W today",
+                subtitle = "Add FTP — each ride is judged against the FTP in force on its date",
+                onClick = { ftpDialog = FtpDialogTarget.Add }
+            )
+            ftpEntries.sortedByDescending { it.effectiveDate ?: LocalDate.MIN }.forEach { entry ->
+                SettingsRow(
+                    icon = null,
+                    title = "${entry.ftp} W",
+                    subtitle = entry.effectiveDate?.toString() ?: "Before first test",
+                    onClick = { ftpDialog = FtpDialogTarget.Edit(entry) }
+                )
+            }
+            Text(
+                text = "Adding or editing an earlier date reshapes Training Load from that date on. " +
+                    "Power zones, intervals, sprints and tags of already-imported rides stay as computed at import.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
 
             SettingsRow(
@@ -275,7 +275,7 @@ private fun SectionHeader(title: String) {
 
 @Composable
 private fun SettingsRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
     title: String,
     subtitle: String? = null,
     subtitleColor: androidx.compose.ui.graphics.Color? = null,
@@ -289,12 +289,16 @@ private fun SettingsRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
-        )
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.size(24.dp)) // keep indented rows aligned with icon rows
+        }
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

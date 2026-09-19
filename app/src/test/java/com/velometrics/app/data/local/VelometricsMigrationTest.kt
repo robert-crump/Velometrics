@@ -20,6 +20,7 @@ private const val TEST_DB_16 = "migration_15_16_test.db"
 private const val TEST_DB_17 = "migration_16_17_test.db"
 private const val TEST_DB_18 = "migration_17_18_test.db"
 private const val TEST_DB_19 = "migration_18_19_test.db"
+private const val TEST_DB_20 = "migration_19_20_test.db"
 
 /**
  * Speed histogram buckets narrowed from 8 to 5 in #148; MIGRATION_11_12 must merge each existing
@@ -264,6 +265,26 @@ class VelometricsMigrationTest {
         val migrated = helper.runMigrationsAndValidate(TEST_DB_19, 19, true, DatabaseModule.MIGRATION_18_19)
 
         migrated.query("SELECT isCustomName FROM repeated_routes WHERE id = 1").use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals(1, it.getInt(0))
+        }
+    }
+
+    @Test
+    fun `migrate 19 to 20 creates an empty ftp_history table and keeps existing rows`() {
+        helper.createDatabase(TEST_DB_20, 19).apply {
+            execSQL("INSERT INTO repeated_routes (id, name, sessionIds, createdAt, isCustomName) VALUES (1, 'Route', '[1]', 0, 1)")
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB_20, 20, true, DatabaseModule.MIGRATION_19_20)
+
+        migrated.query("SELECT COUNT(*) FROM ftp_history").use {
+            assertEquals(true, it.moveToFirst())
+            assertEquals(0, it.getInt(0))
+        }
+        migrated.execSQL("INSERT INTO ftp_history (effectiveEpochDay, ftp) VALUES (20000, 250)")
+        migrated.query("SELECT COUNT(*) FROM repeated_routes").use {
             assertEquals(true, it.moveToFirst())
             assertEquals(1, it.getInt(0))
         }

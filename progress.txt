@@ -1,3 +1,21 @@
+## Issue #197 — Unify JSON serialization, duration formatting, and the thousands separator
+Completed: 2026-09-19
+
+### What was done
+
+- New `util/Json` is the single owner of the app's only `Gson` instance (plus `toJson`/`parseOrDefault`);
+  it replaces `JsonSafeParser` and the seven other `Gson()` forks (main + tests).
+- `FormatUtils` is the one home for duration/thousands formatting: added `formatDurationMinSec`
+  (moved from `MapOverlayUtils`) and `formatDecimal`; `formatDistanceRounded`,
+  `formatElevationGainRounded`, `formatElevationGainPer100km` now use the period separator via
+  `formatWithThousandsSeparator` (now negative-safe), so Home and All-time Stats agree ("1.234 km").
+- `HomeAddressScreen`, `SettingsScreen`, `ScatterPlotChart` (`xTickFormat` -> `xTickDecimals`) and the
+  InfoScreen kcal axis use `FormatUtils` instead of inline `"%.Nf".format`.
+- `MapOverlayUtils` keeps only colour interpolation; `groupIntervals`, `avgDurationNormalizedSec`,
+  `avgPower`, `isFlowSegment` moved to `domain/service/OverlayAggregation` (tests moved too).
+
+`testDebugUnitTest` passes.
+
 ## Issue #196 — Delete dead route-composition modules; fold RideTagDumper into RideClassificationService; move UiState files out of domain
 Completed: 2026-09-19
 

@@ -1,9 +1,9 @@
 package com.velometrics.app.data.local.entity
 
+import com.velometrics.app.util.Json
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import com.velometrics.app.domain.model.MapEdge
-import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 
 @Entity(tableName = "map_edges", primaryKeys = ["from_node", "to_node"])
@@ -49,11 +49,10 @@ private data class EdgeMetadataJson(
     @SerializedName("gravity_flow_count") val gravityFlowCount: Int?
 )
 
-private val gson = Gson()
 
 fun MapEdgeEntity.toDomain(): MapEdge {
     val meta = metadata?.let {
-        try { gson.fromJson(it, EdgeMetadataJson::class.java) } catch (_: Exception) {
+        try { Json.gson.fromJson(it, EdgeMetadataJson::class.java) } catch (_: Exception) {
             null
         }
     }

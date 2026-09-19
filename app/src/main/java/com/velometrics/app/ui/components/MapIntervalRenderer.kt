@@ -2,6 +2,7 @@
 
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
+import com.velometrics.app.domain.service.OverlayAggregation
 import com.velometrics.app.util.CyclingConstants.INTERVAL_GROUPED_LINE_WIDTH
 import com.velometrics.app.util.CyclingConstants.INTERVAL_HIGHLIGHT_COLOR
 import com.velometrics.app.util.CyclingConstants.INTERVAL_HIGHLIGHT_LINE_WIDTH
@@ -81,14 +82,14 @@ object MapIntervalRenderer {
             val lineString = LineString.fromLngLats(geoPoints)
             val feature = Feature.fromGeometry(lineString)
 
-            val avgDuration = MapOverlayUtils.avgDurationNormalizedSec(repeatedInterval)
-            val avgPower = MapOverlayUtils.avgPower(repeatedInterval)
+            val avgDuration = OverlayAggregation.avgDurationNormalizedSec(repeatedInterval)
+            val avgPower = OverlayAggregation.avgPower(repeatedInterval)
 
             feature.addStringProperty("color", MapOverlayUtils.normalizedDurationToColor(avgDuration))
             feature.addStringProperty("repeatedIntervalId", repeatedInterval.id.toString())
             feature.addStringProperty("name", repeatedInterval.name)
             feature.addNumberProperty("count", repeatedInterval.intervals.size)
-            feature.addStringProperty("avgDuration", MapOverlayUtils.formatDurationMinSec(avgDuration))
+            feature.addStringProperty("avgDuration", FormatUtils.formatDurationMinSec(avgDuration))
             feature.addStringProperty("avgPower", FormatUtils.formatPower(avgPower))
 
             feature

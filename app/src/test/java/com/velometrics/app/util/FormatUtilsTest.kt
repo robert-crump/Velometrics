@@ -1,4 +1,4 @@
-﻿package com.velometrics.app.util
+package com.velometrics.app.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -139,7 +139,7 @@ class FormatUtilsTest {
     @Test
     fun `formatElevationGainPer100km scales and rounds to nearest 10`() {
         // 500m over 50km -> 1000m/100km exactly
-        assertEquals("1,000 m", FormatUtils.formatElevationGainPer100km(500.0, 50.0))
+        assertEquals("1.000 m", FormatUtils.formatElevationGainPer100km(500.0, 50.0))
     }
 
     @Test
@@ -149,9 +149,9 @@ class FormatUtilsTest {
     }
 
     @Test
-    fun `formatElevationGainPer100km uses comma thousands separator above 1000`() {
+    fun `formatElevationGainPer100km uses period thousands separator above 1000`() {
         // 20km ride with 800m gain -> 4000m/100km
-        assertEquals("4,000 m", FormatUtils.formatElevationGainPer100km(800.0, 20.0))
+        assertEquals("4.000 m", FormatUtils.formatElevationGainPer100km(800.0, 20.0))
     }
 
     @Test
@@ -162,5 +162,41 @@ class FormatUtilsTest {
     @Test
     fun `formatElevationGainPer100km returns null for negative distance`() {
         assertEquals(null, FormatUtils.formatElevationGainPer100km(500.0, -5.0))
+    }
+
+    @Test
+    fun `formatDurationMinSec - 270 sec returns 4 colon 30`() {
+        assertEquals("4:30", FormatUtils.formatDurationMinSec(270))
+    }
+
+    @Test
+    fun `formatDurationMinSec - 120 sec returns 2 colon 00`() {
+        assertEquals("2:00", FormatUtils.formatDurationMinSec(120))
+    }
+
+    @Test
+    fun `formatDurationMinSec - 65 sec returns 1 colon 05`() {
+        assertEquals("1:05", FormatUtils.formatDurationMinSec(65))
+    }
+
+
+    @Test
+    fun `formatDistanceRounded and formatElevationGainRounded use period grouping`() {
+        assertEquals("1.234 km", FormatUtils.formatDistanceRounded(1233.6))
+        assertEquals("12.345 m", FormatUtils.formatElevationGainRounded(12345.2))
+        assertEquals("999 km", FormatUtils.formatDistanceRounded(999.4))
+    }
+
+    @Test
+    fun `formatWithThousandsSeparator handles negatives`() {
+        assertEquals("-1.234", FormatUtils.formatWithThousandsSeparator(-1234))
+        assertEquals("-123", FormatUtils.formatWithThousandsSeparator(-123))
+    }
+
+    @Test
+    fun `formatDecimal renders fixed decimals with a period`() {
+        assertEquals("48.137154", FormatUtils.formatDecimal(48.1371542, 6))
+        assertEquals("12", FormatUtils.formatDecimal(12.4, 0))
+        assertEquals("3.1", FormatUtils.formatDecimal(3.14, 1))
     }
 }

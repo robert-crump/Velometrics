@@ -229,7 +229,7 @@ private fun PowerSpeedPointCloudSection(points: List<PowerSpeedPoint>) {
                     xMax = xMax,
                     yMin = yMin,
                     yMax = yMax,
-                    xTickFormat = "%.0f",
+                    xTickDecimals = 0,
                     dotRadius = 2.dp
                 )
                 ElevationBucketLegend(colors = bucketColors)

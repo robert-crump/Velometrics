@@ -8,9 +8,8 @@ import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.velometrics.app.util.JsonSafeParser
+import com.velometrics.app.util.Json
 import android.util.Log
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -30,7 +29,6 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
 
     companion object { private const val TAG = "RepeatedIntervalRepo" }
 
-    private val gson = Gson()
     private val edgeRefListType = object : TypeToken<List<List<Long>>>() {}.type
 
     override fun getAllRepeatedIntervals(): Flow<List<RepeatedInterval>> {
@@ -123,8 +121,8 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
         return RepeatedIntervalEntity(
             id = interval.id,
             name = interval.name,
-            intervalIds = gson.toJson(intervalIds),
-            edges = gson.toJson(edgeRefs),
+            intervalIds = Json.gson.toJson(intervalIds),
+            edges = Json.gson.toJson(edgeRefs),
             startLat = interval.startLat,
             startLon = interval.startLon,
             endLat = interval.endLat,
@@ -135,11 +133,11 @@ class RepeatedIntervalRepositoryImpl @Inject constructor(
     }
 
     private fun parseLongList(json: String): List<Long> =
-        JsonSafeParser.parseOrDefault<List<Long>>(json, TAG, "Failed to parse interval IDs from JSON", emptyList())
+        Json.parseOrDefault<List<Long>>(json, TAG, "Failed to parse interval IDs from JSON", emptyList())
 
     private fun parseEdgeRefs(json: String): List<Pair<Long, Long>> {
         return try {
-            val raw: List<List<Long>> = gson.fromJson(json, edgeRefListType)
+            val raw: List<List<Long>> = Json.gson.fromJson(json, edgeRefListType)
             raw.mapNotNull { if (it.size >= 2) it[0] to it[1] else null }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse edge references from JSON", e)

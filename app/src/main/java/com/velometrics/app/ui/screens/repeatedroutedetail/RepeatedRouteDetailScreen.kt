@@ -286,7 +286,7 @@ fun RepeatedRouteDetailScreen(
                                     yLabel = "Avg Speed (km/h)",
                                     xMin = xMin,
                                     xMax = xMax,
-                                    xTickFormat = "%.0f"
+                                    xTickDecimals = 0
                                 )
                             }
                         }
@@ -312,7 +312,7 @@ fun RepeatedRouteDetailScreen(
                                     yLabel = "Avg Speed (km/h)",
                                     xMin = xMin,
                                     xMax = xMax,
-                                    xTickFormat = "%.0f"
+                                    xTickDecimals = 0
                                 )
                             }
                         }

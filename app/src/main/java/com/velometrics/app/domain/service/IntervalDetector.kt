@@ -1,10 +1,10 @@
 ﻿package com.velometrics.app.domain.service
 
+import com.velometrics.app.util.Json
 import com.velometrics.app.domain.model.Datapoint
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
-import com.google.gson.Gson
 import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +13,6 @@ import kotlin.math.roundToInt
 @Singleton
 class IntervalDetector @Inject constructor() {
 
-    private val gson = Gson()
 
     fun detect(datapoints: List<Datapoint>, cyclingSessionId: Long, ftp: Int): List<IntervalSession> {
         if (datapoints.isEmpty()) return emptyList()
@@ -160,7 +159,7 @@ class IntervalDetector @Inject constructor() {
                 (dp.lon * 1_000_000).roundToInt() / 1_000_000.0
             )
         }
-        val gpsTrack = gson.toJson(gpsTrackPoints)
+        val gpsTrack = Json.gson.toJson(gpsTrackPoints)
 
         // Recovery metrics (#178): read forward from endIdx into the full datapoints list.
         val recovery = computeRecoveryMetrics(datapoints, endIdx)

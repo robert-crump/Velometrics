@@ -36,6 +36,7 @@ import com.velometrics.app.ui.components.PoiPopupCard
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.components.toGeoBounds
 import com.velometrics.app.ui.components.toLatLng
+import com.velometrics.app.domain.service.OverlayAggregation
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.CyclingConstants.DEFAULT_MAP_ZOOM
 import com.velometrics.app.util.CyclingConstants.TRACK_COLORS
@@ -73,7 +74,7 @@ fun MapViewScreen(
 
     // Repeated intervals with at least one matched raw interval — drawn once per archetype
     val intervalGroups = remember(allRepeatedIntervals) {
-        MapOverlayUtils.groupIntervals(allRepeatedIntervals)
+        OverlayAggregation.groupIntervals(allRepeatedIntervals)
     }
 
     val showPoiLayer by viewModel.showPoiLayer.collectAsState()
@@ -486,7 +487,7 @@ private fun PrototypeGroupSheet(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Avg: ${MapOverlayUtils.formatDurationMinSec(MapOverlayUtils.avgDurationNormalizedSec(group))} min / ${FormatUtils.formatPower(MapOverlayUtils.avgPower(group))}",
+                text = "Avg: ${FormatUtils.formatDurationMinSec(OverlayAggregation.avgDurationNormalizedSec(group))} min / ${FormatUtils.formatPower(OverlayAggregation.avgPower(group))}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -1,11 +1,11 @@
 package com.velometrics.app.domain.service
 
+import com.velometrics.app.util.Json
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.MapEdge
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.google.gson.Gson
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -14,7 +14,6 @@ import java.time.Instant
 
 class IntervalMatcherTest {
 
-    private val gson = Gson()
     private val matcher = IntervalMatcher(
         mockk<RepeatedIntervalRepository>(relaxed = true),
         mockk<IntervalRepository>(relaxed = true)
@@ -62,7 +61,7 @@ class IntervalMatcherTest {
     /** Builds a GPS track JSON from [lat, lon] pairs at fixed longitude, increasing latitude. */
     private fun trackJson(startLat: Double, pointCount: Int, lon: Double = 6.0800, step: Double = 0.0003): String {
         val points = (0 until pointCount).map { i -> listOf(startLat + i * step, lon) }
-        return gson.toJson(points)
+        return Json.gson.toJson(points)
     }
 
     private fun makeInterval(id: Long, distanceM: Double, gpsTrack: String): IntervalSession {

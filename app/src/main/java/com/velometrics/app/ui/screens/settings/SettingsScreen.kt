@@ -1,5 +1,6 @@
 package com.velometrics.app.ui.screens.settings
 
+import com.velometrics.app.util.FormatUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -191,7 +192,7 @@ fun SettingsScreen(
             val homeSubtitle = if (homeDisplayName.isNotBlank()) {
                 homeDisplayName
             } else {
-                "${"%.5f".format(currentHomeLat)}, ${"%.5f".format(currentHomeLon)}"
+                "${FormatUtils.formatDecimal(currentHomeLat, 5)}, ${FormatUtils.formatDecimal(currentHomeLon, 5)}"
             }
             SettingsRow(
                 icon = Icons.Default.Home,

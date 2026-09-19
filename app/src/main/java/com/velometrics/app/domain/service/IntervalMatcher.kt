@@ -5,7 +5,7 @@ import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
-import com.velometrics.app.util.JsonSafeParser
+import com.velometrics.app.util.Json
 import com.velometrics.app.util.PolylineDecoder
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -97,5 +97,5 @@ class IntervalMatcher @Inject constructor(
     }
 
     private fun parseGpsTrack(gpsTrackJson: String): List<List<Double>> =
-        JsonSafeParser.parseOrDefault<List<List<Double>>>(gpsTrackJson, TAG, "Failed to parse GPS track JSON", emptyList())
+        Json.parseOrDefault<List<List<Double>>>(gpsTrackJson, TAG, "Failed to parse GPS track JSON", emptyList())
 }

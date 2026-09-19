@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.ui.components
 
+import com.velometrics.app.util.FormatUtils
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -67,7 +68,7 @@ fun ScatterPlotChart(
     xMax: Float? = null,
     yMin: Float? = null,
     yMax: Float? = null,
-    xTickFormat: String = "%.1f",
+    xTickDecimals: Int = 1,
     dotRadius: Dp = 6.dp
 ) {
     if (points.isEmpty()) return
@@ -84,8 +85,8 @@ fun ScatterPlotChart(
         val xValues = points.map { it.x }
         val yValues = points.map { it.y }
         "Scatter plot of $yLabel versus $xLabel, ${points.size} points. " +
-            "$xLabel ranges from ${xTickFormat.format(xValues.min())} to ${xTickFormat.format(xValues.max())}. " +
-            "$yLabel ranges from ${"%.0f".format(yValues.min())} to ${"%.0f".format(yValues.max())}."
+            "$xLabel ranges from ${FormatUtils.formatDecimal(xValues.min().toDouble(), xTickDecimals)} to ${FormatUtils.formatDecimal(xValues.max().toDouble(), xTickDecimals)}. " +
+            "$yLabel ranges from ${FormatUtils.formatDecimal(yValues.min().toDouble(), 0)} to ${FormatUtils.formatDecimal(yValues.max().toDouble(), 0)}."
     }
 
     Canvas(
@@ -158,7 +159,7 @@ fun ScatterPlotChart(
         for (i in 0..xTicks) {
             val v = xLo + (xHi - xLo) * i / xTicks
             val x = mapX(v)
-            val label = xTickFormat.format(v)
+            val label = FormatUtils.formatDecimal(v.toDouble(), xTickDecimals)
             drawContext.canvas.nativeCanvas.drawText(
                 label,
                 x - textPaint.measureText(label) / 2,
@@ -169,7 +170,7 @@ fun ScatterPlotChart(
 
         for (v in integerAxisTicks(yLo, yHi)) {
             val y = mapY(v)
-            val label = "%.0f".format(v)
+            val label = FormatUtils.formatDecimal(v.toDouble(), 0)
             drawContext.canvas.nativeCanvas.drawText(
                 label,
                 padLeft - textPaint.measureText(label) - 4.dp.toPx(),

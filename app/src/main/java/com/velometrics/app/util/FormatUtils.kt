@@ -30,6 +30,10 @@ object FormatUtils {
         }
     }
 
+    // Minutes and zero-padded seconds (e.g. "4:05").
+    fun formatDurationMinSec(totalSeconds: Int): String =
+        "${totalSeconds / 60}:%02d".format(Locale.US, totalSeconds % 60)
+
     fun formatDurationLong(totalSeconds: Int): String {
         val hours = totalSeconds / 3600
         val minutes = (totalSeconds % 3600) / 60
@@ -39,30 +43,35 @@ object FormatUtils {
 
     fun formatDistance(km: Double): String = "%.1f km".format(Locale.US, km)
 
-    // Rounded to the nearest whole km with a thousands separator (e.g. "1,234 km").
-    fun formatDistanceRounded(km: Double): String = "%,.0f km".format(Locale.US, km)
+    // Rounded to the nearest whole km with a thousands separator (e.g. "1.234 km").
+    fun formatDistanceRounded(km: Double): String = "${formatWithThousandsSeparator(km.roundToInt())} km"
+
+    // Fixed-decimal number with no unit (chart ticks, coordinates).
+    fun formatDecimal(value: Double, decimals: Int): String = "%.${decimals}f".format(Locale.US, value)
 
     fun formatSpeed(kmh: Double): String = "%.1f km/h".format(Locale.US, kmh)
 
     fun formatPower(watts: Int): String = "$watts W"
 
-    // Period-grouped thousands separator (e.g. "1.234"), distinct from the comma-grouped
-    // separator used by formatDistanceRounded/formatElevationGainRounded/etc.
-    fun formatWithThousandsSeparator(value: Int): String =
-        value.toString().reversed().chunked(3).joinToString(".").reversed()
+    // Period-grouped thousands separator (e.g. "1.234"), the one separator used app-wide.
+    fun formatWithThousandsSeparator(value: Int): String {
+        val grouped = abs(value.toLong()).toString().reversed().chunked(3).joinToString(".").reversed()
+        return if (value < 0) "-$grouped" else grouped
+    }
 
     fun formatElevationGain(meters: Double): String = "%.0f m".format(Locale.US, meters)
 
-    // Rounded to the nearest whole metre with a thousands separator (e.g. "1,234 m").
-    fun formatElevationGainRounded(meters: Double): String = "%,.0f m".format(Locale.US, meters)
+    // Rounded to the nearest whole metre with a thousands separator (e.g. "1.234 m").
+    fun formatElevationGainRounded(meters: Double): String =
+        "${formatWithThousandsSeparator(meters.roundToInt())} m"
 
     // Elevation gain scaled to a 100 km ride, rounded to the nearest 10 m, with a thousands
-    // separator (e.g. a 1500 m result renders as "1,500 m").
+    // separator (e.g. a 1500 m result renders as "1.500 m").
     fun formatElevationGainPer100km(gainM: Double, distanceKm: Double): String? {
         if (distanceKm <= 0.0) return null
         val scaled = gainM / distanceKm * 100.0
         val rounded = (scaled / 10.0).roundToInt() * 10
-        return "%,d m".format(Locale.US, rounded)
+        return "${formatWithThousandsSeparator(rounded)} m"
     }
 
     fun formatCardiacEfficiency(wattsPerBpm: Double): String = "%.2f W/bpm".format(Locale.US, wattsPerBpm)

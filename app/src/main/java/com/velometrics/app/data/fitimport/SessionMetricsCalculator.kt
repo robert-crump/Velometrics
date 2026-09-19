@@ -1,11 +1,11 @@
 ﻿package com.velometrics.app.data.fitimport
 
+import com.velometrics.app.util.Json
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.Datapoint
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.median
-import com.google.gson.Gson
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
@@ -18,7 +18,6 @@ data class TimerEvent(val timestamp: Instant, val eventType: String)
 @Singleton
 class SessionMetricsCalculator @Inject constructor() {
 
-    private val gson = Gson()
 
     fun compute(
         fileName: String,
@@ -509,6 +508,6 @@ class SessionMetricsCalculator @Inject constructor() {
     private fun downsampleAndSerialize(datapoints: List<Datapoint>): String? {
         if (datapoints.isEmpty()) return null
         val coords = datapoints.map { listOf(it.lat, it.lon) }
-        return gson.toJson(coords)
+        return Json.gson.toJson(coords)
     }
 }

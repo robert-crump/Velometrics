@@ -13,7 +13,7 @@ import com.velometrics.app.util.CyclingConstants.INTERVAL_POINT_MATCH_RADIUS_M
 import com.velometrics.app.util.CyclingConstants.INTERVAL_SUBSET_OVERLAP_THRESHOLD
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
-import com.velometrics.app.util.JsonSafeParser
+import com.velometrics.app.util.Json
 import com.velometrics.app.util.PolylineDecoder
 import com.velometrics.app.util.SpatialPointGrid
 import kotlin.math.abs
@@ -425,5 +425,5 @@ class IntervalClusteringService @Inject constructor(
     }
 
     private fun parseGpsTrack(json: String): List<List<Double>> =
-        JsonSafeParser.parseOrDefault<List<List<Double>>>(json, TAG, "Failed to parse GPS track JSON", emptyList())
+        Json.parseOrDefault<List<List<Double>>>(json, TAG, "Failed to parse GPS track JSON", emptyList())
 }

@@ -1,10 +1,10 @@
 package com.velometrics.app.data.repository
 
+import com.velometrics.app.util.Json
 import com.velometrics.app.data.local.dao.RepeatedRouteDao
 import com.velometrics.app.data.local.entity.RepeatedRouteEntity
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
-import com.google.gson.Gson
 import io.mockk.coEvery
 import io.mockk.mockk
 import java.time.Instant
@@ -19,7 +19,6 @@ import org.junit.Test
  */
 class RepeatedRouteRepositoryImplTest {
 
-    private val gson = Gson()
 
     private fun buildSession(id: Long) = CyclingSession(
         id = id,
@@ -51,7 +50,7 @@ class RepeatedRouteRepositoryImplTest {
         val entity = RepeatedRouteEntity(
             id = 1L,
             name = "Repeated Route 1",
-            sessionIds = gson.toJson(sessionIds.sorted()),
+            sessionIds = Json.gson.toJson(sessionIds.sorted()),
             createdAt = 1_000L
         )
         val dao = mockk<RepeatedRouteDao>()

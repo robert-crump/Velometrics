@@ -4,22 +4,19 @@ import com.velometrics.app.data.local.dao.CyclingSessionSummaryEntity
 import com.velometrics.app.data.local.dao.SessionMetricSampleEntity
 import com.velometrics.app.data.local.entity.*
 import com.velometrics.app.domain.model.*
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.time.Instant
 
-@PublishedApi
-internal val gson = Gson()
 
 /** Deserializes this JSON string as [T]. */
-inline fun <reified T> String.parseJson(): T = gson.fromJson(this, object : TypeToken<T>() {}.type)
+inline fun <reified T> String.parseJson(): T = Json.gson.fromJson(this, object : TypeToken<T>() {}.type)
 
 /** Deserializes this JSON string as [T], or `null` if the string itself is `null`. */
 inline fun <reified T> String?.parseJsonOrNull(): T? =
-    this?.let { gson.fromJson(it, object : TypeToken<T>() {}.type) }
+    this?.let { Json.gson.fromJson(it, object : TypeToken<T>() {}.type) }
 
 /** Serializes this value to a JSON string. */
-inline fun <reified T> T.toJsonString(): String = gson.toJson(this)
+inline fun <reified T> T.toJsonString(): String = Json.gson.toJson(this)
 
 // CyclingSession mappers
 fun CyclingSessionEntity.toDomain(): CyclingSession {

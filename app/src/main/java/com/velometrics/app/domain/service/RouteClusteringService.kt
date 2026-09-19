@@ -8,7 +8,7 @@ import android.util.Log
 import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.GraphUtils
-import com.velometrics.app.util.JsonSafeParser
+import com.velometrics.app.util.Json
 import com.velometrics.app.util.SpatialPointGrid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -242,7 +242,7 @@ class RouteClusteringService @Inject constructor(
 
     private fun parseGpsTrack(json: String?): List<List<Double>>? {
         if (json == null) return null
-        return JsonSafeParser.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
+        return Json.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
     }
 
     private fun computeCentroid(points: List<List<Double>>): List<Double> {

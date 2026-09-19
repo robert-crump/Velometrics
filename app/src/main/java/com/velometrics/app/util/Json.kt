@@ -5,13 +5,15 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
 /**
- * Consolidates the repo's "parse JSON, log and fall back to a default on failure" boilerplate
- * that was previously duplicated across the data layer's various `parseXyz` helpers.
+ * The single JSON module: owns the app's only [Gson] instance and the safe-parse helpers used
+ * for every persisted JSON shape (zone histograms, track encodings, id lists).
  */
-object JsonSafeParser {
+object Json {
 
     @PublishedApi
     internal val gson = Gson()
+
+    fun toJson(value: Any?): String = gson.toJson(value)
 
     /** Parses [json] as [T], logging [errorMessage] under [tag] and returning [default] on failure. */
     inline fun <reified T> parseOrDefault(json: String, tag: String, errorMessage: String, default: T): T {

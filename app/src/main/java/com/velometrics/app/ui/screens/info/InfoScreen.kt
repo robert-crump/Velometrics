@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.ui.screens.info
 
+import com.velometrics.app.util.FormatUtils
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -295,7 +296,7 @@ private fun KcalChart() {
             yTicks.forEach { kcal ->
                 val y = yOf(kcal.toDouble())
                 drawLine(axisColor, Offset(padL - 6f, y), Offset(padL, y), strokeWidth = 1.5f)
-                val label = if (kcal >= 1000) "${kcal / 1000}.${"%03d".format(kcal % 1000)}" else "$kcal"
+                val label = FormatUtils.formatWithThousandsSeparator(kcal)
                 drawContext.canvas.nativeCanvas.drawText(
                     label,
                     padL - 8f,

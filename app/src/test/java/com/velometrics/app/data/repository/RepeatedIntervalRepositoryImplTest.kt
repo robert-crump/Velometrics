@@ -1,11 +1,11 @@
 package com.velometrics.app.data.repository
 
+import com.velometrics.app.util.Json
 import com.velometrics.app.data.local.dao.RepeatedIntervalDao
 import com.velometrics.app.data.local.entity.RepeatedIntervalEntity
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
-import com.google.gson.Gson
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -22,7 +22,6 @@ import org.junit.Test
  */
 class RepeatedIntervalRepositoryImplTest {
 
-    private val gson = Gson()
 
     private fun buildInterval(id: Long) = IntervalSession(
         id = id,
@@ -46,8 +45,8 @@ class RepeatedIntervalRepositoryImplTest {
         val entity = RepeatedIntervalEntity(
             id = 1L,
             name = "Repeated Interval 1",
-            intervalIds = gson.toJson(intervalIds.sorted()),
-            edges = gson.toJson(emptyList<List<Long>>()),
+            intervalIds = Json.gson.toJson(intervalIds.sorted()),
+            edges = Json.gson.toJson(emptyList<List<Long>>()),
             startLat = 50.78, startLon = 6.08, endLat = 50.79, endLon = 6.08,
             distanceM = 1000.0,
             createdAt = 1_000L

@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.ui.screens.homeaddress
 
+import com.velometrics.app.util.FormatUtils
 import android.content.Context
 import android.location.LocationManager
 import androidx.compose.foundation.clickable
@@ -84,8 +85,8 @@ fun HomeAddressScreen(
     }
 
     // Local text field states (separate from parsed doubles so user can type freely)
-    var latText by remember(lat) { mutableStateOf("%.6f".format(lat)) }
-    var lonText by remember(lon) { mutableStateOf("%.6f".format(lon)) }
+    var latText by remember(lat) { mutableStateOf(FormatUtils.formatDecimal(lat, 6)) }
+    var lonText by remember(lon) { mutableStateOf(FormatUtils.formatDecimal(lon, 6)) }
 
     Scaffold(
         topBar = {

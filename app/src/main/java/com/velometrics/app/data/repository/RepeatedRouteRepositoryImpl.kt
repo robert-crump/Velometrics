@@ -7,8 +7,7 @@ import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
-import com.velometrics.app.util.JsonSafeParser
-import com.google.gson.Gson
+import com.velometrics.app.util.Json
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -25,7 +24,6 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
 
     companion object { private const val TAG = "RepeatedRouteRepo" }
 
-    private val gson = Gson()
 
     override fun getAllRoutes(): Flow<List<RepeatedRoute>> {
         return combine(
@@ -106,16 +104,16 @@ class RepeatedRouteRepositoryImpl @Inject constructor(
         return RepeatedRouteEntity(
             id = route.id,
             name = route.name,
-            sessionIds = gson.toJson(ids),
+            sessionIds = Json.gson.toJson(ids),
             createdAt = createdAt
         )
     }
 
     private fun parseIds(json: String): List<Long> =
-        JsonSafeParser.parseOrDefault<List<Long>>(json, TAG, "Failed to parse session IDs from JSON", emptyList())
+        Json.parseOrDefault<List<Long>>(json, TAG, "Failed to parse session IDs from JSON", emptyList())
 
     private fun parseGpsTrack(json: String?): List<List<Double>>? {
         if (json == null) return null
-        return JsonSafeParser.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
+        return Json.parseOrDefault<List<List<Double>>?>(json, TAG, "Failed to parse GPS track JSON", null)
     }
 }

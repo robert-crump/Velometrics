@@ -1,3 +1,21 @@
+## Issue #210 -- HomeViewModel rewired onto WorkManager-backed Dropbox sync
+Completed: 2026-09-19
+
+### What was done
+
+- `syncDropbox()`/`autoSyncDropbox()` now `enqueueUniqueWork(DROPBOX_SYNC_WORK_NAME, KEEP)` a `DropboxSyncWorker`
+  (network CONNECTED; pull-to-refresh also expedited with RUN_AS_NON_EXPEDITED fallback; `isUserInitiated` via input data).
+  `DROPBOX_SYNC_WORK_NAME` lives in `DropboxSyncWorker`; `WorkModule` provides `WorkManager` to Hilt.
+- `isSyncing` derives from `getWorkInfosForUniqueWorkFlow`; `dropboxSyncMessage` and the `RideReveal` branch of
+  `importState` derive from `DropboxSyncOutcomeStore.outcome` and are `consume()`d on clear. Manual import unchanged.
+  `HomeViewModel` no longer takes `DropboxSyncService`.
+- Tests: `HomeViewModelTest` reworked (enqueue params, isSyncing, outcome consume);
+  new `HomeViewModelSyncWorkTest` (real test WorkManager: second enqueue is kept out by KEEP).
+- NOT done: emulator-scripted `adb shell am kill` check (no device/emulator attached this run). NeedsReauth persistence
+  is covered at the worker level (`markNeedsReauth`), no new test.
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #209 — DropboxSyncWorker runs the Dropbox sync via WorkManager
 Completed: 2026-09-19
 
@@ -60,20 +78,3 @@ Completed: 2026-09-19
 
 `testDebugUnitTest` passes.
 
-## Issue #201 — Ride Reveal: RevealCandidateSource seam and a single-file priority rule
-Completed: 2026-09-19
-
-### What was done
-
-- New `RevealCandidateSource` interface (`candidates(session)`); `RideMilestoneEvaluator` and
-  `PowerCurveAchievementEvaluator` implement it, and `RevealSourceModule` binds all sources `@IntoSet`.
-  `RideRevealEvaluator` now takes `Set<RevealCandidateSource>` -- a new source is one class + one binding.
-- New `IntervalAchievementRevealSource` turns the persisted #185 interval achievement snapshot into a
-  candidate (family `INTERVAL_ACHIEVEMENT`), so a repeated-interval PR can be the hero headline.
-- `RideRevealResolver` now owns the whole winner rule: explicit `SCOPE_ORDER` / `FAMILY_ORDER` lists
-  (milestone > interval > power curve), and the "Nice ride!" fallback. `RideRevealPriority` lost its
-  `Comparable`, the `FALLBACK` sentinel and `FALLBACK` family are gone; `resolve` returns the headline.
-- Tests: resolver order/enum-independence, interval-wins-hero end-to-end; `FakeIntervalRepository` is
-  now stateful and `fakes/TestSessions.kt` shares a session builder.
-
-`testDebugUnitTest` and `assembleDebug` pass.

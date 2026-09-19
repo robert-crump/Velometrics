@@ -2,8 +2,20 @@ package com.velometrics.app.ui.screens.home
 
 import android.content.Context
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
-import com.velometrics.app.data.dropbox.DropboxSyncResult
-import com.velometrics.app.data.dropbox.DropboxSyncService
+import com.velometrics.app.data.dropbox.DropboxSyncOutcome
+import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
+import com.velometrics.app.data.dropbox.DropboxSyncWorker
+import com.velometrics.app.domain.model.RideRevealContent
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.Operation
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import io.mockk.verify
+import java.util.UUID
+import kotlinx.coroutines.flow.flowOf
+import org.junit.Assert.assertNull
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.repository.CyclingSessionRepository
@@ -54,22 +66,30 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private lateinit var workManager: WorkManager
+    private val requests = mutableListOf<OneTimeWorkRequest>()
+    private val outcomeFlow = MutableStateFlow<DropboxSyncOutcome?>(null)
+    private val outcomeStore = mockk<DropboxSyncOutcomeStore>()
+
+    @Before
+    fun setUpWork() {
+        requests.clear()
+        workManager = mockk()
+        every { workManager.getWorkInfosForUniqueWorkFlow(any()) } returns flowOf(emptyList())
+        every {
+            workManager.enqueueUniqueWork(any<String>(), any<ExistingWorkPolicy>(), capture(requests))
+        } returns mockk<Operation>()
+        every { outcomeStore.outcome } returns outcomeFlow
+        coEvery { outcomeStore.consume() } answers { outcomeFlow.value = null }
+    }
+
     private fun buildViewModel(
         isConnected: MutableStateFlow<Boolean>,
-        needsReauth: MutableStateFlow<Boolean> = MutableStateFlow(false),
-        syncResult: DropboxSyncResult = DropboxSyncResult.Completed(emptyList()),
-        routeClusteringService: RouteClusteringService,
-        intervalClusteringService: IntervalClusteringService,
         sessionRepository: CyclingSessionRepository = FakeCyclingSessionRepository(),
         dropboxSyncCursorRepository: DropboxSyncCursorRepository = FakeDropboxSyncCursorRepository()
     ): HomeViewModel {
         val dropboxAuthRepository = mockk<DropboxAuthRepository>()
         every { dropboxAuthRepository.isConnected } returns isConnected
-        every { dropboxAuthRepository.needsReauth } returns needsReauth
-        every { dropboxAuthRepository.markNeedsReauth() } returns Unit
-
-        val dropboxSyncService = mockk<DropboxSyncService>()
-        coEvery { dropboxSyncService.sync() } returns syncResult
 
         val rideRevealEvaluator = mockk<RideRevealEvaluator>()
         coEvery { rideRevealEvaluator.captureBaseline() } returns null
@@ -78,81 +98,87 @@ class HomeViewModelTest {
         return HomeViewModel(
             sessionRepository = sessionRepository,
             fitImportService = mockk<FitImportService>(relaxed = true),
-            dropboxSyncService = dropboxSyncService,
+            workManager = workManager,
+            dropboxSyncOutcomeStore = outcomeStore,
             dropboxAuthRepository = dropboxAuthRepository,
             dropboxSyncCursorRepository = dropboxSyncCursorRepository,
-            routeClusteringService = routeClusteringService,
-            intervalClusteringService = intervalClusteringService,
+            routeClusteringService = mockk<RouteClusteringService>(relaxed = true),
+            intervalClusteringService = mockk<IntervalClusteringService>(relaxed = true),
             rideRevealEvaluator = rideRevealEvaluator,
             appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             context = mockk<Context>(relaxed = true)
         )
     }
 
-    /** Builds clustering-service mocks whose `runClustering()` counts down [latch] when invoked. */
-    private fun clusteringMocks(latch: CountDownLatch): Pair<RouteClusteringService, IntervalClusteringService> {
-        val routeClusteringService = mockk<RouteClusteringService>()
-        coEvery { routeClusteringService.runClustering() } answers { latch.countDown() }
-        val intervalClusteringService = mockk<IntervalClusteringService>()
-        coEvery { intervalClusteringService.runClustering() } answers { latch.countDown() }
-        return routeClusteringService to intervalClusteringService
-    }
-
     @Test
-    fun `syncDropbox reclusters even when Dropbox is disconnected`() {
-        val latch = CountDownLatch(2)
-        val (routeClusteringService, intervalClusteringService) = clusteringMocks(latch)
-        // Starts disconnected so init's auto-sync no-ops and doesn't consume the latch itself.
-        val vm = buildViewModel(
-            isConnected = MutableStateFlow(false),
-            routeClusteringService = routeClusteringService,
-            intervalClusteringService = intervalClusteringService
-        )
+    fun `pull-to-refresh enqueues expedited unique KEEP work requiring network`() {
+        val vm = buildViewModel(isConnected = MutableStateFlow(false))
 
         vm.syncDropbox(isUserInitiated = true)
 
-        assertTrue("recluster was not called on both services", latch.await(5, TimeUnit.SECONDS))
-        assertEquals("Connect Dropbox in Settings to sync rides", vm.dropboxSyncMessage.value)
+        assertEquals(1, requests.size)
+        val spec = requests.single().workSpec
+        assertTrue(spec.expedited)
+        assertEquals(NetworkType.CONNECTED, spec.constraints.requiredNetworkType)
+        assertTrue(spec.input.getBoolean(DropboxSyncWorker.KEY_IS_USER_INITIATED, false))
+        verify {
+            workManager.enqueueUniqueWork(
+                DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME, ExistingWorkPolicy.KEEP, any<OneTimeWorkRequest>()
+            )
+        }
     }
 
     @Test
-    fun `syncDropbox reclusters when connected but no new files were found`() {
-        val latch = CountDownLatch(2)
-        val (routeClusteringService, intervalClusteringService) = clusteringMocks(latch)
-        val isConnected = MutableStateFlow(false)
-        val vm = buildViewModel(
-            isConnected = isConnected,
-            syncResult = DropboxSyncResult.Completed(emptyList()),
-            routeClusteringService = routeClusteringService,
-            intervalClusteringService = intervalClusteringService
-        )
-        // Flip to connected only after construction, so init's auto-sync (which read isConnected
-        // while still false) doesn't consume the latch on top of the call under test.
-        isConnected.value = true
+    fun `auto-sync on init enqueues non-expedited work only when connected`() {
+        buildViewModel(isConnected = MutableStateFlow(false))
+        assertTrue(requests.isEmpty())
 
-        vm.syncDropbox(isUserInitiated = true)
-
-        assertTrue("recluster was not called on both services", latch.await(5, TimeUnit.SECONDS))
+        buildViewModel(isConnected = MutableStateFlow(true))
+        val spec = requests.single().workSpec
+        assertFalse(spec.expedited)
+        assertEquals(NetworkType.CONNECTED, spec.constraints.requiredNetworkType)
+        assertFalse(spec.input.getBoolean(DropboxSyncWorker.KEY_IS_USER_INITIATED, true))
     }
 
     @Test
-    fun `syncDropbox reclusters when Dropbox needs reauth`() {
-        val latch = CountDownLatch(2)
-        val (routeClusteringService, intervalClusteringService) = clusteringMocks(latch)
-        val isConnected = MutableStateFlow(false)
-        val needsReauth = MutableStateFlow(false)
-        val vm = buildViewModel(
-            isConnected = isConnected,
-            needsReauth = needsReauth,
-            routeClusteringService = routeClusteringService,
-            intervalClusteringService = intervalClusteringService
+    fun `isSyncing reflects unfinished work from WorkManager immediately`() {
+        val infos = MutableStateFlow(listOf(workInfo(WorkInfo.State.RUNNING)))
+        every { workManager.getWorkInfosForUniqueWorkFlow(any()) } returns infos
+        val vm = buildViewModel(isConnected = MutableStateFlow(false))
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { vm.isSyncing.value })
+
+        infos.value = listOf(workInfo(WorkInfo.State.SUCCEEDED))
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { !vm.isSyncing.value })
+    }
+
+    private fun workInfo(state: WorkInfo.State) =
+        WorkInfo(UUID.randomUUID(), state, emptySet())
+
+    @Test
+    fun `message outcome is exposed then consumed on clear`() {
+        outcomeFlow.value = DropboxSyncOutcome.Message("Imported 2 new rides")
+        val vm = buildViewModel(isConnected = MutableStateFlow(false))
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { vm.dropboxSyncMessage.value == "Imported 2 new rides" })
+
+        vm.clearDropboxSyncMessage()
+
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { vm.dropboxSyncMessage.value == null })
+        assertNull(outcomeFlow.value)
+    }
+
+    @Test
+    fun `reveal outcome surfaces as RideReveal then is consumed on clearImportState`() {
+        val content = RideRevealContent(
+            sessionId = 3L, headline = "New PR", distanceKm = 40.0, netDurationSec = 3600, elevationGainM = null
         )
-        isConnected.value = true
-        needsReauth.value = true
+        outcomeFlow.value = DropboxSyncOutcome.Reveal(content)
+        val vm = buildViewModel(isConnected = MutableStateFlow(false))
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { vm.importState.value == ImportUiState.RideReveal(content) })
 
-        vm.syncDropbox(isUserInitiated = true)
+        vm.clearImportState()
 
-        assertTrue("recluster was not called on both services", latch.await(5, TimeUnit.SECONDS))
+        assertTrue(waitFor(5, TimeUnit.SECONDS) { vm.importState.value == ImportUiState.Idle })
+        assertNull(outcomeFlow.value)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -166,8 +192,6 @@ class HomeViewModelTest {
         dropboxSyncCursorRepository: DropboxSyncCursorRepository = FakeDropboxSyncCursorRepository()
     ): HomeViewModel = buildViewModel(
         isConnected = MutableStateFlow(false),
-        routeClusteringService = mockk<RouteClusteringService>(relaxed = true),
-        intervalClusteringService = mockk<IntervalClusteringService>(relaxed = true),
         sessionRepository = sessionRepository,
         dropboxSyncCursorRepository = dropboxSyncCursorRepository
     )

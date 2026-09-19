@@ -90,6 +90,7 @@ class DropboxSyncWorker @AssistedInject constructor(
     }
 
     companion object {
+        const val DROPBOX_SYNC_WORK_NAME = "dropbox_sync"
         const val KEY_IS_USER_INITIATED = "is_user_initiated"
         private const val TAG = "DropboxSyncWorker"
     }

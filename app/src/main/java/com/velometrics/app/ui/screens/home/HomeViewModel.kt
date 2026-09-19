@@ -6,10 +6,17 @@ import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
-import com.velometrics.app.data.dropbox.DropboxSyncResult
-import com.velometrics.app.data.dropbox.DropboxSyncService
-import com.velometrics.app.data.dropbox.buildDropboxSyncMessage
+import com.velometrics.app.data.dropbox.DropboxSyncOutcome
+import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
+import com.velometrics.app.data.dropbox.DropboxSyncWorker
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
@@ -30,6 +37,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -70,7 +78,8 @@ data class MonthlyRideSummary(
 class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val fitImportService: FitImportService,
-    private val dropboxSyncService: DropboxSyncService,
+    private val workManager: WorkManager,
+    private val dropboxSyncOutcomeStore: DropboxSyncOutcomeStore,
     private val dropboxAuthRepository: DropboxAuthRepository,
     private val dropboxSyncCursorRepository: DropboxSyncCursorRepository,
     private val routeClusteringService: RouteClusteringService,
@@ -97,8 +106,19 @@ class HomeViewModel @Inject constructor(
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    // Local state of a manual file-picker import. A Dropbox reveal from the outcome store is
+    // layered on top of it in [importState] whenever no manual import is in progress.
     private val _importState = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
-    val importState: StateFlow<ImportUiState> = _importState.asStateFlow()
+    val importState: StateFlow<ImportUiState> = combine(
+        _importState,
+        dropboxSyncOutcomeStore.outcome
+    ) { local, outcome ->
+        if (local is ImportUiState.Idle && outcome is DropboxSyncOutcome.Reveal) {
+            ImportUiState.RideReveal(outcome.content)
+        } else {
+            local
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, ImportUiState.Idle)
 
     // --- Monthly stats (last 12 months, index 0 = oldest, index 11 = current month) ---
 
@@ -287,67 +307,53 @@ class HomeViewModel @Inject constructor(
 
     fun clearImportState() {
         _importState.value = ImportUiState.Idle
+        viewModelScope.launch {
+            if (dropboxSyncOutcomeStore.outcome.first() is DropboxSyncOutcome.Reveal) {
+                dropboxSyncOutcomeStore.consume()
+            }
+        }
     }
 
-    // --- Dropbox sync ---
+    // --- Dropbox sync (WorkManager-backed, see DropboxSyncWorker) ---
 
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+    /** True while a sync work request is enqueued/running; sourced from WorkManager's persisted store. */
+    val isSyncing: StateFlow<Boolean> = workManager
+        .getWorkInfosForUniqueWorkFlow(DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME)
+        .map { infos -> infos.any { !it.state.isFinished } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    private val _dropboxSyncMessage = MutableStateFlow<String?>(null)
-    val dropboxSyncMessage: StateFlow<String?> = _dropboxSyncMessage.asStateFlow()
+    val dropboxSyncMessage: StateFlow<String?> = dropboxSyncOutcomeStore.outcome
+        .map { (it as? DropboxSyncOutcome.Message)?.text }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun clearDropboxSyncMessage() {
-        _dropboxSyncMessage.value = null
+        viewModelScope.launch {
+            if (dropboxSyncOutcomeStore.outcome.first() is DropboxSyncOutcome.Message) {
+                dropboxSyncOutcomeStore.consume()
+            }
+        }
     }
 
     /**
-     * Pull-to-refresh entry point: syncs new .fit files from the configured Dropbox folder.
-     *
-     * Reclusters unconditionally (#192) — regardless of Dropbox connection state or whether new
-     * files were found — so this is also the general "resync cluster state" action for a user who
-     * just deleted a ride and wants Repeated Routes/Intervals badges to reflect it. It's placed in
-     * `finally` so it still runs on every early-return path (not connected, needs reauth) as well
-     * as after a completed sync, without duplicating the call in each branch.
+     * Pull-to-refresh entry point: enqueues a Dropbox sync so it survives backgrounding and
+     * process death. [ExistingWorkPolicy.KEEP] drops the request if a sync is already in flight.
+     * The worker also reclusters unconditionally (#192).
      */
     fun syncDropbox(isUserInitiated: Boolean = true) {
-        if (_isSyncing.value) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSyncing.value = true
-            try {
-                if (!dropboxAuthRepository.isConnected.value) {
-                    if (isUserInitiated) {
-                        _dropboxSyncMessage.value = "Connect Dropbox in Settings to sync rides"
-                    }
-                    return@launch
+        val request = OneTimeWorkRequestBuilder<DropboxSyncWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setInputData(workDataOf(DropboxSyncWorker.KEY_IS_USER_INITIATED to isUserInitiated))
+            .apply {
+                if (isUserInitiated) {
+                    setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 }
-                if (dropboxAuthRepository.needsReauth.value) {
-                    return@launch
-                }
-
-                val revealBaseline = rideRevealEvaluator.captureBaseline()
-                when (val result = dropboxSyncService.sync()) {
-                    is DropboxSyncResult.Completed -> {
-                        val reveal = rideRevealEvaluator.evaluate(result.importResults, revealBaseline)
-                        if (reveal != null) {
-                            _importState.value = ImportUiState.RideReveal(reveal)
-                        } else if (isUserInitiated || result.importResults.isNotEmpty()) {
-                            _dropboxSyncMessage.value = buildDropboxSyncMessage(result.importResults)
-                        }
-                    }
-                    DropboxSyncResult.TransientFailure -> {
-                        // Fail silently; will retry on the next sync trigger.
-                    }
-                    DropboxSyncResult.NeedsReauth -> {
-                        dropboxAuthRepository.markNeedsReauth()
-                    }
-                }
-            } finally {
-                _isSyncing.value = false
-                recluster()
             }
-        }
+            .build()
+        workManager.enqueueUniqueWork(
+            DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
     }
 
     /** Auto-sync entry point: silently syncs Dropbox on app open, if connected. */

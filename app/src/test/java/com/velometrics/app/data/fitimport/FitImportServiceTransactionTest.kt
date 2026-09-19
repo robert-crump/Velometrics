@@ -72,14 +72,14 @@ class FitImportServiceTransactionTest {
         context.deleteDatabase(dbName)
     }
 
-    private fun service(sessions: CyclingSessionRepository, retest: Pair<LocalDate, Int>? = null): FitImportService {
+    private fun service(sessions: CyclingSessionRepository, retest: Pair<LocalDate, Int>? = null): FitImportServiceImpl {
         val settings = mockk<UserSettingsRepository>()
         every { settings.maxHr } returns flowOf(190)
         val ftpHistory = FtpHistoryRepository(db.ftpHistoryDao(), object : LegacyFtpStore {
             override suspend fun takeLegacyFtp(): Int = 250
         })
         retest?.let { (date, ftp) -> runBlocking { ftpHistory.save(date, ftp) } }
-        return FitImportService(
+        return FitImportServiceImpl(
             sessionRepository = sessions,
             metricsCalculator = SessionMetricsCalculator(),
             intervalDetector = IntervalDetector(),

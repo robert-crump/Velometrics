@@ -1,6 +1,8 @@
 ﻿package com.velometrics.app.di
 
 import com.velometrics.app.data.dropbox.DropboxCredentialStore
+import com.velometrics.app.data.fitimport.FitImportService
+import com.velometrics.app.data.fitimport.FitImportServiceImpl
 import com.velometrics.app.data.preferences.LegacyFtpStore
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.data.repository.BestEffortRepositoryImpl
@@ -16,6 +18,8 @@ import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.repository.MapGraphRepository
 import com.velometrics.app.domain.repository.RepeatedIntervalRepository
 import com.velometrics.app.domain.repository.RepeatedRouteRepository
+import com.velometrics.app.domain.service.RideLifecycle
+import com.velometrics.app.domain.service.RideLifecycleImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -73,4 +77,16 @@ abstract class RepositoryModule {
     abstract fun bindDropboxSyncCursorRepository(
         impl: DropboxCredentialStore
     ): DropboxSyncCursorRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindFitImportService(
+        impl: FitImportServiceImpl
+    ): FitImportService
+
+    @Binds
+    @Singleton
+    abstract fun bindRideLifecycle(
+        impl: RideLifecycleImpl
+    ): RideLifecycle
 }

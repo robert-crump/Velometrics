@@ -1,10 +1,10 @@
 package com.velometrics.app.domain.service
 
+import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RideRevealCandidate
 import com.velometrics.app.domain.model.RideRevealFamily
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.util.FormatUtils
-import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,11 +22,11 @@ import javax.inject.Singleton
 @Singleton
 class PowerCurveAchievementEvaluator @Inject constructor(
     private val bestEffortRepository: BestEffortRepository
-) {
+) : RevealCandidateSource {
 
-    suspend fun candidates(sessionId: Long, sessionStart: Instant): List<RideRevealCandidate> {
-        val own = bestEffortRepository.getForSession(sessionId) ?: return emptyList()
-        val yearStart = RankedMetricEvaluator.startOfYear(sessionStart)
+    override suspend fun candidates(session: CyclingSession): List<RideRevealCandidate> {
+        val own = bestEffortRepository.getForSession(session.id) ?: return emptyList()
+        val yearStart = RankedMetricEvaluator.startOfYear(session.sessionStart)
 
         val metrics = buildList {
             own.power5s?.let { add(RankedMetricEvaluator.Metric(ordinalWord = "best", noun = "5-second power", value = it, format = FormatUtils::formatPower) { value, since ->

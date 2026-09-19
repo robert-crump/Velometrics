@@ -3,6 +3,9 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.fakes.FakeBestEffortRepository
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
+import com.velometrics.app.fakes.FakeIntervalRepository
+import com.velometrics.app.domain.model.AchievementScope
+import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.CyclingSession
 import java.time.Instant
@@ -17,16 +20,21 @@ class RideRevealEvaluatorTest {
 
     private lateinit var repository: FakeCyclingSessionRepository
     private lateinit var bestEffortRepository: FakeBestEffortRepository
+    private lateinit var intervalRepository: FakeIntervalRepository
     private lateinit var evaluator: RideRevealEvaluator
 
     @Before
     fun setup() {
         repository = FakeCyclingSessionRepository()
         bestEffortRepository = FakeBestEffortRepository()
+        intervalRepository = FakeIntervalRepository()
         evaluator = RideRevealEvaluator(
             repository,
-            RideMilestoneEvaluator(repository),
-            PowerCurveAchievementEvaluator(bestEffortRepository)
+            setOf(
+                RideMilestoneEvaluator(repository),
+                PowerCurveAchievementEvaluator(bestEffortRepository),
+                IntervalAchievementRevealSource(intervalRepository)
+            )
         )
     }
 
@@ -245,5 +253,29 @@ class RideRevealEvaluatorTest {
         val content = evaluator.evaluate(results, baseline)
 
         assertEquals("Your best 20-minute power ever! (250 W)", content?.headline)
+    }
+
+    @Test
+    fun `a new repeated-interval personal best can be the headline`() = runBlocking {
+        val baseline = Instant.parse("2026-01-01T00:00:00Z")
+        insert(baseline, distanceKm = 200.0, elevationGainM = 3000.0)
+        insert(baseline.plusSeconds(1), distanceKm = 210.0, elevationGainM = 3100.0)
+        insert(baseline.plusSeconds(2), distanceKm = 220.0, elevationGainM = 3200.0)
+        val newRideStart = Instant.parse("2026-02-01T00:00:00Z")
+        // A modest ride (no milestone) whose interval rep is the archetype's fastest ever.
+        val id = insert(newRideStart, distanceKm = 5.0, elevationGainM = 10.0)
+        intervalRepository.insertInterval(
+            IntervalSession(
+                cyclingSessionId = id, startTimestamp = newRideStart, durationSec = 300,
+                durationNormalizedSec = 300, distanceM = 2000.0, avgPower = 300, avgSpeedKmh = 35.0,
+                avgSpeedNormalizedKmh = 35.0, direction = "N", startLat = 0.0, startLon = 0.0,
+                endLat = 0.0, endLon = 0.0, gpsTrack = "",
+                achievementRank = 1, achievementScope = AchievementScope.ALL_TIME
+            )
+        )
+
+        val content = evaluator.evaluate(listOf(ImportResult.Success(id, "summary", newRideStart)), baseline)
+
+        assertTrue(content?.headline?.contains("interval") == true)
     }
 }

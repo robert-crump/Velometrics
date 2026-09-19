@@ -1,3 +1,21 @@
+## Issue #201 — Ride Reveal: RevealCandidateSource seam and a single-file priority rule
+Completed: 2026-09-19
+
+### What was done
+
+- New `RevealCandidateSource` interface (`candidates(session)`); `RideMilestoneEvaluator` and
+  `PowerCurveAchievementEvaluator` implement it, and `RevealSourceModule` binds all sources `@IntoSet`.
+  `RideRevealEvaluator` now takes `Set<RevealCandidateSource>` -- a new source is one class + one binding.
+- New `IntervalAchievementRevealSource` turns the persisted #185 interval achievement snapshot into a
+  candidate (family `INTERVAL_ACHIEVEMENT`), so a repeated-interval PR can be the hero headline.
+- `RideRevealResolver` now owns the whole winner rule: explicit `SCOPE_ORDER` / `FAMILY_ORDER` lists
+  (milestone > interval > power curve), and the "Nice ride!" fallback. `RideRevealPriority` lost its
+  `Comparable`, the `FALLBACK` sentinel and `FALLBACK` family are gone; `resolve` returns the headline.
+- Tests: resolver order/enum-independence, interval-wins-hero end-to-end; `FakeIntervalRepository` is
+  now stateful and `fakes/TestSessions.kt` shares a session builder.
+
+`testDebugUnitTest` and `assembleDebug` pass.
+
 ## Issue #198 — ChartAxis module: one tick/plot-rect/label implementation for the line and scatter charts
 Completed: 2026-09-19
 
@@ -111,66 +129,3 @@ behavior-identical (see above).
 
 ---
 
-## Issue #195 — Test seams: shared fakes package, interfaces for the derived caches, one FlowCache
-Completed: 2026-09-18
-
-### What was done
-
-Three mechanical seams flagged by an `/improve-codebase-architecture` review, all in service of making
-the four cache-backed ViewModels (`AllTimeStatsViewModel`, `TrainingLoadViewModel`,
-`RepeatedRoutesViewModel`, `RepeatedIntervalsViewModel`) testable without standing up Hilt or a real
-`ApplicationScope`.
-
-**Shared fakes package** — moved every repository/location fake duplicated verbatim across
-`HomeViewModelTest`, `SessionDetailViewModelTest`, and `MapViewViewModelTest` (`FakeIntervalRepository`,
-`FakeRepeatedIntervalRepository`, `FakeDropboxSyncCursorRepository`, `FakeMapGraphRepository`, plus the
-pre-existing `FakeCyclingSessionRepository`, `FakeLocationSource`, `FakeBestEffortRepository`) into one
-new `app/src/test/.../fakes/` package, one fake per interface, and updated every importer (8 test files
-beyond the three ViewModel tests: `RepeatedRouteRepositoryImplTest`, `RideRevealEvaluatorTest`,
-`RideMilestoneEvaluatorTest`, `SessionComparatorTest`, `RideClassificationServiceTest`,
-`PowerCurveAchievementEvaluatorTest`). `SessionDetailViewModelTest`'s local `FakeBestEffortRepository`
-stub was dropped in favor of the shared one (behaviorally identical at its default empty-`records`
-state). Test-only doubles specific to one test file (e.g. `FailingDeleteCyclingSessionRepository`,
-`LatchedDeleteSessionsRepository`) stayed local — only the ones duplicated across files moved.
-
-**Cache interfaces** — `AllTimeStatsCache`, `TrainingLoadCache`, `GlobalAverageCache`,
-`RepeatedRoutesCache`, `RepeatedIntervalsCache` are now interfaces in `data/cache`, each implemented by
-a `*Impl` class (still the `@Singleton @Inject constructor` doing the real Flow wiring), bound via a new
-`di/CacheModule.kt` `@Binds` module — the same interface/impl/`@Binds` pattern `RepositoryModule`
-already uses for repositories. Every ViewModel and `VelometricsApplication`'s eager-init injection site
-kept referencing the cache by its original name, since that name now resolves to the interface — no
-call-site changes needed outside the cache files themselves and the new module.
-
-**One `FlowCache`** — `RepeatedRoutesCache`/`RepeatedIntervalsCache` were byte-identical modulo type, so
-their hot-`StateFlow`-plus-`isLoading` shape moved into a new generic `HotFlowCache<T>`
-(`data/cache/HotFlowCache.kt`); `RepeatedRoutesCacheImpl`/`RepeatedIntervalsCacheImpl` are now thin
-wrappers around one each. `debounce(300)`'s value and rationale, previously copy-pasted across
-`AllTimeStatsCache`/`TrainingLoadCache`/`GlobalAverageCache`'s KDocs, now live once in a new
-`data/cache/CacheDebounce.kt` (`CACHE_DEBOUNCE_MS` constant + a `Flow<T>.debounced()` extension); all
-three plus `HotFlowCache` call the shared extension instead of a bare `.debounce(300)`. Explicit decision
-on the issue's open question: `HotFlowCache` **does** debounce (previously neither Repeated* cache did,
-with no stated reason) — clustering does `deleteAll()` then one `saveX()` per cluster on every run
-(see `RouteClusteringService`/`IntervalClusteringService`), the same per-write-storm shape the other
-three caches' debounce already guards against, just triggered by a clustering pass instead of a bulk
-import.
-
-**Smoke tests** — one test class each for the four ViewModels that had none before, exercising the new
-interface seam directly: `AllTimeStatsViewModelTest`, `TrainingLoadViewModelTest` (both trivial —
-`uiState` is a direct passthrough of the injected cache's `StateFlow`, verified against a
-`FakeAllTimeStatsCache`/`FakeTrainingLoadCache`), `RepeatedRoutesViewModelTest`,
-`RepeatedIntervalsViewModelTest` (cover the cache passthrough plus sort/`isLoading` wiring and that
-`refresh()` invokes the injected clustering service and clears `isRefreshing`, using
-`FakeRepeatedRoutesCache`/`FakeRepeatedIntervalsCache` and a relaxed/`coEvery`-stubbed
-`RouteClusteringService`/`IntervalClusteringService` mock — no Hilt, no `UserSettingsRepository`'s real
-Android `DataStore`, no `ApplicationScope`).
-
-### Tests
-New: `AllTimeStatsViewModelTest` (2), `TrainingLoadViewModelTest` (2), `RepeatedRoutesViewModelTest` (3),
-`RepeatedIntervalsViewModelTest` (3) — 10 new cases, all exercising the fakeable-interface seam this
-issue introduced. `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug` (confirms the new
-`CacheModule` `@Binds` graph resolves), full `testDebugUnitTest`: all pass, 379 tests, zero
-failures/errors across the whole suite (aggregated test-result XML). No on-device verification this
-session (no emulator/device attached) — this issue is a pure test-seam refactor with no UI or behavior
-change, so the unit suite is the relevant feedback loop.
-
----

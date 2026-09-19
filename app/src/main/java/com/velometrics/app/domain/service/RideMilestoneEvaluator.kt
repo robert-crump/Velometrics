@@ -21,9 +21,9 @@ import javax.inject.Singleton
 @Singleton
 class RideMilestoneEvaluator @Inject constructor(
     private val sessionRepository: CyclingSessionRepository
-) {
+) : RevealCandidateSource {
 
-    suspend fun candidates(session: CyclingSession): List<RideRevealCandidate> {
+    override suspend fun candidates(session: CyclingSession): List<RideRevealCandidate> {
         val yearStart = RankedMetricEvaluator.startOfYear(session.sessionStart)
         val metrics = buildList {
             add(

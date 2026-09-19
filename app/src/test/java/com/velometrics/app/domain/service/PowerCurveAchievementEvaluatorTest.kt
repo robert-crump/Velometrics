@@ -1,6 +1,7 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.fakes.FakeBestEffortRepository
+import com.velometrics.app.fakes.testSession
 import com.velometrics.app.domain.model.BestEffortRecord
 import com.velometrics.app.domain.model.RideRevealFamily
 import com.velometrics.app.domain.model.RideRevealScope
@@ -51,7 +52,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-06-01T00:00:00Z")
         repository.records.add(record(sessionId = 1, start = start))
 
-        val candidates = evaluator.candidates(sessionId = 1, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(1, start))
 
         val allTime = candidates.filter { it.priority.scope == RideRevealScope.ALL_TIME }
         assertEquals(4, allTime.size) // 5s, 1m, 5m, 20m
@@ -66,7 +67,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-01-04T00:00:00Z")
         repository.records.add(record(sessionId = 4, start = start, power5m = 300))
 
-        val candidates = evaluator.candidates(sessionId = 4, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(4, start))
 
         assertTrue(candidates.none { it.headline.contains("5-minute") })
     }
@@ -78,7 +79,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-01-04T00:00:00Z")
         repository.records.add(record(sessionId = 3, start = start, power5m = 300))
 
-        val candidates = evaluator.candidates(sessionId = 3, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(3, start))
 
         val fiveMin = candidates.first { it.headline.contains("5-minute") && it.priority.scope == RideRevealScope.ALL_TIME }
         assertEquals(3, fiveMin.priority.rank)
@@ -90,7 +91,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-01-04T00:00:00Z")
         repository.records.add(record(sessionId = 2, start = start, power20m = 250))
 
-        val candidates = evaluator.candidates(sessionId = 2, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(2, start))
 
         val thisYear = candidates.first { it.headline.contains("20-minute") && it.priority.scope == RideRevealScope.THIS_YEAR }
         assertEquals(1, thisYear.priority.rank) // last year's bigger effort doesn't count
@@ -101,7 +102,7 @@ class PowerCurveAchievementEvaluatorTest {
 
     @Test
     fun `a ride with no best-effort row registers no candidates`() = runBlocking {
-        val candidates = evaluator.candidates(sessionId = 99, sessionStart = Instant.parse("2026-01-01T00:00:00Z"))
+        val candidates = evaluator.candidates(testSession(99, Instant.parse("2026-01-01T00:00:00Z")))
 
         assertTrue(candidates.isEmpty())
     }
@@ -111,7 +112,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-01-01T00:00:00Z")
         repository.records.add(record(sessionId = 1, start = start, power20m = null))
 
-        val candidates = evaluator.candidates(sessionId = 1, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(1, start))
 
         assertTrue(candidates.none { it.headline.contains("20-minute") })
     }
@@ -121,7 +122,7 @@ class PowerCurveAchievementEvaluatorTest {
         val start = Instant.parse("2026-01-01T00:00:00Z")
         repository.records.add(record(sessionId = 1, start = start))
 
-        val candidates = evaluator.candidates(sessionId = 1, sessionStart = start)
+        val candidates = evaluator.candidates(testSession(1, start))
 
         val fiveSecond = candidates.first { it.headline.contains("5-second") && it.priority.scope == RideRevealScope.ALL_TIME }
         assertEquals("Your best 5-second power ever! (900 W)", fiveSecond.headline)

@@ -81,7 +81,8 @@ class SessionDetailViewModelTest {
         bestEffortRepository = FakeBestEffortRepository(),
         sessionComparator = SessionComparator(sessionRepository),
         sessionNarrativeAssembler = SessionNarrativeAssembler(
-            sessionRepository, FakeIntervalRepository(), SessionComparator(sessionRepository)
+            sessionRepository, FakeIntervalRepository(), SessionComparator(sessionRepository),
+            com.velometrics.app.fakes.FakeRepeatedRoutesCache()
         ),
         dropboxSyncCursorRepository = dropboxSyncCursorRepository,
         globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),

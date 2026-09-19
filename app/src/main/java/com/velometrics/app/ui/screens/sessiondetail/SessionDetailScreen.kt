@@ -31,6 +31,7 @@ import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
+import com.velometrics.app.domain.service.RouteRecap
 import com.velometrics.app.domain.service.SessionNarrative
 import com.velometrics.app.ui.components.*
 import com.velometrics.app.util.FormatUtils
@@ -43,6 +44,7 @@ import java.time.format.DateTimeFormatter
 fun SessionDetailScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToRepeatedInterval: (Long) -> Unit = {},
+    onNavigateToRepeatedRoute: (Long) -> Unit = {},
     viewModel: SessionDetailViewModel = hiltViewModel()
 ) {
     val session by viewModel.session.collectAsState()
@@ -50,6 +52,7 @@ fun SessionDetailScreen(
     val repeatedIntervalNames by viewModel.repeatedIntervalNames.collectAsState()
     val comparison by viewModel.comparison.collectAsState()
     val narrative by viewModel.narrative.collectAsState()
+    val routeRecap by viewModel.routeRecap.collectAsState()
     val powerCurve by viewModel.powerCurve.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
@@ -145,7 +148,10 @@ fun SessionDetailScreen(
                     initialFraction = 0.5f,
                     onFractionSnapped = { drawerFraction = it }
                 ) {
-                    RideSummaryGrid(session = s, comparison = comparison, narrative = narrative)
+                    RideSummaryGrid(
+                        session = s, comparison = comparison, narrative = narrative,
+                        routeRecap = routeRecap, onRouteRecapClick = onNavigateToRepeatedRoute
+                    )
 
                     if (powerSectionVisible) {
                         CollapsibleSection(
@@ -538,7 +544,13 @@ private fun ChapterStatsCard(metrics: List<Pair<String, String>>) {
 }
 
 @Composable
-private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparison?, narrative: SessionNarrative?) {
+private fun RideSummaryGrid(
+    session: CyclingSession,
+    comparison: SessionComparison?,
+    narrative: SessionNarrative?,
+    routeRecap: RouteRecap?,
+    onRouteRecapClick: (Long) -> Unit
+) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
     val avgSpeed = if (session.netDurationSec > 0)
         session.distanceKm / session.netDurationSec * 3600 else 0.0
@@ -585,6 +597,25 @@ private fun RideSummaryGrid(session: CyclingSession, comparison: SessionComparis
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
+        }
+        if (routeRecap != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onRouteRecapClick(routeRecap.routeId) }
+            ) {
+                Text(
+                    text = routeRecap.headline,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = routeRecap.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
 

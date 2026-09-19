@@ -10,7 +10,10 @@ import com.velometrics.app.fakes.FakeIntervalRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
+import com.velometrics.app.domain.model.RepeatedRoute
+import com.velometrics.app.fakes.FakeRepeatedRoutesCache
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -53,7 +56,7 @@ class SessionNarrativeAssemblerTest {
     private fun assembler(
         sessions: CyclingSessionRepository,
         intervals: IntervalRepository = FakeIntervalRepository()
-    ) = SessionNarrativeAssembler(sessions, intervals, SessionComparator(sessions))
+    ) = SessionNarrativeAssembler(sessions, intervals, SessionComparator(sessions), FakeRepeatedRoutesCache())
 
     @Test
     fun `tagged session with history gets the headline and an all-time recap`() = runTest {

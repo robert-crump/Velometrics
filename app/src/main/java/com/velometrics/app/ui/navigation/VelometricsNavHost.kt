@@ -68,6 +68,9 @@ fun VelometricsNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToRepeatedInterval = { repeatedIntervalId ->
                     navController.navigate(Screen.RepeatedIntervalDetail.createRoute(repeatedIntervalId))
+                },
+                onNavigateToRepeatedRoute = { routeId ->
+                    navController.navigate(Screen.RepeatedRouteDetail.createRoute(routeId))
                 }
             )
         }

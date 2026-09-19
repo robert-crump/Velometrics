@@ -15,6 +15,7 @@ import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.SessionComparator
+import com.velometrics.app.domain.service.RouteRecap
 import com.velometrics.app.domain.service.SessionNarrative
 import com.velometrics.app.domain.service.SessionNarrativeAssembler
 import com.velometrics.app.util.CyclingConstants
@@ -61,6 +62,10 @@ class SessionDetailViewModel @Inject constructor(
 
     /** Tag-scoped recap (#171/#214), or null if this ride has no tag. Refreshes if the tag is backfilled. */
     val narrative: StateFlow<SessionNarrative?> = sessionNarrativeAssembler.observe(sessionId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Repeated Route recap (#217), or null if this ride isn't in a qualifying route. */
+    val routeRecap: StateFlow<RouteRecap?> = sessionNarrativeAssembler.observeRouteRecap(sessionId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** This ride's own best-effort power curve (#173), or empty if it has no power data at all. */

@@ -1,3 +1,19 @@
+## Issue #217 -- Repeated Route recap on Session Detail
+Completed: 2026-09-19
+
+### What was done
+
+- `SessionNarrativeAssembler` gains a `RepeatedRoutesCache` dependency, `observeRouteRecap(sessionId)` (reactive on the
+  cache) and a pure `buildRouteRecap(sessionId, route)`. Recap = median of all *other* rides on the route (excludes the
+  current one), only for routes with >= ROUTE_CLUSTER_MIN_GROUP_SIZE rides; speed/power/HR lines each drop independently.
+  Headline uses the route name when `isCustomName`, else "Vs. other rides on this route".
+- `SessionDetailViewModel.routeRecap`; `RideSummaryGrid` renders a tappable block under the Tag recap (same styling),
+  navigating via new `onNavigateToRepeatedRoute` to `RepeatedRouteDetailScreen`. Omitted when no route.
+- Tests: new `RouteRecapTest` (format, median exclusion, headline branching, per-stat omission, membership, cache lookup).
+- Speed medians print with one decimal ("27.0 km/h") for consistency with the current value.
+
+`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
+
 ## Issue #216 -- Recovery fixed-metric recap
 Completed: 2026-09-19
 
@@ -66,20 +82,6 @@ Completed: 2026-09-19
   (it re-saves the existing name, so the flag must follow it).
 - `renameRoute` in the repository sets `isCustomName = true`. No visible UI effect (prerequisite for #217).
 - Tests: migration test (backfill true), repository rename test, new `RouteClusteringServiceTest` (new = false, matched keeps true).
-
-`testDebugUnitTest` and `assembleDebug` pass.
-
-## Issue #212 -- Floating header controls over the map (Ride Detail Screen)
-Completed: 2026-09-19
-
-### What was done
-
-- Removed the `TopAppBar` from `SessionDetailScreen`; the map Box now only pads for the Scaffold's bottom inset,
-  so the map extends up under the status bar.
-- Added floating 44dp circular back (top-left) and overflow (top-right, still holds "Delete ride" + confirm flow)
-  buttons via a private `FloatingCircleButton` (solid `colorScheme.surface` background), inset with `statusBarsPadding()`
-  and 12dp/8dp edge padding. They render in loading/not-found states too so back always works.
-- Drawer date text (`RideSummaryGrid`) untouched. No visual check on a device this run.
 
 `testDebugUnitTest` and `assembleDebug` pass.
 

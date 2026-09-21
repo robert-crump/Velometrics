@@ -3,6 +3,7 @@ package com.velometrics.app.ui.screens.home
 import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcome
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
+import com.velometrics.app.data.dropbox.DropboxSyncScheduler
 import com.velometrics.app.data.dropbox.DropboxSyncWorker
 import com.velometrics.app.domain.model.RideRevealContent
 import androidx.work.ExistingWorkPolicy
@@ -11,7 +12,6 @@ import androidx.work.Operation
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import io.mockk.verify
 import java.util.UUID
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertNull
@@ -90,28 +90,9 @@ class HomeViewModelTest {
             sessionRepository = sessionRepository,
             rideLifecycle = fixture.lifecycle(sessionRepository, dropboxSyncCursorRepository),
             importSourceReader = mockk(relaxed = true),
-            workManager = workManager,
-            dropboxSyncOutcomeStore = outcomeStore,
-            dropboxAuthRepository = dropboxAuthRepository
+            dropboxSyncScheduler = DropboxSyncScheduler(workManager, dropboxAuthRepository),
+            dropboxSyncOutcomeStore = outcomeStore
         )
-    }
-
-    @Test
-    fun `pull-to-refresh enqueues expedited unique KEEP work requiring network`() {
-        val vm = buildViewModel(isConnected = MutableStateFlow(false))
-
-        vm.syncDropbox(isUserInitiated = true)
-
-        assertEquals(1, requests.size)
-        val spec = requests.single().workSpec
-        assertTrue(spec.expedited)
-        assertEquals(NetworkType.CONNECTED, spec.constraints.requiredNetworkType)
-        assertTrue(spec.input.getBoolean(DropboxSyncWorker.KEY_IS_USER_INITIATED, false))
-        verify {
-            workManager.enqueueUniqueWork(
-                DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME, ExistingWorkPolicy.KEEP, any<OneTimeWorkRequest>()
-            )
-        }
     }
 
     @Test

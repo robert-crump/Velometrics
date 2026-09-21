@@ -1,9 +1,8 @@
 package com.velometrics.app.ui.screens.home
 
-import androidx.work.WorkManager
-import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcome
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
+import com.velometrics.app.data.dropbox.DropboxSyncScheduler
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.service.ImportSource
 import com.velometrics.app.fakes.RideLifecycleFixture
@@ -15,6 +14,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -43,17 +43,16 @@ class HomeViewModelImportTest {
     }
 
     private fun viewModel(): HomeViewModel {
-        val auth = mockk<DropboxAuthRepository>()
-        every { auth.isConnected } returns MutableStateFlow(false)
+        val syncScheduler = mockk<DropboxSyncScheduler>(relaxed = true)
+        every { syncScheduler.isSyncing } returns flowOf(false)
         val outcomeStore = mockk<DropboxSyncOutcomeStore>()
         every { outcomeStore.outcome } returns MutableStateFlow<DropboxSyncOutcome?>(null)
         return HomeViewModel(
             sessionRepository = fixture.sessions,
             rideLifecycle = fixture.lifecycle(),
             importSourceReader = mockk(relaxed = true),
-            workManager = mockk<WorkManager>(relaxed = true),
-            dropboxSyncOutcomeStore = outcomeStore,
-            dropboxAuthRepository = auth
+            dropboxSyncScheduler = syncScheduler,
+            dropboxSyncOutcomeStore = outcomeStore
         )
     }
 

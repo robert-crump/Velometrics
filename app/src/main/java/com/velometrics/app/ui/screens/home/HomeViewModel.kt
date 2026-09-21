@@ -3,17 +3,9 @@
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
-import androidx.work.workDataOf
-import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.dropbox.DropboxSyncOutcome
 import com.velometrics.app.data.dropbox.DropboxSyncOutcomeStore
-import com.velometrics.app.data.dropbox.DropboxSyncWorker
+import com.velometrics.app.data.dropbox.DropboxSyncScheduler
 import com.velometrics.app.data.fitimport.ImportResult
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.RideRevealContent
@@ -70,9 +62,8 @@ class HomeViewModel @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val rideLifecycle: RideLifecycle,
     private val importSourceReader: UriImportSourceReader,
-    private val workManager: WorkManager,
-    private val dropboxSyncOutcomeStore: DropboxSyncOutcomeStore,
-    private val dropboxAuthRepository: DropboxAuthRepository
+    private val dropboxSyncScheduler: DropboxSyncScheduler,
+    private val dropboxSyncOutcomeStore: DropboxSyncOutcomeStore
 ) : ViewModel() {
 
     // Tracks whether the first real DB emission has arrived.
@@ -257,12 +248,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // --- Dropbox sync (WorkManager-backed, see DropboxSyncWorker) ---
+    // --- Dropbox sync (WorkManager-backed, see DropboxSyncScheduler) ---
 
-    /** True while a sync work request is enqueued/running; sourced from WorkManager's persisted store. */
-    val isSyncing: StateFlow<Boolean> = workManager
-        .getWorkInfosForUniqueWorkFlow(DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME)
-        .map { infos -> infos.any { !it.state.isFinished } }
+    val isSyncing: StateFlow<Boolean> = dropboxSyncScheduler.isSyncing
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val dropboxSyncMessage: StateFlow<String?> = dropboxSyncOutcomeStore.outcome
@@ -277,35 +265,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Pull-to-refresh entry point: enqueues a Dropbox sync so it survives backgrounding and
-     * process death. [ExistingWorkPolicy.KEEP] drops the request if a sync is already in flight.
-     * The worker also reclusters unconditionally (#192).
-     */
+    /** Pull-to-refresh entry point. */
     fun syncDropbox(isUserInitiated: Boolean = true) {
-        val request = OneTimeWorkRequestBuilder<DropboxSyncWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setInputData(workDataOf(DropboxSyncWorker.KEY_IS_USER_INITIATED to isUserInitiated))
-            .apply {
-                if (isUserInitiated) {
-                    setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                }
-            }
-            .build()
-        workManager.enqueueUniqueWork(
-            DropboxSyncWorker.DROPBOX_SYNC_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
-    }
-
-    /** Auto-sync entry point: silently syncs Dropbox on app open, if connected. */
-    private fun autoSyncDropbox() {
-        if (!dropboxAuthRepository.isConnected.value) return
-        syncDropbox(isUserInitiated = false)
+        dropboxSyncScheduler.sync(isUserInitiated)
     }
 
     init {
-        autoSyncDropbox()
+        dropboxSyncScheduler.autoSync()
     }
 }

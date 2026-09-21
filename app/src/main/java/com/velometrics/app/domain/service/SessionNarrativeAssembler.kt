@@ -1,6 +1,7 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.data.cache.RepeatedRoutesCache
+import com.velometrics.app.data.cache.SessionRecapCache
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
@@ -11,10 +12,13 @@ import com.velometrics.app.domain.repository.IntervalRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 
 /** The Session Detail tag recap (#214): [headline] is "vs. [TAG]", [lines] one stat line per metric. */
@@ -32,8 +36,27 @@ class SessionNarrativeAssembler @Inject constructor(
     private val sessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
     private val sessionComparator: SessionComparator,
-    private val repeatedRoutesCache: RepeatedRoutesCache
+    private val repeatedRoutesCache: RepeatedRoutesCache,
+    private val recapCache: SessionRecapCache = SessionRecapCache()
 ) {
+    /** Last-known recaps for [sessionId], for seeding the UI before the live flows emit. */
+    fun cachedNarrative(sessionId: Long): SessionNarrative? = recapCache.narrative(sessionId)
+    fun cachedRouteRecap(sessionId: Long): RouteRecap? = recapCache.routeRecap(sessionId)
+
+    /** Pre-computes the tag recap for [session] into the cache (app-start warm-up); skips if already cached. */
+    suspend fun warmNarrative(session: CyclingSession) {
+        if (recapCache.hasNarrative(session.id)) return
+        recapCache.putNarrative(session.id, build(session))
+    }
+
+    /** Pre-computes Repeated Route recaps for [sessionIds] from [routes] into the cache. */
+    fun warmRouteRecaps(sessionIds: List<Long>, routes: List<RepeatedRoute>) {
+        sessionIds.forEach { id ->
+            recapCache.putRouteRecap(id, routes.firstOrNull { r -> r.sessions.any { it.id == id } }
+                ?.let { buildRouteRecap(id, it) })
+        }
+    }
+
     /**
      * Null when the ride has no tag or too little tag history (the recap block is omitted), or the history lookup fails —
      * the recap is supplementary, so an error must not take Session Detail down with it.
@@ -63,18 +86,22 @@ class SessionNarrativeAssembler @Inject constructor(
             .map { it.firstOrNull() }
             .distinctUntilChanged { old, new -> old?.tag == new?.tag }
             .mapLatest { session -> session?.let { build(it) } }
+            .onEach { recapCache.putNarrative(sessionId, it) }
 
     /**
      * Repeated Route recap (#217): null unless [sessionId] belongs to a qualifying route. Reactive
      * on the routes cache so a recluster (e.g. after pull-to-refresh) updates the block.
      */
     fun observeRouteRecap(sessionId: Long): Flow<RouteRecap?> =
-        repeatedRoutesCache.routes
-            .map { routes ->
+        // Skip the cache's pre-load empty list: it isn't "no route", and would blank a cached recap.
+        combine(repeatedRoutesCache.routes, repeatedRoutesCache.isLoading) { routes, loading -> routes to loading }
+            .filter { (_, loading) -> !loading }
+            .map { (routes, _) ->
                 routes.firstOrNull { r -> r.sessions.any { it.id == sessionId } }
                     ?.let { buildRouteRecap(sessionId, it) }
             }
             .distinctUntilChanged()
+            .onEach { recapCache.putRouteRecap(sessionId, it) }
 
     companion object {
         /** Compares against all *other* rides on the route; null if it doesn't qualify or no stat renders. */

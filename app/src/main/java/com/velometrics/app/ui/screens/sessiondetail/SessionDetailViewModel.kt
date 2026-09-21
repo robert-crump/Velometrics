@@ -69,11 +69,11 @@ class SessionDetailViewModel @Inject constructor(
 
     /** Tag-scoped recap (#171/#214), or null if this ride has no tag. Refreshes if the tag is backfilled. */
     val narrative: StateFlow<SessionNarrative?> = sessionNarrativeAssembler.observe(sessionId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), sessionNarrativeAssembler.cachedNarrative(sessionId))
 
     /** Repeated Route recap (#217), or null if this ride isn't in a qualifying route. */
     val routeRecap: StateFlow<RouteRecap?> = sessionNarrativeAssembler.observeRouteRecap(sessionId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), sessionNarrativeAssembler.cachedRouteRecap(sessionId))
 
     /** This ride's own best-effort power curve (#173), or empty if it has no power data at all. */
     private val _powerCurve = MutableStateFlow<List<PowerCurvePoint>>(emptyList())

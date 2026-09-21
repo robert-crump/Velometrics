@@ -48,7 +48,7 @@ fun CardiacDriftChart(buckets: Map<String, Double>) {
             )
             Text(
                 text = "EF vs. first-half baseline",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Light),
                 color = onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -118,7 +118,7 @@ fun CardiacDriftChart(buckets: Map<String, Double>) {
                     }
                 }
 
-                val labelPainter = ChartLabelPainter(9.dp.toPx())
+                val labelPainter = ChartLabelPainter(9.dp.toPx(), light = true)
                 val labelColor = onSurfaceVariant.copy(alpha = 0.6f)
                 var i = 0
                 while (i <= maxIndex) {

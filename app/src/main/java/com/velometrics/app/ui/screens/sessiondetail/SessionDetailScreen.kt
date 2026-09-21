@@ -410,7 +410,7 @@ private fun IntervalMapLegend(intervals: List<IntervalSession>, modifier: Modifi
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light)
                     )
                 }
             }
@@ -571,7 +571,7 @@ private fun RecapLines(headline: String, lines: List<String>, topPadding: Dp = 8
     lines.forEach { line ->
         Text(
             text = line,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light),
             modifier = Modifier.padding(top = 4.dp)
         )
     }

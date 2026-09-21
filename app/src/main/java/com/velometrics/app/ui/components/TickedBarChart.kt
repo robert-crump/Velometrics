@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -112,14 +113,14 @@ fun TickedBarChart(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = entry.label,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                             maxLines = 1
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         if (entry.percentageLabel != null) {
                             Text(
                                 text = entry.percentageLabel,
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                                 maxLines = 1
                             )
                         } else {

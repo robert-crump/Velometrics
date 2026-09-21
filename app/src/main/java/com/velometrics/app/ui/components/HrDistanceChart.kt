@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.HrDistancePoint
 import com.velometrics.app.util.CyclingConstants
@@ -62,7 +63,7 @@ fun HrDistanceChart(points: List<HrDistancePoint>, maxHr: Int) {
             Text(
                 text = if (sel == null) "Drag along the chart to inspect"
                 else "%.1f km · %s".format(sel.distanceKm, sel.heartRate?.let { "$it bpm" } ?: "no HR"),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Light),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(12.dp))
@@ -135,7 +136,7 @@ fun HrDistanceChart(points: List<HrDistancePoint>, maxHr: Int) {
                     )
                 }
 
-                val labels = ChartLabelPainter(9.dp.toPx())
+                val labels = ChartLabelPainter(9.dp.toPx(), light = true)
                 integerAxisTicks(yLo, yHi, maxTicks = 4, stepUnit = 10).forEach { bpm ->
                     labels.draw(
                         this, "${bpm.roundToInt()}", rect.left - 4.dp.toPx(), yScale.map(bpm) + 3.dp.toPx(),

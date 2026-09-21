@@ -54,7 +54,7 @@ fun MetricCell(
     Column(horizontalAlignment = if (prominent) Alignment.CenterHorizontally else Alignment.Start) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.domain.model.PowerCurvePoint
 import kotlin.math.abs
@@ -69,7 +70,7 @@ fun PowerCurveChart(
         if (selected.date != null) {
             Text(
                 selected.date,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().then(headerModifier)
             )
@@ -105,7 +106,7 @@ fun PowerCurveChart(
                     }
                     .semantics { contentDescription = chartDescription }
             ) {
-                val labelPainter = ChartLabelPainter(9.dp.toPx())
+                val labelPainter = ChartLabelPainter(9.dp.toPx(), light = true)
 
                 for (tick in integerAxisTicks(0f, maxAxis.toFloat(), 5, 50)) {
                     val y = yScale.map(tick)

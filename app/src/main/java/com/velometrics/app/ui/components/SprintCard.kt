@@ -45,12 +45,12 @@ fun SprintCard(sprintHistogram: Map<String, Int>) {
                     ) {
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = range,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))

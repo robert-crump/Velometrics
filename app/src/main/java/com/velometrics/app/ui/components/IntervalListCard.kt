@@ -40,7 +40,7 @@ fun IntervalListCard(
                     if (pauseSec > 0) {
                         Text(
                             text = "Pause: ${FormatUtils.formatDuration(pauseSec)}",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 2.dp, horizontal = 4.dp)
                         )
@@ -97,7 +97,7 @@ fun IntervalListCard(
                 val avgPower = intervals.map { it.avgPower }.average().toInt()
                 Text(
                     text = "Total: ${FormatUtils.formatDuration(totalSec)} in ${intervals.size} intervals, avg. $avgPower W",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Light),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

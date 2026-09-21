@@ -1,6 +1,7 @@
 package com.velometrics.app.ui.components
 
 import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
@@ -11,11 +12,12 @@ import androidx.compose.ui.graphics.toArgb
  * inside a Canvas draw block with the text size in px, then call [draw] per label — colour and
  * alignment can change between calls (e.g. to highlight the selected label).
  */
-class ChartLabelPainter(textSizePx: Float, bold: Boolean = false) {
+class ChartLabelPainter(textSizePx: Float, bold: Boolean = false, light: Boolean = false) {
     private val paint = Paint().apply {
         textSize = textSizePx
         isAntiAlias = true
         isFakeBoldText = bold
+        if (light && !bold) typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
     }
 
     val textSize: Float get() = paint.textSize

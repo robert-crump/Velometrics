@@ -34,13 +34,13 @@ object TagComparisonNarrative {
         val power = pair(session.averagePower, m.avgPower) { "$it W" }
         val heartRate = pair(session.avgHeartRate, m.avgHeartRate) { "$it bpm" }
         val drift = pair(session.cardiacDriftPercent, m.cardiacDriftPercent) { "%.1f%%".format(Locale.US, it) }
-        val fatEfficiency = pair(session.fatEfficiencyScore?.toDouble(), m.fatEfficiency) { "%.0f".format(Locale.US, it) }
+        val fatEfficiency = pair(session.fatEfficiencyScore?.toDouble(), m.fatEfficiency, " fat efficiency") { "%.0f".format(Locale.US, it) }
 
         return listOfNotNull(
             *when (tag) {
                 RideTag.ZONE_2.label -> arrayOf(
                     fatEfficiency,
-                    pair(session.energy?.fatGrams, m.fatGrams) { "%.0f g".format(Locale.US, it) },
+                    pair(session.energy?.fatGrams, m.fatGrams, " fat") { "%.0f g".format(Locale.US, it) },
                     duration, power, drift
                 )
                 RideTag.INTERVALS.label -> arrayOf(
@@ -62,10 +62,10 @@ object TagComparisonNarrative {
         )
     }
 
-    /** "value (vs. median)", or null when either side is missing. */
-    private fun <T : Number> pair(current: T?, median: T?, format: (T) -> String): String? {
+    /** "value[label] (vs. median)", or null when either side is missing; [label] names the metric on the current value only. */
+    private fun <T : Number> pair(current: T?, median: T?, label: String = "", format: (T) -> String): String? {
         if (current == null || median == null) return null
-        return "${format(current)} (vs. ${format(median)})"
+        return "${format(current)}$label (vs. ${format(median)})"
     }
 
     /** "2h41min" / "45min" — compact, no space, as in the #214 recap wording. */

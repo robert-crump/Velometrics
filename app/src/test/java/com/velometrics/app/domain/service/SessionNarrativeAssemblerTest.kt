@@ -71,7 +71,7 @@ class SessionNarrativeAssemblerTest {
         assertEquals("vs. Zone 2", narrative.headline)
         // Pool medians over all 6: fat efficiency of [64,66,68,70,72,74] = 69.
         assertEquals(
-            listOf("80 (vs. 69)", "20 g (vs. 20 g)", "1h0min (vs. 1h0min)", "150 W (vs. 150 W)", "4.0% (vs. 4.0%)"),
+            listOf("80 fat efficiency (vs. 69)", "20 g fat (vs. 20 g)", "1h0min (vs. 1h0min)", "150 W (vs. 150 W)", "4.0% (vs. 4.0%)"),
             narrative.lines
         )
     }

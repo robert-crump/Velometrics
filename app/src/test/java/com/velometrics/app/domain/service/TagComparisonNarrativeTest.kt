@@ -137,7 +137,7 @@ class TagComparisonNarrativeTest {
             medianCardiacDriftPercentLast5 = 5.0
         )
         assertEquals(
-            listOf("80 (vs. 69)", "1h0min (vs. 45min)", "150 W (vs. 140 W)", "4.0% (vs. 5.0%)"),
+            listOf("80 fat efficiency (vs. 69)", "1h0min (vs. 45min)", "150 W (vs. 140 W)", "4.0% (vs. 5.0%)"),
             lines(session, comparison)
         )
     }

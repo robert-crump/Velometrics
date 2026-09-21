@@ -121,7 +121,7 @@ class SessionDetailViewModelTest {
         val narrative = vm.narrative.value!!
         assertEquals("vs. Zone 2", narrative.headline)
         assertEquals(
-            listOf("80 (vs. 70)", "20 g (vs. 10 g)", "1h0min (vs. 30min)", "150 W (vs. 120 W)", "4.0% (vs. 3.0%)"),
+            listOf("80 fat efficiency (vs. 70)", "20 g fat (vs. 10 g)", "1h0min (vs. 30min)", "150 W (vs. 120 W)", "4.0% (vs. 3.0%)"),
             narrative.lines
         )
         collector.cancel()

@@ -49,10 +49,7 @@ fun HeartRateZoneChart(
     }
 
     TickedBarChart(
-        title = "Heart Rate Zones",
         entries = entries,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+        modifier = Modifier.fillMaxWidth()
     )
 }

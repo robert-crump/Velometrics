@@ -114,7 +114,10 @@ class SessionMetricsCalculator @Inject constructor() {
             cardiacDriftPercent = cardiacDrift?.decouplingPercent,
             timeBelowSixtyPercentFtpSec = powerMetrics?.timeBelowSixtyPercentFtpSec,
             hasHR = hasHR,
-            hrDistanceSeries = hrDistanceSeries
+            hrDistanceSeries = hrDistanceSeries,
+            maxPower = if (hasPower) datapoints.mapNotNull { it.power }.maxOrNull() else null,
+            maxHeartRate = datapoints.mapNotNull { it.heartRate }.filter { it > 0 }.maxOrNull(),
+            maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull()
         )
     }
 

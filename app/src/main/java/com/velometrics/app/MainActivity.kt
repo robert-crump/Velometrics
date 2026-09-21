@@ -12,6 +12,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.navigation.compose.currentBackStackEntryAsState
+import com.velometrics.app.ui.navigation.Screen
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -48,8 +55,17 @@ class MainActivity : ComponentActivity() {
                 // to an unreadable line length.
                 val useRail = widthClass != WindowWidthSizeClass.Compact
 
+                // Session Detail draws its map edge-to-edge, so the status bar must stay see-through
+                // there: don't reserve the top inset for it.
+                val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+                val edgeToEdgeTop = currentRoute == Screen.SessionDetail.route
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = if (edgeToEdgeTop) {
+                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+                    } else {
+                        ScaffoldDefaults.contentWindowInsets
+                    },
                     bottomBar = { if (!useRail) BottomNavBar(navController = navController) }
                 ) { innerPadding ->
                     if (useRail) {

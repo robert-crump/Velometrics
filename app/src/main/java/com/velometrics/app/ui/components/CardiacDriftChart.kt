@@ -2,7 +2,6 @@ package com.velometrics.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,18 +20,6 @@ import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.FormatUtils
 import kotlin.math.roundToInt
 
-private val bandColors = mapOf(
-    CardiacDriftBand.GOOD to Color(0xFF4CAF50),        // green
-    CardiacDriftBand.NORMAL to Color(0xFFFFA726),       // orange
-    CardiacDriftBand.SIGNIFICANT to Color(0xFFEF5350)   // red
-)
-
-private val bandLabels = mapOf(
-    CardiacDriftBand.GOOD to "Good",
-    CardiacDriftBand.NORMAL to "Normal",
-    CardiacDriftBand.SIGNIFICANT to "Significant drift"
-)
-
 private const val CHART_HEIGHT_DP = 120
 
 /**
@@ -42,9 +29,7 @@ private const val CHART_HEIGHT_DP = 120
  * than an interpolated or zero value.
  */
 @Composable
-fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
-    val band = CardiacDriftBand.fromPercent(decouplingPercent)
-    val bandColor = bandColors[band] ?: MaterialTheme.colorScheme.onSurface
+fun CardiacDriftChart(buckets: Map<String, Double>) {
 
     val maxIndex = remember(buckets) { buckets.keys.maxOfOrNull { it.toInt() } ?: 0 }
     val values = remember(buckets, maxIndex) {
@@ -55,41 +40,17 @@ fun CardiacDriftChart(buckets: Map<String, Double>, decouplingPercent: Double) {
     val referenceLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column {
-                    Text(
-                        text = "Cardiac Drift",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "EF vs. first-half baseline",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = onSurfaceVariant
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = FormatUtils.formatCardiacDriftPercent(decouplingPercent),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = bandColor
-                    )
-                    Text(
-                        text = bandLabels[band] ?: "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = bandColor
-                    )
-                }
-            }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            Text(
+                text = "Cardiac Drift",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = "EF vs. first-half baseline",
+                style = MaterialTheme.typography.bodySmall,
+                color = onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(12.dp))
 
             val presentValues = values.filterNotNull()

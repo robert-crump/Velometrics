@@ -1,7 +1,6 @@
 ﻿package com.velometrics.app.ui.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,12 +24,8 @@ private val sprintBinColors = listOf(
 
 @Composable
 fun SprintCard(sprintHistogram: Map<String, Int>) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Text(
                 text = "Sprints",
                 style = MaterialTheme.typography.titleMedium

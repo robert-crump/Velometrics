@@ -50,5 +50,10 @@ data class CyclingSession(
     val hasHR: Boolean = false,
     // 100 equal-distance HR/elevation samples (#204); null for rides under 1 km, without HR, or
     // imported before this existed (no backfill path -- FIT data isn't retained).
-    val hrDistanceSeries: List<HrDistancePoint>? = null
+    val hrDistanceSeries: List<HrDistancePoint>? = null,
+    // Peak values (Ride Detail stat lines); import-time only, null on rides imported before this
+    // existed (FIT data isn't retained, so no backfill).
+    val maxPower: Int? = null,
+    val maxHeartRate: Int? = null,
+    val maxSpeedKmh: Double? = null
 )

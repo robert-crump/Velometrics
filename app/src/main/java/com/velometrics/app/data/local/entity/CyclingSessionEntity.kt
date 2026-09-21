@@ -42,5 +42,8 @@ data class CyclingSessionEntity(
     val tag: String? = null, // Rule-based classification label, e.g. "Zone 2" (#169)
     val timeBelowSixtyPercentFtpSec: Int? = null, // Seconds below 60% FTP; power rides only, import-time only
     val hasHR: Boolean = false, // HR coverage flag, mirrors hasPower (#178)
-    val hrDistanceSeries: String? = null // JSON list of HrDistancePoint (#204)
+    val hrDistanceSeries: String? = null, // JSON list of HrDistancePoint (#204)
+    val maxPower: Int? = null,      // import-time only, no backfill
+    val maxHeartRate: Int? = null,  // import-time only, no backfill
+    val maxSpeedKmh: Double? = null // import-time only, no backfill
 )

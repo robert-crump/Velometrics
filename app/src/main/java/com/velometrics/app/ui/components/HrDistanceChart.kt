@@ -2,7 +2,6 @@ package com.velometrics.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -56,8 +55,8 @@ fun HrDistanceChart(points: List<HrDistancePoint>, maxHr: Int) {
     val cursorColor = MaterialTheme.colorScheme.onSurface
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
 
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Text("Heart Rate vs. Distance", style = MaterialTheme.typography.titleMedium)
             val sel = selected?.let { points[it] }
             Text(

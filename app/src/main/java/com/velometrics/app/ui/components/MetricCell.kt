@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 // Trend colors encode "better"/"worse" rather than an MD3 color-scheme role, so they stay
@@ -42,14 +43,15 @@ fun MetricCell(
     current: Double? = null,
     reference: Double? = null,
     higherIsBetter: Boolean = true,
-    valueColor: Color = Color.Unspecified
+    valueColor: Color = Color.Unspecified,
+    prominent: Boolean = false
 ) {
     val darkTheme = isSystemInDarkTheme()
     val triangle = remember(current, reference, higherIsBetter, darkTheme) {
         getTriangle(current, reference, higherIsBetter, darkTheme)
     }
 
-    Column {
+    Column(horizontalAlignment = if (prominent) Alignment.CenterHorizontally else Alignment.Start) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
@@ -58,7 +60,9 @@ fun MetricCell(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (prominent) {
+                    MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                } else MaterialTheme.typography.bodyMedium,
                 color = valueColor
             )
             triangle?.let { (icon, color) ->

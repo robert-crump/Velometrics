@@ -64,30 +64,17 @@ fun PowerCurveChart(
         } else {
             Modifier
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().then(headerModifier),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        // The selected watts are drawn on the chart itself, above the point; only the ride date
+        // (all-time curve) stays in a header, which is also the tap target to open that ride.
+        if (selected.date != null) {
             Text(
-                selected.watts?.let { "$it W" } ?: "--",
-                style = MaterialTheme.typography.headlineSmall
+                selected.date,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().then(headerModifier)
             )
-            Text(
-                selected.label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (selected.date != null) {
-                Text(
-                    selected.date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Spacer(Modifier.height(8.dp))
         }
-
-        Spacer(Modifier.height(8.dp))
 
         BoxWithConstraints(
             modifier = Modifier
@@ -146,6 +133,7 @@ fun PowerCurveChart(
                 }
                 drawPath(path = path, color = lineColor, style = Stroke(width = 2.dp.toPx()))
 
+                val valuePainter = ChartLabelPainter(13.dp.toPx(), bold = true)
                 points.forEachIndexed { i, point ->
                     val x = xScale.map(logDurations[i])
                     val watts = point.watts
@@ -155,6 +143,19 @@ fun PowerCurveChart(
                             color = if (isSelected) selectedDotColor else unselectedDotColor,
                             radius = if (isSelected) 5.dp.toPx() else 3.dp.toPx(),
                             center = Offset(x, yScale.map(watts))
+                        )
+                    }
+                    if (i == selectedIndex && watts != null) {
+                        val text = "$watts W"
+                        val halfWidth = valuePainter.measure(text) / 2
+                        // Keep the value inside the plot area near the left/right edges.
+                        val labelX = x.coerceIn(halfWidth, chartWidthPx - halfWidth)
+                        valuePainter.draw(
+                            this,
+                            text,
+                            labelX,
+                            (yScale.map(watts) - 10.dp.toPx()).coerceAtLeast(valuePainter.textSize),
+                            onSurface
                         )
                     }
                     labelPainter.draw(

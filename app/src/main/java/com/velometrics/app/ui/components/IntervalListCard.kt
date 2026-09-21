@@ -2,7 +2,6 @@
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -10,13 +9,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.velometrics.app.domain.model.AchievementScope
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.util.FormatUtils
 import java.time.Duration
-import java.time.ZoneId
 
 @Composable
 fun IntervalListCard(
@@ -25,12 +23,8 @@ fun IntervalListCard(
     repeatedIntervalNames: Map<Long, RepeatedIntervalRef> = emptyMap(),
     onRepeatedIntervalClick: (Long) -> Unit = {}
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Text(
                 text = "Intervals",
                 style = MaterialTheme.typography.titleMedium
@@ -67,30 +61,26 @@ fun IntervalListCard(
                         modifier = Modifier.width(28.dp)
                     )
                     Text(
-                        text = FormatUtils.formatDuration(interval.durationSec),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = "%.2f km".format(interval.distanceM / 1000.0),
+                        text = compactDuration(interval.durationSec),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
                         text = "${interval.avgPower} W",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                }
-
-                repeatedIntervalNames[interval.id]?.let { ref ->
-                    val displayName = achievementLabel(interval)?.let { "${ref.name} | $it" } ?: ref.name
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .padding(start = 36.dp, bottom = 4.dp)
-                            .clickable { onRepeatedIntervalClick(ref.repeatedIntervalId) }
-                    )
+                    repeatedIntervalNames[interval.id]?.let { ref ->
+                        Text(
+                            text = ref.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onRepeatedIntervalClick(ref.repeatedIntervalId) }
+                        )
+                    }
                 }
 
                 if (index < intervals.size - 1) {
@@ -115,25 +105,10 @@ fun IntervalListCard(
     }
 }
 
-/**
- * Renders an import-time repeated-interval achievement snapshot (#185) as "3rd best 2026" /
- * "3rd best all-time", or `null` when [interval] carries no achievement. The year is derived from
- * [IntervalSession.startTimestamp] rather than persisted separately -- it's the calendar year the
- * rep itself happened in, and that never changes, so it stays correct as a permanent snapshot.
- */
-private fun achievementLabel(interval: IntervalSession): String? {
-    val rank = interval.achievementRank ?: return null
-    val scope = interval.achievementScope ?: return null
-    val ordinal = when (rank) {
-        1 -> "1st"
-        2 -> "2nd"
-        3 -> "3rd"
-        else -> "${rank}th"
-    }
-    val scopeText = if (scope == AchievementScope.ALL_TIME) {
-        "all-time"
-    } else {
-        interval.startTimestamp.atZone(ZoneId.systemDefault()).year.toString()
-    }
-    return "$ordinal best $scopeText"
+/** "4m46s" / "46s" -- no spaces, so an interval row stays on one line. */
+private fun compactDuration(totalSec: Int): String {
+    if (totalSec >= 3600) return FormatUtils.formatDuration(totalSec)
+    val m = totalSec / 60
+    val s = totalSec % 60
+    return if (m > 0) "${m}m${"%02d".format(s)}s" else "${s}s"
 }

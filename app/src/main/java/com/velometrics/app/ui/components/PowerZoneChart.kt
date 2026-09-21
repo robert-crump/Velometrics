@@ -53,10 +53,7 @@ fun PowerZoneChart(
     }
 
     TickedBarChart(
-        title = "Power Zones",
         entries = entries,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+        modifier = Modifier.fillMaxWidth()
     )
 }

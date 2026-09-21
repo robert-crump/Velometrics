@@ -2,7 +2,6 @@ package com.velometrics.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +41,6 @@ data class TickedBarEntry(
  */
 @Composable
 fun TickedBarChart(
-    title: String,
     entries: List<TickedBarEntry>,
     modifier: Modifier = Modifier
 ) {
@@ -52,14 +50,8 @@ fun TickedBarChart(
     val tickColor = MaterialTheme.colorScheme.onSurface
     val tickOutlineColor = MaterialTheme.colorScheme.surface
 
-    Card(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
+    Column(modifier = modifier) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

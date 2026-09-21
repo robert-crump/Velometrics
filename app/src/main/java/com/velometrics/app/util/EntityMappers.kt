@@ -62,7 +62,10 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         tag = tag,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
         hasHR = hasHR,
-        hrDistanceSeries = hrSeries
+        hrDistanceSeries = hrSeries,
+        maxPower = maxPower,
+        maxHeartRate = maxHeartRate,
+        maxSpeedKmh = maxSpeedKmh
     )
 }
 
@@ -101,7 +104,10 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         tag = tag,
         timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
         hasHR = hasHR,
-        hrDistanceSeries = hrDistanceSeries?.toJsonString()
+        hrDistanceSeries = hrDistanceSeries?.toJsonString(),
+        maxPower = maxPower,
+        maxHeartRate = maxHeartRate,
+        maxSpeedKmh = maxSpeedKmh
     )
 }
 

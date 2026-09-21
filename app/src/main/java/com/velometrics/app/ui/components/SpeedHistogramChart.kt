@@ -50,9 +50,7 @@ fun SpeedHistogramChart(
     SpeedHistogramChartContent(
         percentages,
         allRidesAveragePercentages,
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+        Modifier.fillMaxWidth()
     )
 }
 
@@ -76,7 +74,6 @@ private fun SpeedHistogramChartContent(
     }
 
     TickedBarChart(
-        title = "Speed Distribution",
         entries = entries,
         modifier = cardModifier
     )

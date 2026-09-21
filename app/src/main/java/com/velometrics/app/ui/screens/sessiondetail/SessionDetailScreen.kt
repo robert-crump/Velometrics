@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -23,10 +24,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
@@ -91,13 +97,16 @@ fun SessionDetailScreen(
         )
     }
 
+    RideDetailTheme {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (isLoading) {
             LoadingBox(modifier = Modifier.padding(padding))
+            HeaderControls(onNavigateBack, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
         } else if (session == null) {
             NotFoundBox(text = "Session not found", modifier = Modifier.padding(padding))
+            HeaderControls(onNavigateBack, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
         } else {
             val s = session!!
             var drawerFraction by remember { mutableStateOf(0.5f) }
@@ -120,154 +129,84 @@ fun SessionDetailScreen(
                 val showPowerPlaceholder = !s.hasPower
                 val showPowerCurve = s.hasPower && powerCurve.any { it.watts != null }
                 val showSprint = s.hasPower && s.sprintCount > 0 && s.sprintHistogram != null
-                val powerSectionVisible = showPowerZones || showPowerPlaceholder || showPowerCurve || showSprint
 
                 val showHrZones = s.hrZoneDistribution != null
                 val showCardiacDrift = s.cardiacDriftBuckets != null && s.cardiacDriftPercent != null
-                val showFatEfficiency = s.hasPower && s.fatEfficiencyHistogram != null
                 val showHrDistance = s.hrDistanceSeries != null
-                val heartRateSectionVisible = showHrDistance || showHrZones || showCardiacDrift || showFatEfficiency
-
                 val intervalsSectionVisible = s.hasPower && intervals.isNotEmpty()
 
-                // Fields relocated out of the summary grid (#188) — surfaced via a ChapterStatsCard
-                // as the first card of their new section, with no trend triangle (plain values only).
-                val normalizedPowerWatts: Int? = if (s.hasPower) s.normalizedPower else null
                 val cardiacEfficiency: Double? = if (s.hasPower) {
                     val power = s.averagePower
                     val hr = s.avgHeartRate
                     if (power != null && hr != null && hr != 0) power.toDouble() / hr else null
                 } else null
-                val fatEffScore: Int? = s.fatEfficiencyScore
-                val fatCarbText: String? = s.energy?.formatFatCarbGrams()
 
-                var powerExpanded by remember { mutableStateOf(false) }
-                var heartRateExpanded by remember { mutableStateOf(false) }
-                var speedExpanded by remember { mutableStateOf(false) }
-                var intervalsExpanded by remember { mutableStateOf(false) }
+                val powerLines = if (s.hasPower) listOfNotNull(
+                    s.averagePower?.let { StatLineData("Average Power", FormatUtils.formatPower(it)) },
+                    s.normalizedPower?.let { StatLineData("Normalized Power", FormatUtils.formatPower(it)) },
+                    s.maxPower?.let { StatLineData("Max Power", FormatUtils.formatPower(it)) }
+                ) else emptyList()
+                val heartRateLines = listOfNotNull(
+                    s.avgHeartRate?.let { StatLineData("Average Heart Rate", "$it bpm") },
+                    s.maxHeartRate?.let { StatLineData("Max Heart Rate", "$it bpm") },
+                    cardiacEfficiency?.let { StatLineData("Cardiac Efficiency", FormatUtils.formatCardiacEfficiency(it)) },
+                    s.cardiacDriftPercent?.let {
+                        StatLineData("Cardiac Drift", "${FormatUtils.formatCardiacDriftPercent(it)} (${CardiacDriftBand.fromPercent(it).name.lowercase()})")
+                    },
+                    s.energy?.let { StatLineData("Fat / Carbs burned", it.formatFatCarbGrams()) },
+                    s.fatEfficiencyScore?.let { StatLineData("Fat Efficiency Factor", "$it", showInfo = true) }
+                )
+                val heartRateSectionVisible = showHrDistance || showHrZones || showCardiacDrift || heartRateLines.isNotEmpty()
 
                 // Pull-up drawer with all statistics; opens at 50%
                 PullUpDrawer(
                     initialFraction = 0.5f,
-                    onFractionSnapped = { drawerFraction = it }
+                    onFractionSnapped = { drawerFraction = it },
+                    headerStart = { docked -> BackControl(docked, onNavigateBack) },
+                    headerEnd = { docked ->
+                        OverflowControl(docked, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
+                    }
                 ) {
                     RideSummaryGrid(
                         session = s, comparison = comparison, narrative = narrative,
                         routeRecap = routeRecap, onRouteRecapClick = onNavigateToRepeatedRoute
                     )
 
-                    if (powerSectionVisible) {
-                        CollapsibleSection(
-                            title = "Power",
-                            expanded = powerExpanded,
-                            onToggle = { powerExpanded = !powerExpanded }
-                        ) {
-                            ChapterStatsCard(
-                                metrics = listOfNotNull(
-                                    normalizedPowerWatts?.let { "Norm. Power" to FormatUtils.formatPower(it) }
-                                )
+                    SectionCard(title = "Power") {
+                        if (showPowerZones) {
+                            PowerZoneChart(
+                                powerZones = s.powerZoneDistribution!!,
+                                averagePercentages = powerZoneAverages
                             )
-
-                            if (showPowerZones) {
-                                PowerZoneChart(
-                                    powerZones = s.powerZoneDistribution!!,
-                                    averagePercentages = powerZoneAverages
-                                )
-                            } else if (showPowerPlaceholder) {
-                                // Session has no power data — show a placeholder card
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text(
-                                            text = "Power Zones",
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = "No power data available",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (showPowerCurve) {
-                                SessionPowerCurveCard(points = powerCurve)
-                            }
-
-                            if (showSprint) {
-                                SprintCard(sprintHistogram = s.sprintHistogram!!)
-                            }
+                        } else if (showPowerPlaceholder) {
+                            Text(
+                                text = "No power data available",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                            )
                         }
+                        if (showPowerCurve) {
+                            PowerCurveChart(points = powerCurve)
+                        }
+                        StatLines(powerLines)
                     }
 
-                    CollapsibleSection(
-                        title = "Speed",
-                        expanded = speedExpanded,
-                        onToggle = { speedExpanded = !speedExpanded }
-                    ) {
+                    SectionCard(title = "Speed") {
                         SpeedHistogramChart(
                             percentages = speedHistogram,
                             allRidesAveragePercentages = speedHistogramAverages
                         )
-                    }
-
-                    if (heartRateSectionVisible) {
-                        CollapsibleSection(
-                            title = "Heart Rate",
-                            expanded = heartRateExpanded,
-                            onToggle = { heartRateExpanded = !heartRateExpanded }
-                        ) {
-                            ChapterStatsCard(
-                                metrics = listOfNotNull(
-                                    cardiacEfficiency?.let { "Cardiac Eff." to FormatUtils.formatCardiacEfficiency(it) },
-                                    fatEffScore?.let { "Fat Eff." to "$it" },
-                                    fatCarbText?.let { "Fat / Carbs" to it }
-                                )
-                            )
-
-                            if (showHrDistance) {
-                                HrDistanceChart(points = s.hrDistanceSeries!!, maxHr = maxHr)
-                            }
-
-                            if (showHrZones) {
-                                HeartRateZoneChart(
-                                    hrZones = s.hrZoneDistribution!!,
-                                    averagePercentages = hrZoneAverages
-                                )
-                            }
-
-                            if (showCardiacDrift) {
-                                CardiacDriftChart(
-                                    buckets = s.cardiacDriftBuckets!!,
-                                    decouplingPercent = s.cardiacDriftPercent!!
-                                )
-                            }
-
-                            if (showFatEfficiency) {
-                                FatEfficiencyHistogram(histogram = s.fatEfficiencyHistogram!!)
-                            }
+                        if (showSprint) {
+                            SprintCard(sprintHistogram = s.sprintHistogram!!)
                         }
-                    }
-
-                    if (intervalsSectionVisible) {
-                        CollapsibleSection(
-                            title = "Intervals & Recovery",
-                            expanded = intervalsExpanded,
-                            onToggle = { intervalsExpanded = !intervalsExpanded }
-                        ) {
+                        StatLines(
+                            listOfNotNull(
+                                s.maxSpeedKmh?.let { StatLineData("Max Speed", FormatUtils.formatSpeed(it)) }
+                            )
+                        )
+                        if (intervalsSectionVisible) {
                             IntervalListCard(
                                 intervals = intervals,
                                 onIntervalClick = {},
@@ -278,49 +217,95 @@ fun SessionDetailScreen(
                         }
                     }
 
+                    if (heartRateSectionVisible) {
+                        SectionCard(title = "Heart Rate and Metabolism") {
+                            if (showHrDistance) {
+                                HrDistanceChart(points = s.hrDistanceSeries!!, maxHr = maxHr)
+                            }
+                            if (showHrZones) {
+                                HeartRateZoneChart(
+                                    hrZones = s.hrZoneDistribution!!,
+                                    averagePercentages = hrZoneAverages
+                                )
+                            }
+                            if (showCardiacDrift) {
+                                CardiacDriftChart(buckets = s.cardiacDriftBuckets!!)
+                            }
+                            StatLines(heartRateLines)
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
 
-        // Floating header controls over the map (replaces the former TopAppBar)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            FloatingCircleButton(
-                onClick = onNavigateBack,
-                modifier = Modifier.align(Alignment.TopStart)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                FloatingCircleButton(onClick = { overflowMenuExpanded = true }) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+    }
+    }
+}
+
+/** Floating back/overflow controls for the loading / not-found states (no drawer to dock into). */
+@Composable
+private fun HeaderControls(
+    onBack: () -> Unit,
+    menuExpanded: Boolean,
+    onMenuExpandedChange: (Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Box(modifier = Modifier.align(Alignment.TopStart)) { BackControl(false, onBack) }
+        Box(modifier = Modifier.align(Alignment.TopEnd)) {
+            OverflowControl(false, menuExpanded, onMenuExpandedChange, onDelete)
+        }
+    }
+}
+
+/** Circle-on-map button while floating; plain icon button once docked into the drawer's header. */
+@Composable
+private fun HeaderButton(docked: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    if (docked) IconButton(onClick = onClick) { content() }
+    else FloatingCircleButton(onClick = onClick, content = content)
+}
+
+@Composable
+private fun BackControl(docked: Boolean, onBack: () -> Unit) {
+    HeaderButton(docked, onBack) {
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = "Back",
+            tint = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun OverflowControl(
+    docked: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    Box {
+        HeaderButton(docked, { onExpandedChange(true) }) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "More options",
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(
+                text = { Text("Delete ride") },
+                onClick = {
+                    onExpandedChange(false)
+                    onDelete()
                 }
-                DropdownMenu(
-                    expanded = overflowMenuExpanded,
-                    onDismissRequest = { overflowMenuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Delete ride") },
-                        onClick = {
-                            overflowMenuExpanded = false
-                            showDeleteConfirm = true
-                        }
-                    )
-                }
-            }
+            )
         }
     }
 }
@@ -374,25 +359,6 @@ private fun SessionDetailMap(
             }
         }
     )
-}
-
-/** This ride's own best-effort power curve (#173), placed right below Power Zones. */
-@Composable
-private fun SessionPowerCurveCard(points: List<PowerCurvePoint>) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Power curve",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            PowerCurveChart(points = points)
-        }
-    }
 }
 
 private fun hexToComposeColor(hex: String): Color {
@@ -479,88 +445,128 @@ private fun ComparisonModeToggle(mode: ComparisonMode, onModeChange: (Comparison
     }
 }
 
+private val CardEdgePadding = 2.dp
+
+/** Vertical gap between the six top metrics and the block above / the card below. */
+private val SUMMARY_GAP = 24.dp
+
+/** Dark-theme card fill: only a touch lighter than the pure-black drawer behind it. */
+private val DarkCardColor = Color(0xFF1C1C1C)
+
+/**
+ * Ride Detail's dark look: pure-black drawer, all text white, cards a very dark gray. Light theme
+ * is left untouched.
+ */
 @Composable
-private fun CollapsibleSection(
-    title: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+private fun RideDetailTheme(content: @Composable () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val dark = scheme.surface.luminance() < 0.5f
+    MaterialTheme(
+        colorScheme = if (dark) {
+            scheme.copy(
+                background = Color.Black,
+                surface = Color.Black,
+                onBackground = Color.White,
+                onSurface = Color.White,
+                onSurfaceVariant = Color.White
+            )
+        } else scheme,
+        typography = MaterialTheme.typography,
+        shapes = MaterialTheme.shapes,
+        content = content
+    )
+}
+
+/**
+ * A single Strava-style card per section: headline top-left, then the content separated by small
+ * vertical spacing rather than dividers. Not collapsible.
+ */
+@Composable
+private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = CardEdgePadding, vertical = 4.dp),
+        colors = if (dark) {
+            CardDefaults.cardColors(containerColor = DarkCardColor, contentColor = Color.White)
+        } else CardDefaults.cardColors()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.rotate(if (expanded) 90f else 0f)
-            )
-        }
-        AnimatedVisibility(visible = expanded) {
-            Column(content = content)
+            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            content()
         }
     }
 }
 
-/**
- * The first card in a chapter (#188 follow-up): a two-column [MetricCell] grid, analogous to the
- * always-shown grid at the top of the drawer, holding the fields that used to live in the summary
- * grid but are scoped to this chapter's theme (e.g. Norm. Power for Power, Cardiac Eff./Fat
- * Eff./Fat-Carbs for Heart Rate). No headline — the parent [CollapsibleSection]'s own title already
- * names the chapter. Plain values only — no trend triangle, matching the rest of the relocated
- * fields. Renders nothing when [metrics] is empty (e.g. a powerless ride).
- */
+/** ~21% larger than bodyMedium (14sp), for both label and value of a stat line. */
+private val StatLineTextStyle: TextStyle
+    @Composable get() = MaterialTheme.typography.bodyMedium.copy(fontSize = 17.sp)
+
+private data class StatLineData(val label: String, val value: String, val showInfo: Boolean = false)
+
+private const val FAT_EFFICIENCY_EXPLANATION =
+    "The Fat Efficiency Factor (0-100) shows how much of your ride was spent near your body's " +
+        "peak fat-burning intensity (FatMax, roughly 150-220 W).\n\n" +
+        "For every second of pedaling, fat burn is compared to that peak and averaged over the " +
+        "ride. Riding at FatMax scores 100; high-power efforts count for less because fuel use " +
+        "shifts to carbohydrates, and very low power burns little fat in absolute terms.\n\n" +
+        "Higher = a steadier, fat-burning-friendly endurance ride. Lower = a hard or very easy ride."
+
+/** Strava-style stat rows: muted label on the left, bold value on the right. */
 @Composable
-private fun ChapterStatsCard(metrics: List<Pair<String, String>>) {
-    if (metrics.isEmpty()) return
-
-    val leftColumn = metrics.subList(0, (metrics.size + 1) / 2)
-    val rightColumn = metrics.subList((metrics.size + 1) / 2, metrics.size)
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    leftColumn.forEachIndexed { index, (label, value) ->
-                        if (index > 0) Spacer(modifier = Modifier.height(12.dp))
-                        MetricCell(label = label, value = value)
+private fun StatLines(lines: List<StatLineData>) {
+    if (lines.isEmpty()) return
+    var showInfo by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        lines.forEach { line ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = line.label,
+                    style = StatLineTextStyle.copy(fontWeight = FontWeight.Normal),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (line.showInfo) {
+                    IconButton(onClick = { showInfo = true }, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = "About ${line.label}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
-                if (rightColumn.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        rightColumn.forEachIndexed { index, (label, value) ->
-                            if (index > 0) Spacer(modifier = Modifier.height(12.dp))
-                            MetricCell(label = label, value = value)
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = line.value,
+                    style = StatLineTextStyle.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text("Fat Efficiency Factor") },
+            text = { Text(FAT_EFFICIENCY_EXPLANATION) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Got it") } }
+        )
     }
 }
 
 /** A "vs. [TAG]" / "vs. [Repeated Route]" headline over one stat line per metric, in metric-value size. */
 @Composable
-private fun RecapLines(headline: String, lines: List<String>) {
+private fun RecapLines(headline: String, lines: List<String>, topPadding: Dp = 8.dp) {
     Text(
         text = headline,
         style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp)
+        modifier = Modifier.padding(top = topPadding)
     )
     lines.forEach { line ->
         Text(
@@ -596,7 +602,9 @@ private fun RideSummaryGrid(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            // Bottom = SUMMARY_GAP minus the card's own 4 dp top margin, so the six metrics sit
+            // SUMMARY_GAP from the recap block above and from the first card below.
+            .padding(start = CardEdgePadding + 8.dp, end = CardEdgePadding + 8.dp, top = 8.dp, bottom = SUMMARY_GAP - 4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -606,7 +614,7 @@ private fun RideSummaryGrid(
             Column {
                 Text(
                     text = dateFormatter.format(session.sessionStart),
-                    style = MaterialTheme.typography.titleMedium.copy(
+                    style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 )
@@ -616,7 +624,7 @@ private fun RideSummaryGrid(
             }
         }
         if (narrative != null) {
-            RecapLines(headline = narrative.headline, lines = narrative.lines)
+            RecapLines(headline = narrative.headline, lines = narrative.lines, topPadding = 24.dp)
         }
         if (routeRecap != null) {
             Column(
@@ -624,10 +632,14 @@ private fun RideSummaryGrid(
                     .fillMaxWidth()
                     .clickable { onRouteRecapClick(routeRecap.routeId) }
             ) {
-                RecapLines(headline = routeRecap.headline, lines = routeRecap.lines)
+                RecapLines(
+                    headline = routeRecap.headline,
+                    lines = routeRecap.lines,
+                    topPadding = if (narrative != null) 8.dp else 24.dp
+                )
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(SUMMARY_GAP))
 
         fun <T> pooled(last5: T, allPrevious: T): T? = when {
             !SHOW_COMPARISON_TRIANGLES -> null
@@ -639,13 +651,14 @@ private fun RideSummaryGrid(
         // that used to live here moved into their matching section's card header; Elev. gain /
         // 100km was dropped entirely as redundant with raw Elevation gain.
         Row(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 MetricCell(
                     label = "Distance",
                     value = FormatUtils.formatDistance(session.distanceKm),
                     current = session.distanceKm,
                     reference = pooled(comparison?.medianDistanceKmLast5, comparison?.medianDistanceKmAllPrevious),
-                    higherIsBetter = true
+                    higherIsBetter = true,
+                    prominent = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
@@ -656,7 +669,8 @@ private fun RideSummaryGrid(
                         comparison?.medianNetDurationSecLast5?.toDouble(),
                         comparison?.medianNetDurationSecAllPrevious?.toDouble()
                     ),
-                    higherIsBetter = true  // longer net duration is better
+                    higherIsBetter = true,  // longer net duration is better
+                    prominent = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
@@ -667,11 +681,11 @@ private fun RideSummaryGrid(
                         comparison?.medianAvgSpeedKmhLast5,
                         comparison?.medianAvgSpeedKmhAllPrevious
                     ),
-                    higherIsBetter = true
+                    higherIsBetter = true,
+                    prominent = true
                 )
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 MetricCell(
                     label = "Elevation gain",
                     value = session.elevationGainM?.let { FormatUtils.formatElevationGain(it) } ?: "—",
@@ -680,7 +694,8 @@ private fun RideSummaryGrid(
                         comparison?.medianElevationGainMLast5,
                         comparison?.medianElevationGainMAllPrevious
                     ),
-                    higherIsBetter = true  // more climbing is an achievement, not a cost
+                    higherIsBetter = true,  // more climbing is an achievement, not a cost
+                    prominent = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
@@ -692,7 +707,8 @@ private fun RideSummaryGrid(
                         comparison?.medianAvgPowerLast5?.toDouble(),
                         comparison?.medianAvgPowerAllPrevious?.toDouble()
                     ),
-                    higherIsBetter = true
+                    higherIsBetter = true,
+                    prominent = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 MetricCell(
@@ -700,7 +716,8 @@ private fun RideSummaryGrid(
                     value = session.energy?.formatTotalKcal() ?: "—",
                     current = totalKcal,
                     reference = pooled(comparison?.medianTotalKcalLast5, comparison?.medianTotalKcalAllPrevious),
-                    higherIsBetter = true  // more calories burned = better workout
+                    higherIsBetter = true,  // more calories burned = better workout
+                    prominent = true
                 )
             }
         }

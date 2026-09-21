@@ -529,7 +529,7 @@ private fun StatLines(lines: List<StatLineData>) {
             ) {
                 Text(
                     text = line.label,
-                    style = StatLineTextStyle.copy(fontWeight = FontWeight.Normal),
+                    style = StatLineTextStyle.copy(fontWeight = FontWeight.Light),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (line.showInfo) {

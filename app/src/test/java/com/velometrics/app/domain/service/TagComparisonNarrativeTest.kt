@@ -114,618 +114,83 @@ class TagComparisonNarrativeTest {
         )
     )
 
+    private fun lines(
+        session: CyclingSession,
+        comparison: TagComparison,
+        tag: String = "Zone 2",
+        intervals: List<IntervalSession> = emptyList()
+    ) = TagComparisonNarrative.lines(session, tag, comparison, intervals)
+
     @Test
-    fun `fewer than 2 tag-scoped sessions shows not-enough-history state`() {
-        val session = makeSession()
-        val comparison = makeComparison(last5SessionCount = 1)
-
-        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
-
-        assertEquals("Not enough history for Zone 2 rides yet.", result)
+    fun `fewer than 2 tag-scoped sessions yields no lines`() {
+        assertTrue(lines(makeSession(), makeComparison(last5SessionCount = 1)).isEmpty())
+        assertTrue(lines(makeSession(), makeComparison(last5SessionCount = 0)).isEmpty())
     }
 
     @Test
-    fun `zero tag-scoped sessions shows not-enough-history state`() {
-        val session = makeSession()
-        val comparison = makeComparison(last5SessionCount = 0)
-
-        val result = TagComparisonNarrative.generate(session, "Zone 2", comparison)
-
-        assertEquals("Not enough history for Zone 2 rides yet.", result)
+    fun `zone 2 renders metrics and units only, in fixed order`() {
+        val session = makeSession(hasPower = true, averagePower = 150, fatEfficiencyScore = 80, cardiacDriftPercent = 4.0)
+        val comparison = makeComparison(
+            medianFatEfficiencyLast5 = 69.0,
+            medianNetDurationSec = 2700,
+            medianAvgPowerLast5 = 140,
+            medianCardiacDriftPercentLast5 = 5.0
+        )
+        assertEquals(
+            listOf("80 (vs. 69)", "1h0min (vs. 45min)", "150 W (vs. 140 W)", "4.0% (vs. 5.0%)"),
+            lines(session, comparison)
+        )
     }
 
     @Test
-    fun `leads with cardiac drift when it deviates most`() {
-        // Drift: 2.0 vs median 4.0 -> 50% relative deviation.
-        // Avg power: 200 vs median 195 -> ~2.6% relative deviation (far smaller).
+    fun `metrics drop out independently when the ride or the pool lacks them`() {
+        val session = makeSession(hasPower = true, averagePower = 150)
+        val comparison = makeComparison(medianAvgPowerLast5 = 140, medianCardiacDriftPercentLast5 = 5.0)
+        assertEquals(listOf("150 W (vs. 140 W)"), lines(session, comparison))
+    }
+
+    @Test
+    fun `intervals renders count, time, interval power and overall power`() {
         val session = makeSession(
-            hasPower = true,
-            averagePower = 200,
-            normalizedPower = 210,
-            cardiacDriftPercent = 2.0
+            tag = "Intervals", hasPower = true, averagePower = 180, intervalCount = 4, intervalTotalTimeSec = 1200
         )
         val comparison = makeComparison(
-            medianAvgPowerLast5 = 195,
-            medianCardiacDriftPercentLast5 = 4.0,
-            medianNpToApRatioLast5 = 1.05,
-            medianDistanceKmLast5 = 30.0
+            medianIntervalCountLast5 = 5,
+            medianIntervalTotalTimeSecLast5 = 1500,
+            medianIntervalAvgPower = 250,
+            medianAvgPowerLast5 = 170
         )
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
+        val intervals = listOf(makeInterval(restBeforeNextIntervalSec = 150, avgPower = 260))
         assertEquals(
-            "Your cardiac drift was 2.0%, lower than your typical 4.0% for Tempo rides.",
-            result
+            listOf("4 intervals (vs. 5 intervals)", "20min (vs. 25min)", "260 W (vs. 250 W)", "180 W (vs. 170 W)"),
+            lines(session, comparison, "Intervals", intervals)
         )
     }
 
     @Test
-    fun `leads with average power when it deviates most`() {
-        // Avg power: 260 vs median 200 -> 30% relative deviation, biggest of the candidates.
+    fun `recovery renders duration, power, time below 60 percent FTP and heart rate`() {
         val session = makeSession(
-            hasPower = true,
-            averagePower = 260,
-            normalizedPower = 270,
-            cardiacDriftPercent = 4.1
+            tag = "Recovery", hasPower = true, averagePower = 110, timeBelowSixtyPercentFtpSec = 3000, avgHeartRate = 118
         )
         val comparison = makeComparison(
-            medianAvgPowerLast5 = 200,
-            medianCardiacDriftPercentLast5 = 4.0,
-            medianNpToApRatioLast5 = 1.04,
-            medianDistanceKmLast5 = 30.0
+            medianNetDurationSec = 3300,
+            medianAvgPowerLast5 = 120,
+            medianTimeBelowSixtyPercentFtpSecLast5 = 2700,
+            medianAvgHeartRate = 121
         )
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
         assertEquals(
-            "Your average power was 260W, above your typical 200W for Tempo rides.",
-            result
+            listOf("1h0min (vs. 55min)", "110 W (vs. 120 W)", "50min (vs. 45min)", "118 bpm (vs. 121 bpm)"),
+            lines(session, comparison, "Recovery")
         )
     }
 
     @Test
-    fun `leads with fat efficiency when it deviates most`() {
-        val session = makeSession(
-            hasPower = true,
-            averagePower = 150,
-            normalizedPower = 155,
-            fatEfficiencyScore = 90,
-            cardiacDriftPercent = 4.0
-        )
-        val comparison = makeComparison(
-            medianAvgPowerLast5 = 149,
-            medianFatEfficiencyLast5 = 60.0,
-            medianCardiacDriftPercentLast5 = 4.0,
-            medianNpToApRatioLast5 = 1.03,
-            medianDistanceKmLast5 = 30.0
-        )
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
+    fun `other tags get the generic metric list`() {
+        val session = makeSession(tag = "Commute", distanceKm = 12.3, hasPower = true, averagePower = 130)
+        val comparison = makeComparison(medianDistanceKmLast5 = 11.0, medianNetDurationSec = 3000, medianAvgPowerLast5 = 125)
         assertEquals(
-            "Your fat efficiency score was 90, above your typical 60 for Tempo rides.",
-            result
+            listOf("12.3 km (vs. 11.0 km)", "1h0min (vs. 50min)", "130 W (vs. 125 W)"),
+            lines(session, comparison, "Commute")
         )
-    }
-
-    @Test
-    fun `leads with power steadiness when NP-to-AP ratio deviates most`() {
-        // Current NP:AP = 220/200 = 1.10 vs median 1.00 -> 10% relative deviation, biggest.
-        val session = makeSession(
-            hasPower = true,
-            averagePower = 200,
-            normalizedPower = 220,
-            cardiacDriftPercent = 4.0
-        )
-        val comparison = makeComparison(
-            medianAvgPowerLast5 = 198,
-            medianCardiacDriftPercentLast5 = 4.0,
-            medianNpToApRatioLast5 = 1.00,
-            medianDistanceKmLast5 = 30.0
-        )
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
-        assertEquals(
-            "Your power was more variable than usual for Tempo rides (NP:AP 1.10 vs. your typical 1.00).",
-            result
-        )
-    }
-
-    @Test
-    fun `falls back to distance when the ride has no power or heart-rate data`() {
-        val session = makeSession(distanceKm = 45.0, hasPower = false)
-        val comparison = makeComparison(medianDistanceKmLast5 = 30.0)
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
-        assertEquals(
-            "This ride was 45.0 km, longer than your typical 30.0 km for Tempo rides.",
-            result
-        )
-    }
-
-    @Test
-    fun `no candidate KPI at all still falls back to not-enough-history text`() {
-        // last5SessionCount says there's history, but every per-metric median is null
-        // (e.g. a same-tag pool that never itself had 2+ samples for any single metric).
-        val session = makeSession(hasPower = false)
-        val comparison = makeComparison(medianDistanceKmLast5 = null)
-
-        val result = TagComparisonNarrative.generate(session, "Tempo", comparison)
-
-        assertTrue(result.startsWith("Not enough history"))
-    }
-
-    // -- Zone 2 fixed metric list (#214) --------------------------------------------------------
-
-    private fun zone2Session(
-        fatEfficiencyScore: Int? = 83,
-        fatBurnedGrams: Double? = 21.0,
-        carbsBurnedGrams: Double? = 90.0,
-        netDurationSec: Int = 2 * 3600 + 41 * 60,
-        averagePower: Int? = 178,
-        cardiacDriftPercent: Double? = 4.2
-    ): CyclingSession = makeSession(
-        hasPower = true,
-        averagePower = averagePower,
-        fatEfficiencyScore = fatEfficiencyScore,
-        cardiacDriftPercent = cardiacDriftPercent
-    ).copy(
-        fatBurnedGrams = fatBurnedGrams,
-        carbsBurnedGrams = carbsBurnedGrams,
-        netDurationSec = netDurationSec
-    )
-
-    private fun zone2Comparison(
-        medianFatEfficiency: Double? = 81.0,
-        medianFatGrams: Double? = 43.0,
-        medianNetDurationSec: Int? = 75 * 60,
-        medianAvgPower: Int? = 183,
-        medianCardiacDrift: Double? = 3.7,
-        sampleCount: Int = 6
-    ) = makeComparison(
-        last5SessionCount = sampleCount,
-        medianFatEfficiencyLast5 = medianFatEfficiency,
-        medianFatGrams = medianFatGrams,
-        medianNetDurationSec = medianNetDurationSec,
-        medianAvgPowerLast5 = medianAvgPower,
-        medianCardiacDriftPercentLast5 = medianCardiacDrift
-    )
-
-    private fun zone2(session: CyclingSession, comparison: TagComparison) =
-        TagComparisonNarrative.generate(session, "Zone 2", comparison)
-
-    @Test
-    fun `Zone 2 renders all five metrics in the fixed order and grouping`() {
-        assertEquals(
-            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
-                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
-            zone2(zone2Session(), zone2Comparison())
-        )
-    }
-
-    @Test
-    fun `Zone 2 without fat efficiency moves the typical-ride qualifier to fat grams`() {
-        assertEquals(
-            "You burned 21g of fat (vs. 43g in a typical Zone 2 ride). " +
-                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
-            zone2(zone2Session(fatEfficiencyScore = null), zone2Comparison())
-        )
-    }
-
-    @Test
-    fun `Zone 2 without fat grams keeps fat efficiency alone`() {
-        val expected = "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride). " +
-            "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%)."
-        assertEquals(expected, zone2(zone2Session(fatBurnedGrams = null), zone2Comparison()))
-        assertEquals(expected, zone2(zone2Session(), zone2Comparison(medianFatGrams = null)))
-    }
-
-    @Test
-    fun `Zone 2 without duration median drops duration and rephrases power`() {
-        assertEquals(
-            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
-                "Your average power was 178 W (vs. 183 W). Your cardiac drift was 4.2% (vs. 3.7%).",
-            zone2(zone2Session(), zone2Comparison(medianNetDurationSec = null))
-        )
-    }
-
-    @Test
-    fun `Zone 2 without power keeps duration alone`() {
-        assertEquals(
-            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
-                "You rode 2h41min (vs. 1h15min). Your cardiac drift was 4.2% (vs. 3.7%).",
-            zone2(zone2Session(averagePower = null), zone2Comparison())
-        )
-    }
-
-    @Test
-    fun `Zone 2 without cardiac drift omits the last sentence`() {
-        assertEquals(
-            "Your fat efficiency score was 83 (vs. 81 in a typical Zone 2 ride) and you burned 21g of fat (vs. 43g). " +
-                "You rode 2h41min (vs. 1h15min) at 178 W (vs. 183 W).",
-            zone2(zone2Session(cardiacDriftPercent = null), zone2Comparison(medianCardiacDrift = null))
-        )
-    }
-
-    @Test
-    fun `Zone 2 with fewer than 2 prior rides shows not-enough-history`() {
-        assertEquals(
-            "Not enough history for Zone 2 rides yet.",
-            zone2(zone2Session(), zone2Comparison(sampleCount = 1))
-        )
-    }
-
-    @Test
-    fun `Zone 2 with no computable metric shows not-enough-history`() {
-        assertEquals(
-            "Not enough history for Zone 2 rides yet.",
-            zone2(zone2Session(), zone2Comparison(null, null, null, null, null))
-        )
-    }
-
-    // -- Recovery fixed metric list (#216) ------------------------------------------------------
-
-    private fun recoverySession(
-        netDurationSec: Int = 52 * 60,
-        averagePower: Int? = 165,
-        timeBelowSixtyPercentFtpSec: Int? = 45 * 60,
-        avgHeartRate: Int? = 121
-    ): CyclingSession = makeSession(
-        tag = "Recovery",
-        hasPower = true,
-        averagePower = averagePower,
-        timeBelowSixtyPercentFtpSec = timeBelowSixtyPercentFtpSec,
-        avgHeartRate = avgHeartRate
-    ).copy(netDurationSec = netDurationSec)
-
-    private fun recoveryComparison(
-        duration: Int? = 59 * 60,
-        power: Int? = 171,
-        below: Int? = 43 * 60,
-        heartRate: Int? = 119
-    ) = makeComparison(
-        medianNetDurationSec = duration,
-        medianAvgPowerLast5 = power,
-        medianTimeBelowSixtyPercentFtpSecLast5 = below,
-        medianAvgHeartRate = heartRate
-    )
-
-    @Test
-    fun `Recovery renders the fixed metric list with all metrics present`() {
-        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison())
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
-                "below 60% of FTP (vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops duration when its median is missing`() {
-        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(duration = null))
-
-        assertEquals(
-            "Your average power was 165 W (vs. 171 W in a typical Recovery ride) and spent 45min below 60% " +
-                "of FTP (vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops avg power when the ride has none`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(averagePower = null), "Recovery", recoveryComparison()
-        )
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) and spent 45min below 60% of FTP " +
-                "(vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops avg power when its median is missing`() {
-        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(power = null))
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) and spent 45min below 60% of FTP " +
-                "(vs. 43min). Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops time below 60 percent when the ride has none`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(timeBelowSixtyPercentFtpSec = null), "Recovery", recoveryComparison()
-        )
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W). " +
-                "Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops time below 60 percent when its median is missing`() {
-        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(below = null))
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W). " +
-                "Your average heart rate was 121bpm (vs. 119bpm).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops heart rate when the ride has none`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(avgHeartRate = null), "Recovery", recoveryComparison()
-        )
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
-                "below 60% of FTP (vs. 43min).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery drops heart rate when its median is missing`() {
-        val result = TagComparisonNarrative.generate(recoverySession(), "Recovery", recoveryComparison(heartRate = null))
-
-        assertEquals(
-            "You rode 52min (vs. 59min in a typical Recovery ride) at 165 W (vs. 171 W) and spent 45min " +
-                "below 60% of FTP (vs. 43min).",
-            result
-        )
-    }
-
-    @Test
-    fun `Recovery with only heart rate carries the qualifier there`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(), "Recovery", recoveryComparison(duration = null, power = null, below = null)
-        )
-
-        assertEquals("Your average heart rate was 121bpm (vs. 119bpm in a typical Recovery ride).", result)
-    }
-
-    @Test
-    fun `Recovery with insufficient pool shows not-enough-history`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(), "Recovery", makeComparison(last5SessionCount = 1)
-        )
-
-        assertEquals("Not enough history for Recovery rides yet.", result)
-    }
-
-    @Test
-    fun `Recovery with no renderable metric falls back to not-enough-history`() {
-        val result = TagComparisonNarrative.generate(
-            recoverySession(), "Recovery", recoveryComparison(null, null, null, null)
-        )
-
-        assertEquals("Not enough history for Recovery rides yet.", result)
-    }
-
-    // -- Intervals fixed metric list (#215) -----------------------------------------------------
-
-    private val intervalGaps = listOf(150, 150, 150, 150, null)
-
-    /** 5 intervals, 22min in them at a duration-weighted 330 W; the ride's overall average is 245 W. */
-    private fun intervalsSession(
-        intervalCount: Int = 5,
-        intervalTotalTimeSec: Int = 22 * 60,
-        averagePower: Int? = 245
-    ) = makeSession(
-        tag = "Intervals",
-        hasPower = true,
-        averagePower = averagePower,
-        intervalCount = intervalCount,
-        intervalTotalTimeSec = intervalTotalTimeSec
-    )
-
-    private fun intervalsList(gaps: List<Int?> = intervalGaps) =
-        gaps.map { makeInterval(it, durationSec = 264, avgPower = 330) }
-
-    private fun intervalsComparison(
-        count: Int? = 4,
-        totalSec: Int? = 18 * 60,
-        intervalPower: Int? = 320,
-        overallPower: Int? = 230
-    ) = makeComparison(
-        medianIntervalCountLast5 = count,
-        medianIntervalTotalTimeSecLast5 = totalSec,
-        medianIntervalAvgPower = intervalPower,
-        medianAvgPowerLast5 = overallPower
-    )
-
-    private val intervalsMetrics =
-        "You did 5 intervals (vs. 4 in a typical Intervals ride) and spent 22min in intervals " +
-            "(vs. 18min) at 330 W (vs. 320 W), with 245 W overall (vs. 230 W)."
-
-    @Test
-    fun `Intervals renders the fixed metric list with all metrics present`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), intervalsList()
-        )
-
-        assertEquals(intervalsMetrics, result)
-    }
-
-    @Test
-    fun `Intervals appends the rest-gap flag after the metrics`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), intervalsList(listOf(150, 100, 150, 150, null))
-        )
-
-        assertEquals(
-            "$intervalsMetrics 1 of 4 rest gaps were shorter than the recommended 2-3min.",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals flags rest gaps that are too long`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), intervalsList(listOf(150, 200, 210, 150, null))
-        )
-
-        assertEquals("$intervalsMetrics 2 of 4 rest gaps were longer than the recommended 2-3min.", result)
-    }
-
-    @Test
-    fun `Intervals reports both rest-gap directions in one sentence`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), intervalsList(listOf(90, 100, 200, 150, null))
-        )
-
-        assertEquals(
-            "$intervalsMetrics 2 of 4 rest gaps were shorter than the recommended 2-3min, 1 was longer.",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals with nothing to flag omits the rest-gap sentence`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), intervalsList()
-        )
-
-        assertFalse(result.contains("rest gap"))
-    }
-
-    @Test
-    fun `Intervals with a single interval has no rest-gap sentence`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(intervalCount = 1), "Intervals", intervalsComparison(),
-            intervalsList(listOf<Int?>(null))
-        )
-
-        assertFalse(result.contains("rest gap"))
-    }
-
-    @Test
-    fun `Intervals drops the interval count when its median is missing`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(count = null), intervalsList()
-        )
-
-        assertEquals(
-            "You spent 22min in intervals (vs. 18min in a typical Intervals ride) at 330 W (vs. 320 W), " +
-                "with 245 W overall (vs. 230 W).",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals drops time in intervals when its median is missing`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(totalSec = null), intervalsList()
-        )
-
-        assertEquals(
-            "You did 5 intervals (vs. 4 in a typical Intervals ride) averaging 330 W (vs. 320 W) in intervals, " +
-                "with 245 W overall (vs. 230 W).",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals drops interval power when the pool median is missing`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(intervalPower = null), intervalsList()
-        )
-
-        assertEquals(
-            "You did 5 intervals (vs. 4 in a typical Intervals ride) and spent 22min in intervals " +
-                "(vs. 18min), with 245 W overall (vs. 230 W).",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals drops interval power when the ride has no intervals to average`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(), emptyList()
-        )
-
-        assertFalse(result.contains("330"))
-        assertTrue(result.contains("245 W overall"))
-    }
-
-    @Test
-    fun `Intervals drops overall power when the ride has none`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(averagePower = null), "Intervals", intervalsComparison(), intervalsList()
-        )
-
-        assertEquals(
-            "You did 5 intervals (vs. 4 in a typical Intervals ride) and spent 22min in intervals " +
-                "(vs. 18min) at 330 W (vs. 320 W).",
-            result
-        )
-    }
-
-    @Test
-    fun `Intervals drops overall power when its median is missing`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", intervalsComparison(overallPower = null), intervalsList()
-        )
-
-        assertFalse(result.contains("overall"))
-    }
-
-    @Test
-    fun `Intervals with only overall power carries the qualifier there`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals",
-            intervalsComparison(count = null, totalSec = null, intervalPower = null), emptyList()
-        )
-
-        assertEquals("Your average power was 245 W (vs. 230 W in a typical Intervals ride).", result)
-    }
-
-    @Test
-    fun `Intervals with insufficient pool shows not-enough-history`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals", makeComparison(last5SessionCount = 1), intervalsList()
-        )
-
-        assertEquals("Not enough history for Intervals rides yet.", result)
-    }
-
-    @Test
-    fun `Intervals with no renderable metric falls back to not-enough-history`() {
-        val result = TagComparisonNarrative.generate(
-            intervalsSession(), "Intervals",
-            intervalsComparison(count = null, totalSec = null, intervalPower = null, overallPower = null),
-            intervalsList()
-        )
-
-        assertEquals("Not enough history for Intervals rides yet.", result)
-    }
-
-    // -- Duration-weighted interval power (#215) ------------------------------------------------
-
-    @Test
-    fun `duration-weighted power counts longer intervals proportionally more`() {
-        // (400 W x 60s + 200 W x 180s) / 240s = 250 W; an unweighted mean would be 300 W.
-        val intervals = listOf(
-            makeInterval(150, durationSec = 60, avgPower = 400),
-            makeInterval(null, durationSec = 180, avgPower = 200)
-        )
-
-        assertEquals(250, intervals.durationWeightedAvgPower())
-    }
-
-    @Test
-    fun `duration-weighted power is null without intervals`() {
-        assertEquals(null, emptyList<IntervalSession>().durationWeightedAvgPower())
     }
 }

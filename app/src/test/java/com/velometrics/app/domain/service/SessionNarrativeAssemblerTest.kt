@@ -68,34 +68,21 @@ class SessionNarrativeAssemblerTest {
 
         val narrative = assembler(repo).build(current)!!
 
-        assertEquals("Vs. other Zone 2 rides", narrative.headline)
+        assertEquals("vs. Zone 2", narrative.headline)
         // Pool medians over all 6: fat efficiency of [64,66,68,70,72,74] = 69.
         assertEquals(
-            "Your fat efficiency score was 80 (vs. 69 in a typical Zone 2 ride) and you burned 20g of fat (vs. 20g). " +
-                "You rode 1h0min (vs. 1h0min) at 150 W (vs. 150 W). Your cardiac drift was 4.0% (vs. 4.0%).",
-            narrative.text
+            listOf("80 (vs. 69)", "20 g (vs. 20 g)", "1h0min (vs. 1h0min)", "150 W (vs. 150 W)", "4.0% (vs. 4.0%)"),
+            narrative.lines
         )
     }
 
     @Test
-    fun `tagged session with thin history shows not-enough-history`() = runTest {
+    fun `tagged session with too little history has no narrative`() = runTest {
         val repo = FakeCyclingSessionRepository()
         val current = session(1, 0, "Zone 2")
         repo.sessions.addAll(listOf(current, session(2, 1, "Zone 2")))
 
-        val narrative = assembler(repo).build(current)!!
-
-        assertEquals("Vs. other Zone 2 rides", narrative.headline)
-        assertEquals("Not enough history for Zone 2 rides yet.", narrative.text)
-    }
-
-    @Test
-    fun `tagged session with no history shows not-enough-history`() = runTest {
-        val repo = FakeCyclingSessionRepository()
-        val current = session(1, 0, "Zone 2")
-        repo.sessions.add(current)
-
-        assertEquals("Not enough history for Zone 2 rides yet.", assembler(repo).build(current)!!.text)
+        assertNull(assembler(repo).build(current))
     }
 
     @Test
@@ -144,7 +131,7 @@ class SessionNarrativeAssemblerTest {
         job.cancel()
         assertEquals(2, emissions.size)
         assertNull(emissions[0])
-        assertEquals("Vs. other Zone 2 rides", emissions[1]!!.headline)
+        assertEquals("vs. Zone 2", emissions[1]?.headline)
     }
 }
 

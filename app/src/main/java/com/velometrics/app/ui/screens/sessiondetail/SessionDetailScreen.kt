@@ -453,6 +453,9 @@ private fun IntervalMapLegend(intervals: List<IntervalSession>, modifier: Modifi
 }
 
 
+/** Temporarily hides the comparison triangles and the "vs. last 5" / "vs. all" toggle. */
+private const val SHOW_COMPARISON_TRIANGLES = false
+
 /** Which comparison pool the Session Detail triangles are currently measured against. */
 private enum class ComparisonMode(val label: String) {
     LAST_5("vs. last 5"),
@@ -551,6 +554,23 @@ private fun ChapterStatsCard(metrics: List<Pair<String, String>>) {
     }
 }
 
+/** A "vs. [TAG]" / "vs. [Repeated Route]" headline over one stat line per metric, in metric-value size. */
+@Composable
+private fun RecapLines(headline: String, lines: List<String>) {
+    Text(
+        text = headline,
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.padding(top = 8.dp)
+    )
+    lines.forEach { line ->
+        Text(
+            text = line,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
 @Composable
 private fun RideSummaryGrid(
     session: CyclingSession,
@@ -591,20 +611,12 @@ private fun RideSummaryGrid(
                     )
                 )
             }
-            ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
+            if (SHOW_COMPARISON_TRIANGLES) {
+                ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
+            }
         }
         if (narrative != null) {
-            Text(
-                text = narrative.headline,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            Text(
-                text = narrative.text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            RecapLines(headline = narrative.headline, lines = narrative.lines)
         }
         if (routeRecap != null) {
             Column(
@@ -612,23 +624,16 @@ private fun RideSummaryGrid(
                     .fillMaxWidth()
                     .clickable { onRouteRecapClick(routeRecap.routeId) }
             ) {
-                Text(
-                    text = routeRecap.headline,
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Text(
-                    text = routeRecap.text,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                RecapLines(headline = routeRecap.headline, lines = routeRecap.lines)
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
 
-        fun <T> pooled(last5: T, allPrevious: T): T =
-            if (comparisonMode == ComparisonMode.LAST_5) last5 else allPrevious
+        fun <T> pooled(last5: T, allPrevious: T): T? = when {
+            !SHOW_COMPARISON_TRIANGLES -> null
+            comparisonMode == ComparisonMode.LAST_5 -> last5
+            else -> allPrevious
+        }
 
         // Strava-simple headline set (#188) — 6 fields, 2 columns x 3 rows. The other 5 fields
         // that used to live here moved into their matching section's card header; Elev. gain /

@@ -17,11 +17,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import javax.inject.Inject
 
-/** The Session Detail tag recap (#214): [headline] is "Vs. other [TAG] rides", [text] the body. */
-data class SessionNarrative(val headline: String, val text: String)
+/** The Session Detail tag recap (#214): [headline] is "vs. [TAG]", [lines] one stat line per metric. */
+data class SessionNarrative(val headline: String, val lines: List<String>)
 
 /** The Session Detail Repeated Route recap (#217); tapping it opens the route's detail screen. */
-data class RouteRecap(val routeId: Long, val headline: String, val text: String)
+data class RouteRecap(val routeId: Long, val headline: String, val lines: List<String>)
 
 /**
  * Single entry point for the Session Detail tag recap (#214): owns the tag-scoped comparison pool,
@@ -35,7 +35,7 @@ class SessionNarrativeAssembler @Inject constructor(
     private val repeatedRoutesCache: RepeatedRoutesCache
 ) {
     /**
-     * Null when the ride has no tag (the recap block is omitted) or the history lookup fails —
+     * Null when the ride has no tag or too little tag history (the recap block is omitted), or the history lookup fails —
      * the recap is supplementary, so an error must not take Session Detail down with it.
      */
     suspend fun build(session: CyclingSession): SessionNarrative? {
@@ -43,10 +43,9 @@ class SessionNarrativeAssembler @Inject constructor(
         return try {
             val comparison = sessionComparator.computeTagComparison(session, tag)
             val intervals = intervalRepository.getIntervalsForSession(session.id).first()
-            SessionNarrative(
-                headline = "Vs. other $tag rides",
-                text = TagComparisonNarrative.generate(session, tag, comparison, intervals)
-            )
+            TagComparisonNarrative.lines(session, tag, comparison, intervals)
+                .takeIf { it.isNotEmpty() }
+                ?.let { SessionNarrative(headline = "vs. $tag", lines = it) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -87,23 +86,19 @@ class SessionNarrativeAssembler @Inject constructor(
             fun speed(s: CyclingSession): Double? =
                 if (s.netDurationSec > 0) s.distanceKm / s.netDurationSec * 3600 else null
 
-            val parts = listOfNotNull(
-                stat("Avg. speed", speed(current), others.mapNotNull(::speed), " km/h", "%.1f"),
-                stat("Avg. power", current.averagePower?.toDouble(), others.mapNotNull { it.averagePower?.toDouble() }, " W", "%.0f"),
-                stat("Avg. heart rate", current.avgHeartRate?.toDouble(), others.mapNotNull { it.avgHeartRate?.toDouble() }, " bpm", "%.0f")
+            val lines = listOfNotNull(
+                stat(speed(current), others.mapNotNull(::speed), " km/h", "%.1f"),
+                stat(current.averagePower?.toDouble(), others.mapNotNull { it.averagePower?.toDouble() }, " W", "%.0f"),
+                stat(current.avgHeartRate?.toDouble(), others.mapNotNull { it.avgHeartRate?.toDouble() }, " bpm", "%.0f")
             )
-            if (parts.isEmpty()) return null
-            val text = parts.mapIndexed { i, (value, median) ->
-                if (i == 0) "$value (vs. $median in a typical ride on this route)" else "$value (vs. $median)"
-            }.joinToString(". ", postfix = ".")
-            val headline = if (route.isCustomName) "Vs. other ${route.name} rides" else "Vs. other rides on this route"
-            return RouteRecap(route.id, headline, text)
+            if (lines.isEmpty()) return null
+            return RouteRecap(route.id, "vs. ${route.name}", lines)
         }
 
-        private fun stat(label: String, value: Double?, others: List<Double>, unit: String, fmt: String): Pair<String, String>? {
+        private fun stat(value: Double?, others: List<Double>, unit: String, fmt: String): String? {
             val cur = value ?: return null
             val med = others.median() ?: return null
-            return "$label ${fmt.format(Locale.US, cur)}$unit" to "${fmt.format(Locale.US, med)}$unit"
+            return "${fmt.format(Locale.US, cur)}$unit (vs. ${fmt.format(Locale.US, med)}$unit)"
         }
     }
 }

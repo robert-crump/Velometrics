@@ -46,27 +46,25 @@ class RouteRecapTest {
         val r = route(ride(1, 26.2, 210, 142), ride(2, 26.0, 190, 145), ride(3, 28.0, 200, 147))
         val recap = SessionNarrativeAssembler.buildRouteRecap(1, r)!!
         assertEquals(7L, recap.routeId)
-        assertEquals("Vs. other rides on this route", recap.headline)
+        assertEquals("vs. Repeated Route 1", recap.headline)
         assertEquals(
-            "Avg. speed 26.2 km/h (vs. 27.0 km/h in a typical ride on this route). " +
-                "Avg. power 210 W (vs. 195 W). Avg. heart rate 142 bpm (vs. 146 bpm).",
-            recap.text
+            listOf("26.2 km/h (vs. 27.0 km/h)", "210 W (vs. 195 W)", "142 bpm (vs. 146 bpm)"),
+            recap.lines
         )
     }
 
     @Test
     fun `custom route name is used in the headline`() {
         val r = route(ride(1, 26.0, 200, 140), ride(2, 26.0, 200, 140), ride(3, 26.0, 200, 140), custom = true)
-        assertEquals("Vs. other Canal loop rides", SessionNarrativeAssembler.buildRouteRecap(1, r)!!.headline)
+        assertEquals("vs. Canal loop", SessionNarrativeAssembler.buildRouteRecap(1, r)!!.headline)
     }
 
     @Test
     fun `stat lines drop independently when other rides lack the data`() {
         val r = route(ride(1, 26.0, 210, 142), ride(2, 26.0, null, 145), ride(3, 26.0, null, null))
         assertEquals(
-            "Avg. speed 26.0 km/h (vs. 26.0 km/h in a typical ride on this route). " +
-                "Avg. heart rate 142 bpm (vs. 145 bpm).",
-            SessionNarrativeAssembler.buildRouteRecap(1, r)!!.text
+            listOf("26.0 km/h (vs. 26.0 km/h)", "142 bpm (vs. 145 bpm)"),
+            SessionNarrativeAssembler.buildRouteRecap(1, r)!!.lines
         )
     }
 

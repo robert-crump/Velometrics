@@ -41,6 +41,8 @@ An Android app for tracking, analyzing, and visualizing cycling sessions. Import
 
 > **Note:** The app bundles `velometrics.db` (~84 MB) as an asset for offline map routing and route planning. Cloning will include this file.
 
+**Screenshots:** `./gradlew readmeScreenshots` imports ~10 weeks of synthetic demo rides and saves screenshots to `docs/screenshots/`. It needs exactly one running emulator (or `ANDROID_SERIAL`), clears the app's data on it, and refuses to run on a physical device.
+
 ## Built With
 
 - [Jetpack Compose](https://developer.android.com/jetpack/compose) — UI (BOM 2025.01.01)

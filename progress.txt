@@ -1,3 +1,26 @@
+## Issue #220 -- README screenshots: ./gradlew readmeScreenshots end to end (home.png)
+Completed: 2026-09-30
+
+### What was done
+
+- `readmeScreenshots` task (`app/build.gradle.kts`, group documentation, not in CI), modeled on MyQuotes 7267ae7:
+  picks the one running `emulator-*` (or `ANDROID_SERIAL`, which must report `ro.kernel.qemu=1`), installs both
+  APKs, `pm clear`s the app, overrides the display to 1080x2400 @ 420 dpi, enters demo mode (12:00, full battery,
+  full Wi-Fi with `fully true`, no mobile/status icons), runs the gated test via `am instrument`, and in a `finally`
+  resets the display, the status bar flag and demo mode. Fails on `FAILURES!!!` / no `OK (`; replaces `docs/screenshots/*.png`.
+- Demo mode's `notifications visible false` doesn't hide Safety Center's "no screen lock" icon on API 37;
+  `cmd statusbar send-disable-flag notification-icons` does (reset to `none` afterwards).
+- androidTest `com.velometrics.app.readme`: `EmulatorOnlyRule` (skip without `-e readmeScreenshots true`, fail on
+  non-emulators), `ReadmeScreenshotCapture` (UiAutomation PNGs to external files `readme-screenshots/`),
+  `ReadmeScreenshots` (app night mode via `UiModeManager.setApplicationNightMode`, FTP 260 as the seed row, home =
+  Süd-Limburg GPX start "Simpelveld", #219 rides imported through `RideLifecycle.import`, waits until repeated
+  routes then intervals are non-empty, then captures Home once "30 rides" shows).
+- Test reaches app singletons via a new main-source `@EntryPoint` `di/ReadmeScreenshotsEntryPoint` (Hilt only
+  aggregates entry points compiled with the `@HiltAndroidApp` module).
+- Two runs gave the same home.png; README has a one-line note. Other four screenshots are the next issue.
+
+`testDebugUnitTest` passes (one unrelated Robolectric native JVM crash on the first try, clean on rerun).
+
 ## Issue #219 -- README demo data: synthetic .fit rides from GPX loops
 Completed: 2026-09-30
 
@@ -70,24 +93,5 @@ Completed: 2026-09-19
 - `PoolMedians` gains `avgHeartRate` (all-time tag median from the existing `avgHeartRate` sample column; no query change).
 - Tests: Recovery fixed-list cases (all present, each metric missing, HR-only qualifier, insufficient pool, nothing
   renderable), comparator HR median. Generic deviation tests moved from the "Recovery" tag to "Tempo".
-
-`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
-
-## Issue #215 -- Intervals fixed-metric recap + interval-power aggregate
-Completed: 2026-09-19
-
-### What was done
-
-- New `List<IntervalSession>.durationWeightedAvgPower()` (IntervalPowerAggregate.kt): per-ride "power during intervals",
-  each `avgPower` weighted by `durationSec`. Pool side is a correlated subquery (`intervalAvgPower`) added to the three
-  `SessionMetricSampleEntity` queries in `CyclingSessionDao` (same weighting, no new column/migration, so old rides
-  are covered without backfill). `SessionMetricSample`/`PoolMedians` gain `intervalAvgPower` (all-time tag median).
-- `TagComparisonNarrative`: Intervals now renders the fixed list ("You did 5 intervals (vs. 4 in a typical Intervals ride)
-  and spent 22min in intervals (vs. 18min) at 330 W (vs. 320 W), with 245 W overall (vs. 230 W).") then the unchanged
-  `restGapSentence`. Each of the 4 metrics drops independently (connective wording adapts); the qualifier moves to the
-  first rendered one. Removed the old interval-count single-sentence candidate.
-- Tests: fixed-list cases (all present, each metric missing, rest gap both directions / none / single interval,
-  insufficient pool), weighted-aggregate with uneven durations, comparator interval-power median (fake gets
-  `intervalAvgPowerBySession`). Generic deviation tests moved from the "Intervals" tag to "Recovery".
 
 `testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.

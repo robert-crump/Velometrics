@@ -1,3 +1,27 @@
+## Issue #219 -- README demo data: synthetic .fit rides from GPX loops
+Completed: 2026-09-30
+
+### What was done
+
+- New `app/src/sharedTest` source set (java + assets) wired into both `test` (assets as classpath resources) and
+  `androidTest` (as instrumentation assets). Four komoot loops reduced to lat/lon/ele only under `assets/demo/`.
+- `com.velometrics.app.demo`: `DemoTrack` (5 m resampling, smoothed elevation/grade, cornering speed limit with a
+  braking envelope), `DemoLoop` (pinned efforts per loop), `DemoRideModel` (plan + 1 Hz sim: power -> physics speed ->
+  lagged HR, sprints, stops with timer events, AR(1) GPS jitter), `DemoFitWriter` (Garmin `BufferEncoder`, not
+  `FileEncoder`, to get bytes without temp files), `DemoRideGenerator.generate(today, openAsset, masterSeed)`:
+  30 rides over 10 weeks (9 Aachen / 7 Herzogenrath / 7 Mechelen / 7 Süd-Limburg), hero = Süd-Limburg on `today`.
+- Deviations from the issue text, tuned to hit the acceptance numbers: outside-effort climbing capped at 0.90 FTP (not
+  1.05) so only pinned efforts become intervals; Süd-Limburg base 0.82 FTP (not 0.65-0.72) to reach ~200 W @ 2 h;
+  Herzogenrath carries a pinned ~22 min threshold block (1.00-1.08 FTP, building over the block) for the 20 min point.
+- Measured: 5 s 975 W, 20 min 278 W, 2 h 194 W; all rides import at 100 % GPS/power quality; Aachen 4 intervals/ride,
+  Mechelen 7 climbs/ride, sprint counts match the plan, 4 repeated routes (one per loop).
+- Tests: `DemoRideGeneratorTest` (determinism, calendar, loop mix, FIT integrity, clean GPX, hero shape) and
+  `DemoRideImportTest` (Robolectric + Room: real `FitImportServiceImpl`, real `RouteClusteringService`; repeated
+  intervals checked via `IntervalSimilarity` since archetype building needs the map-matched road graph).
+- Not done here: the device screenshot test that consumes the generator.
+
+`testDebugUnitTest` and `compileDebugAndroidTestKotlin` pass.
+
 ## Issue #204 -- Heart rate vs. distance chart on Session Detail
 Completed: 2026-09-19
 
@@ -65,27 +89,5 @@ Completed: 2026-09-19
 - Tests: fixed-list cases (all present, each metric missing, rest gap both directions / none / single interval,
   insufficient pool), weighted-aggregate with uneven durations, comparator interval-power median (fake gets
   `intervalAvgPowerBySession`). Generic deviation tests moved from the "Intervals" tag to "Recovery".
-
-`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
-
-## Issue #214 -- Session Narrative assembler + all-time Tag recap + Zone 2 content (supersedes #202)
-Completed: 2026-09-19
-
-### What was done
-
-- New `SessionNarrativeAssembler` (domain/service): `build(session)` is the single path for tag-scoped comparison +
-  interval fetch (once) + narrative generation; `observe(sessionId)` re-assembles when the session row's tag changes
-  (backfill by `reclassifyAll`). Returns null for untagged rides and on repository errors. `SessionDetailViewModel`
-  exposes `narrative: StateFlow<SessionNarrative?>` (headline + text), replacing `tagNarrative`.
-- `SessionComparator`: `computeComparison(session)` no longer takes a tag; new `computeTagComparison(session, tag)` returns an
-  all-time `TagComparison(sampleCount, PoolMedians)`. `PoolMedians` gains `fatGrams`. The tag-scoped last-5 query was removed
-  from DAO/repository/fake (untagged Last5/AllPrevious drawer comparison is unchanged).
-- `TagComparisonNarrative` now takes a `TagComparison`; Zone 2 renders the fixed 5-metric sentence (each metric drops out
-  independently; first rendered one carries "in a typical Zone 2 ride"). Intervals/Recovery keep the single-sentence model,
-  now on all-time medians (follow-on issues).
-- UI: removed `RideTagLabel` chip/expand state; `RideSummaryGrid` shows always-visible "Vs. other [TAG] rides" + text, nothing
-  when untagged.
-- Tests: new `SessionNarrativeAssemblerTest`, Zone 2 cases in `TagComparisonNarrativeTest`, tag pool tests in
-  `SessionComparatorTest`, recap assertions in `SessionDetailViewModelTest`.
 
 `testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.

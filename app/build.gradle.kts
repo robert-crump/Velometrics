@@ -57,6 +57,17 @@ android {
         // adding it here (rather than "main") keeps the schema JSONs out of release builds.
         getByName("debug").assets.srcDirs("$projectDir/schemas")
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
+        // sharedTest: code + assets used by both JVM tests and instrumented tests (the README demo
+        // ride generator, #219). JVM tests read the assets as classpath resources, device tests as
+        // instrumentation-context assets — both under the same "demo/..." path.
+        getByName("test") {
+            java.srcDir("src/sharedTest/java")
+            resources.srcDir("src/sharedTest/assets")
+        }
+        getByName("androidTest") {
+            java.srcDir("src/sharedTest/java")
+            assets.srcDir("src/sharedTest/assets")
+        }
     }
 }
 

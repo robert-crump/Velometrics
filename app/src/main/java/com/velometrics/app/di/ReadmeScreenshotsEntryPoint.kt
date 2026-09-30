@@ -4,6 +4,7 @@ import com.velometrics.app.data.cache.RepeatedIntervalsCache
 import com.velometrics.app.data.cache.RepeatedRoutesCache
 import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
+import com.velometrics.app.domain.repository.RepeatedRouteRepository
 import com.velometrics.app.domain.service.RideLifecycle
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -22,4 +23,5 @@ interface ReadmeScreenshotsEntryPoint {
     fun userSettingsRepository(): UserSettingsRepository
     fun repeatedRoutesCache(): RepeatedRoutesCache
     fun repeatedIntervalsCache(): RepeatedIntervalsCache
+    fun repeatedRouteRepository(): RepeatedRouteRepository
 }

@@ -1,3 +1,26 @@
+## Issue #221 -- README screenshots: ride, ride-power, route, stats + README rewrite
+Completed: 2026-09-30
+
+### What was done
+
+- `ReadmeScreenshots` now captures all five shots, each from a fresh `MainActivity` at Home, navigating by UI
+  clicks: hero ride by its date text; Routes tab -> "Aachen"; overflow -> "All-time stats".
+- Routes are renamed after their loop (Aachen / Herzogenrath / Mechelen / Süd-Limburg, matched by session start)
+  via `RepeatedRouteRepository` (added to `ReadmeScreenshotsEntryPoint`), so titles/recaps don't say "Repeated Route N".
+- `MapSettle` (androidTest): hooks every on-screen `MapView` (will-start-rendering-frame resets, did-become-idle
+  stamps, `triggerRepaint` to force a fresh idle) and waits for style loaded + 1.5 s idle, so tiles are complete.
+- ride-power: swipe the drawer to full, a down+cancel touch clears the drawer's "block scroll until new touch",
+  then semantic `ScrollBy` aligns the Power title 24 dp under the docked header. route/stats align the card
+  title under the TopAppBar the same way (`scrollTitleTo`, measured from the Back button's bounds).
+- README rewritten store-style per the issue. Deviations after checking the app: Analyze bullet says "power and
+  heart-rate zones, normalized power, intervals and sprints, cardiac drift" (no per-ride TSS or stop analysis
+  exist); Training load bullet says "fitness, fatigue and form" (CTL/ATL/TSB, not weeks/months); footnote also
+  credits CARTO (the dark basemap).
+- home.png came out byte-identical to #220's. Known app quirk visible in stats.png: the power curve's peak label
+  overlaps the "1000" axis label.
+
+`readmeScreenshots` (1 test OK, 5 PNGs) and `testDebugUnitTest` pass.
+
 ## Issue #220 -- README screenshots: ./gradlew readmeScreenshots end to end (home.png)
 Completed: 2026-09-30
 
@@ -80,18 +103,3 @@ Completed: 2026-09-19
 
 `testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
 
-## Issue #216 -- Recovery fixed-metric recap
-Completed: 2026-09-19
-
-### What was done
-
-- `TagComparisonNarrative.recoveryNarrative`: Recovery renders the fixed list ("You rode 52min (vs. 59min in a typical
-  Recovery ride) at 165 W (vs. 171 W) and spent 45min below 60% of FTP (vs. 43min). Your average heart rate was 121bpm
-  (vs. 119bpm)."). Each of the 4 metrics drops independently (connective wording adapts); the qualifier moves to the first
-  rendered one. Removed the old time-below-60% single-sentence main-value path (`mainValueCandidate`); only untagged-model
-  fallback (deviation ranking) remains for other tags.
-- `PoolMedians` gains `avgHeartRate` (all-time tag median from the existing `avgHeartRate` sample column; no query change).
-- Tests: Recovery fixed-list cases (all present, each metric missing, HR-only qualifier, insufficient pool, nothing
-  renderable), comparator HR median. Generic deviation tests moved from the "Recovery" tag to "Tempo".
-
-`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.

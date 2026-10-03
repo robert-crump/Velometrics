@@ -21,8 +21,7 @@ private const val CHART_HEIGHT_DP = 80
 /**
  * One bar in a [TickedBarChart].
  * @param percentageLabel text shown below the bar (e.g. "42%"), or null to draw a blank spacer
- * instead — callers decide per-entry whether/how a bar's percentage is labeled (e.g.
- * [PowerZoneChart]/[HeartRateZoneChart] pass null at 0%, [SpeedHistogramChart] always labels).
+ * instead — callers decide per-entry whether/how a bar's percentage is labeled.
  * @param tickPercentage optional comparison value (0-100 scale), drawn as a thin tick mark on the
  * bar. Null draws no tick.
  */
@@ -35,8 +34,8 @@ data class TickedBarEntry(
 )
 
 /**
- * Shared bar+tick-mark Canvas used by [PowerZoneChart], [HeartRateZoneChart], and
- * [SpeedHistogramChart]: a titled card with one bar per entry, each bar's height proportional to
+ * Vertical bar+tick-mark Canvas used by [SpeedHistogramChart] (the zone charts use
+ * [HorizontalTickedBarChart]): a titled card with one bar per entry, each bar's height proportional to
  * its percentage (relative to the largest percentage/tick across all entries), an optional thin
  * tick mark for a comparison value, a short label, and an optional percentage label.
  */

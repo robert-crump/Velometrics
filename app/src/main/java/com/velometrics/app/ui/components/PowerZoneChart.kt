@@ -1,11 +1,9 @@
 package com.velometrics.app.ui.components
 
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 
 private val zoneColors = mapOf(
     "0 W" to Color(0xFF757575),
@@ -30,7 +28,7 @@ private val shortLabels = mapOf(
 
 /**
  * @param averagePercentages all-rides average percentage-of-ride-time per zone label, drawn as a
- * thin tick mark on each bar. Empty map draws no ticks (e.g. before the cache has any data).
+ * thin tick mark on each row's bar. Empty map draws no ticks (e.g. before the cache has any data).
  */
 @Composable
 fun PowerZoneChart(
@@ -43,16 +41,15 @@ fun PowerZoneChart(
 
     val entries = zones.map { zoneName ->
         val pct = percentages[zoneName] ?: 0f
-        TickedBarEntry(
+        HorizontalBarEntry(
             label = shortLabels[zoneName] ?: zoneName,
             percentage = pct,
             color = zoneColors[zoneName] ?: Color.Gray,
-            percentageLabel = if (pct > 0) "${pct.toInt()}%" else null,
             tickPercentage = averagePercentages[zoneName]
         )
     }
 
-    TickedBarChart(
+    HorizontalTickedBarChart(
         entries = entries,
         modifier = Modifier.fillMaxWidth()
     )

@@ -1,3 +1,18 @@
+## Horizontal HR and power zone charts (no issue)
+Completed: 2026-10-03
+
+### What was done
+
+- New `HorizontalTickedBarChart` (+ `HorizontalBarEntry`): one row per zone, lowest effort on top (HR Z1..Z5,
+  power 0W, Z1..Z6), fixed 24 dp label column, fixed 14 dp bar + 4 dp gap (chart height grows with zone count),
+  bar length relative to the largest value/tick, all-rides average as a vertical tick. No percentage text;
+  TalkBack still reads "Z3: 35%, average 28%". 0% zones keep a 2 dp sliver.
+- `HeartRateZoneChart` and `PowerZoneChart` use it; `TickedBarChart` stays vertical for `SpeedHistogramChart` only.
+- Not done: `docs/screenshots/ride-power.png` still shows the old vertical power chart until
+  `./gradlew readmeScreenshots` is rerun.
+
+`assembleDebug` and `testDebugUnitTest` pass. No visual check on a device this run.
+
 ## Issue #221 -- README screenshots: ride, ride-power, route, stats + README rewrite
 Completed: 2026-09-30
 

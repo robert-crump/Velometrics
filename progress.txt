@@ -1,3 +1,28 @@
+## Issue #227 -- Speed IQ: standing time and potential average speed
+Completed: 2026-10-04
+
+### What was done
+
+- Standing = clock seconds below 2 km/h (record-to-record steps with both ends < 2 km/h) or with the
+  FIT timer paused. The pauses are the same stop->start intervals as `pauseDurationSec`;
+  `SessionMetricsCalculator.pauseIntervals` now feeds both. A step inside a pause isn't counted twice.
+  Pieces closer than 5 s are one stop. A stop over 3 min (coffee stop) isn't counted at all.
+- A stop belongs to a braking event when it starts < 5 s after the event's last record and doesn't
+  end before the event begins. A stop with no braking is a standing-only event from 5 s (energy 0,
+  speeds 0, located at the record where the stop began). Shorter ones aren't counted anywhere.
+- `BrakingEvent.standingSec` and `lostSec` (penalty + standing); the top 5 are ranked by `lostSec`.
+  `SpeedIq.standingSec` / `standingInTimerSec` live in the summary JSON. No migration: Gson leaves
+  missing fields at 0, so rides imported before this read as 0 standing.
+- `SpeedIq.potentialAvgKmh(distance, net)` = distance / (net − braking − in-timer standing).
+  Standing under auto-pause is already outside net time.
+- Card: `Braking 3:12 · Standing 4:40 · 17 events`, then `Avg 30.0 → 31.1 km/h without penalties`
+  with an info-icon tooltip (M3 TooltipBox, shows on tap). Rows come from `speedIqEventRow`, e.g.
+  `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`. A standing-only row has no speeds.
+- Not done: no visual check on a device; README screenshots don't show the card.
+
+`testDebugUnitTest` (new BrakingDetector standing tests, `SpeedIqEventRowTest`, demo rides) and
+`assembleDebug` pass.
+
 ## Issue #226 -- Speed IQ: braking events card on Ride Detail (tracer bullet)
 Completed: 2026-10-04
 
@@ -93,25 +118,3 @@ Completed: 2026-09-30
 
 `readmeScreenshots` (1 test OK, 5 PNGs) and `testDebugUnitTest` pass.
 
-## Issue #220 -- README screenshots: ./gradlew readmeScreenshots end to end (home.png)
-Completed: 2026-09-30
-
-### What was done
-
-- `readmeScreenshots` task (`app/build.gradle.kts`, group documentation, not in CI), modeled on MyQuotes 7267ae7:
-  picks the one running `emulator-*` (or `ANDROID_SERIAL`, which must report `ro.kernel.qemu=1`), installs both
-  APKs, `pm clear`s the app, overrides the display to 1080x2400 @ 420 dpi, enters demo mode (12:00, full battery,
-  full Wi-Fi with `fully true`, no mobile/status icons), runs the gated test via `am instrument`, and in a `finally`
-  resets the display, the status bar flag and demo mode. Fails on `FAILURES!!!` / no `OK (`; replaces `docs/screenshots/*.png`.
-- Demo mode's `notifications visible false` doesn't hide Safety Center's "no screen lock" icon on API 37;
-  `cmd statusbar send-disable-flag notification-icons` does (reset to `none` afterwards).
-- androidTest `com.velometrics.app.readme`: `EmulatorOnlyRule` (skip without `-e readmeScreenshots true`, fail on
-  non-emulators), `ReadmeScreenshotCapture` (UiAutomation PNGs to external files `readme-screenshots/`),
-  `ReadmeScreenshots` (app night mode via `UiModeManager.setApplicationNightMode`, FTP 260 as the seed row, home =
-  Süd-Limburg GPX start "Simpelveld", #219 rides imported through `RideLifecycle.import`, waits until repeated
-  routes then intervals are non-empty, then captures Home once "30 rides" shows).
-- Test reaches app singletons via a new main-source `@EntryPoint` `di/ReadmeScreenshotsEntryPoint` (Hilt only
-  aggregates entry points compiled with the `@HiltAndroidApp` module).
-- Two runs gave the same home.png; README has a one-line note. Other four screenshots are the next issue.
-
-`testDebugUnitTest` passes (one unrelated Robolectric native JVM crash on the first try, clean on rerun).

@@ -121,9 +121,10 @@ class DemoRideImportTest {
                 imported.forEach {
                     val iq = it.session.speedIq
                     println(
-                        "%2d speedIq events=%s braking=%.0fs P=%s top=%s".format(
-                            it.ride.index, iq?.eventCount, iq?.brakingPenaltySec ?: 0.0, iq?.referencePowerW,
-                            iq?.topEvents?.joinToString { e -> "km %.1f %.0fs %.0f->%.0f".format(e.km, e.penaltySec, e.peakKmh, e.lowKmh) }
+                        "%2d speedIq events=%s braking=%.0fs standing=%.0fs (in timer %.0fs) P=%s top=%s".format(
+                            it.ride.index, iq?.eventCount, iq?.brakingPenaltySec ?: 0.0, iq?.standingSec ?: 0.0,
+                            iq?.standingInTimerSec ?: 0.0, iq?.referencePowerW,
+                            iq?.topEvents?.joinToString { e -> "km %.1f %.0fs+%.0fs %.0f->%.0f".format(e.km, e.penaltySec, e.standingSec, e.peakKmh, e.lowKmh) }
                         )
                     )
                 }
@@ -162,7 +163,11 @@ class DemoRideImportTest {
             // Every ride has at least one stop; corners and descents add a handful more.
             assertTrue("${it.ride.fileName}: ${speedIq.eventCount} events", speedIq.eventCount in 1..40)
             assertTrue(it.ride.fileName, speedIq.topEvents.size <= 5)
-            assertTrue(it.ride.fileName, speedIq.topEvents.all { e -> e.peakKmh > e.lowKmh && e.penaltySec > 0 })
+            // Braking rows go from a peak down; standing-only rows have no braking and some standing.
+            assertTrue(it.ride.fileName, speedIq.topEvents.all { e ->
+                if (e.brakingEnergyJ > 0) e.peakKmh > e.lowKmh && e.penaltySec > 0 else e.standingSec > 0
+            })
+            assertTrue(it.ride.fileName, speedIq.standingInTimerSec <= speedIq.standingSec + 1e-9)
         }
     }
 

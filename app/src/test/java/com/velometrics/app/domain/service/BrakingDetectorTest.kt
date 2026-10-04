@@ -1,6 +1,7 @@
 package com.velometrics.app.domain.service
 
 import com.velometrics.app.domain.model.Datapoint
+import com.velometrics.app.domain.model.SpeedIq
 import com.velometrics.app.util.CyclingConstants
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -168,7 +169,9 @@ class BrakingDetectorTest {
 
         val result = BrakingDetector.analyze(trace.toDatapoints(gapAfter = 29, gapSec = 120))!!
 
-        assertEquals(0, result.eventCount)
+        // The 30 s standing after the resume is a standing-only event, but nothing is braking.
+        assertEquals(0.0, result.brakingPenaltySec, 0.0)
+        assertTrue(result.topEvents.all { it.brakingEnergyJ == 0.0 })
     }
 
     @Test
@@ -185,7 +188,7 @@ class BrakingDetectorTest {
 
         assertEquals(7, result.eventCount)
         assertEquals(5, result.topEvents.size)
-        assertTrue(result.topEvents.zipWithNext().all { (a, b) -> a.penaltySec >= b.penaltySec })
+        assertTrue(result.topEvents.zipWithNext().all { (a, b) -> a.lostSec >= b.lostSec })
         assertTrue(result.brakingPenaltySec > result.topEvents.sumOf { it.penaltySec })
     }
 
@@ -205,5 +208,98 @@ class BrakingDetectorTest {
     fun `a ride without power has no Speed IQ`() {
         val trace = Trace().apply { repeat(60) { add(8.0, 100.0, 0) } }
         assertNull(BrakingDetector.analyze(trace.toDatapoints()))
+    }
+
+    /** Pedal at 40 km/h, then brake evenly to [lowKmh] over 10 s with no power. */
+    private fun approachLight(lowKmh: Double): Trace {
+        val trace = pedalling(30, speedMps = 40 / 3.6)
+        for (s in 1..10) trace.add((40 - (40 - lowKmh) * s / 10.0) / 3.6, 100.0, 0)
+        return trace
+    }
+
+    @Test
+    fun `a traffic light under auto-pause counts its standing once and not against net time`() {
+        // Braking ends at 4 km/h, the timer pauses for 31 s, the ride resumes at 3 km/h.
+        val trace = approachLight(lowKmh = 4.0)
+        val lastBeforePause = trace.speeds.lastIndex
+        trace.add(3 / 3.6, 100.0, 190)
+        pedalling(30, trace)
+        val datapoints = trace.toDatapoints(gapAfter = lastBeforePause, gapSec = 30)
+        val pause = datapoints[lastBeforePause].timestamp..datapoints[lastBeforePause + 1].timestamp
+
+        val result = BrakingDetector.analyze(datapoints, listOf(pause))!!
+
+        assertEquals(1, result.eventCount)
+        val event = result.topEvents.single()
+        assertTrue(event.brakingEnergyJ > 0)
+        assertEquals(31.0, event.standingSec, 1e-9)
+        assertEquals(31.0, result.standingSec, 1e-9)
+        assertEquals(0.0, result.standingInTimerSec, 0.0)
+        // Potential speed only takes the braking off net time.
+        val netSec = 3600
+        assertEquals(
+            30.0 / ((netSec - result.brakingPenaltySec) / 3600.0),
+            result.potentialAvgKmh(30.0, netSec)!!, 1e-9
+        )
+    }
+
+    @Test
+    fun `a traffic light without auto-pause counts its standing and takes it off net time`() {
+        // Braking ends at 0 km/h, then 20 records standing with the timer running.
+        val trace = approachLight(lowKmh = 0.0)
+        standing(20, trace)
+        pedalling(30, trace)
+
+        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+
+        assertEquals(1, result.eventCount)
+        assertEquals(20.0, result.topEvents.single().standingSec, 1e-9)
+        assertEquals(20.0, result.standingInTimerSec, 1e-9)
+        val netSec = 3600
+        assertEquals(
+            30.0 / ((netSec - result.brakingPenaltySec - 20.0) / 3600.0),
+            result.potentialAvgKmh(30.0, netSec)!!, 1e-9
+        )
+    }
+
+    @Test
+    fun `a 10 minute stop is a coffee stop and isn't counted`() {
+        val trace = approachLight(lowKmh = 0.0)
+        standing(601, trace)
+        pedalling(30, trace)
+
+        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+
+        assertEquals(1, result.eventCount)
+        assertEquals(0.0, result.topEvents.single().standingSec, 0.0)
+        assertEquals(0.0, result.standingSec, 0.0)
+        assertEquals(0.0, result.standingInTimerSec, 0.0)
+    }
+
+    @Test
+    fun `a stop with no braking is its own event from 5 s standing`() {
+        // Standing at the start, then pedalling away: no braking above the threshold anywhere.
+        val long = standing(6, Trace()).also { pedalling(30, it) }
+        val longResult = BrakingDetector.analyze(long.toDatapoints())!!
+        assertEquals(1, longResult.eventCount)
+        val event = longResult.topEvents.single()
+        assertEquals(0.0, event.brakingEnergyJ, 0.0)
+        assertEquals(5.0, event.standingSec, 1e-9)
+        assertEquals(5.0, longResult.standingInTimerSec, 1e-9)
+
+        val short = standing(5, Trace()).also { pedalling(30, it) }
+        val shortResult = BrakingDetector.analyze(short.toDatapoints())!!
+        assertEquals(0, shortResult.eventCount)
+        assertEquals(0.0, shortResult.standingSec, 0.0)
+        assertEquals(0.0, shortResult.standingInTimerSec, 0.0)
+    }
+
+    @Test
+    fun `potential average speed - 60 km in 2 h net, 3_12 braking, 1_00 in-timer standing`() {
+        val speedIq = SpeedIq(
+            hasElevation = true, brakingPenaltySec = 192.0, standingSec = 280.0, standingInTimerSec = 60.0,
+            eventCount = 17, referencePowerW = 190, systemMassKg = mass, topEvents = emptyList()
+        )
+        assertEquals(31.1, speedIq.potentialAvgKmh(60.0, 7200)!!, 0.05)
     }
 }

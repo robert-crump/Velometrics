@@ -37,7 +37,8 @@ class SessionMetricsCalculator @Inject constructor() {
 
         // 2. Durations
         val totalDurationSec = Duration.between(sessionStart, sessionEnd).seconds.toInt()
-        val pauseDurationSec = computePauseDuration(timerEvents)
+        val pauses = pauseIntervals(timerEvents)
+        val pauseDurationSec = pauses.sumOf { Duration.between(it.start, it.endInclusive).seconds.toInt() }
         val netDurationSec = (totalDurationSec - pauseDurationSec).coerceAtLeast(0)
 
         // 3. Distance
@@ -121,8 +122,8 @@ class SessionMetricsCalculator @Inject constructor() {
             maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull(),
             // 18. Ride temperature (#222): plain mean of the records that carry one
             avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average(),
-            // 19. Speed IQ braking events (#226); rides without power get none yet (#229)
-            speedIq = if (hasPower) BrakingDetector.analyze(datapoints) else null
+            // 19. Speed IQ braking and standing (#226, #227); rides without power get none yet (#229)
+            speedIq = if (hasPower) BrakingDetector.analyze(datapoints, pauses) else null
         )
     }
 
@@ -195,8 +196,9 @@ class SessionMetricsCalculator @Inject constructor() {
         return totalGain
     }
 
-    private fun computePauseDuration(timerEvents: List<TimerEvent>): Int {
-        var pauseSec = 0
+    /** The timer's stop→start intervals; a stop never followed by a start isn't one. */
+    private fun pauseIntervals(timerEvents: List<TimerEvent>): List<ClosedRange<Instant>> {
+        val pauses = mutableListOf<ClosedRange<Instant>>()
         var lastStopTime: Instant? = null
 
         for (event in timerEvents) {
@@ -208,13 +210,13 @@ class SessionMetricsCalculator @Inject constructor() {
                 }
                 "start" -> {
                     if (lastStopTime != null) {
-                        pauseSec += Duration.between(lastStopTime, event.timestamp).seconds.toInt()
+                        pauses += lastStopTime..event.timestamp
                         lastStopTime = null
                     }
                 }
             }
         }
-        return pauseSec
+        return pauses
     }
 
     private fun computeDistance(datapoints: List<Datapoint>): Double {

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +19,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import org.maplibre.android.maps.Style
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +39,7 @@ import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
+import com.velometrics.app.domain.model.BrakingEvent
 import com.velometrics.app.domain.model.SpeedIq
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
@@ -222,7 +226,7 @@ fun SessionDetailScreen(
                     }
 
                     s.speedIq?.let { speedIq ->
-                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq) }
+                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq, s.distanceKm, s.netDurationSec) }
                     }
 
                     if (heartRateSectionVisible) {
@@ -511,11 +515,12 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 }
 
 /**
- * Speed IQ braking events (#226): totals headline, then up to five events ranked by penalty, e.g.
- * `km 17.5 · 57 s braking · 50→0 km/h`.
+ * Speed IQ (#226, #227): braking and standing totals, the potential average speed, then up to five
+ * events ranked by time lost, e.g. `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeedIqContent(speedIq: SpeedIq) {
+private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec: Int) {
     if (!speedIq.hasElevation) {
         Text(
             text = "No elevation data",
@@ -526,18 +531,60 @@ private fun SpeedIqContent(speedIq: SpeedIq) {
     }
     val events = if (speedIq.eventCount == 1) "1 event" else "${speedIq.eventCount} events"
     Text(
-        text = "Braking ${FormatUtils.formatDurationMinSec(speedIq.brakingPenaltySec.roundToInt())} · $events",
+        text = "Braking ${FormatUtils.formatDurationMinSec(speedIq.brakingPenaltySec.roundToInt())} · " +
+            "Standing ${FormatUtils.formatDurationMinSec(speedIq.standingSec.roundToInt())} · $events",
         style = StatLineTextStyle.copy(fontWeight = FontWeight.Bold)
     )
+    val potentialKmh = speedIq.potentialAvgKmh(distanceKm, netDurationSec)
+    if (potentialKmh != null && netDurationSec > 0) {
+        val avgKmh = distanceKm / (netDurationSec / 3600.0)
+        val tooltipState = rememberTooltipState(isPersistent = true)
+        val scope = rememberCoroutineScope()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Avg ${FormatUtils.formatDecimal(avgKmh, 1)} → ${FormatUtils.formatDecimal(potentialKmh, 1)} km/h without penalties",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                tooltip = {
+                    PlainTooltip {
+                        Text("Slightly optimistic: braking is counted in pedal-seconds, the time it would take to pedal the braked energy back.")
+                    }
+                },
+                state = tooltipState
+            ) {
+                IconButton(onClick = { scope.launch { tooltipState.show() } }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "About the potential average speed",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
     speedIq.topEvents.forEach { event ->
-        val penaltySec = event.penaltySec.roundToInt()
-        val penalty = if (penaltySec < 60) "$penaltySec s" else FormatUtils.formatDurationMinSec(penaltySec)
         Text(
-            text = "km ${FormatUtils.formatDecimal(event.km, 1)} · $penalty braking · " +
-                "${event.peakKmh.roundToInt()}→${event.lowKmh.roundToInt()} km/h",
+            text = speedIqEventRow(event),
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light)
         )
     }
+}
+
+/** `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`; a standing-only row has no speeds. */
+internal fun speedIqEventRow(event: BrakingEvent): String {
+    fun seconds(sec: Double) = sec.roundToInt().let { if (it < 60) "$it s" else FormatUtils.formatDurationMinSec(it) }
+    val braking = event.brakingEnergyJ > 0
+    val standing = event.standingSec.roundToInt() > 0
+    val parts = listOfNotNull(
+        if (braking) "${seconds(event.penaltySec)} braking" else null,
+        if (standing) "${seconds(event.standingSec)} standing" else null
+    ).joinToString(" + ")
+    val speeds = if (braking) " · ${event.peakKmh.roundToInt()}→${event.lowKmh.roundToInt()} km/h" else ""
+    return "km ${FormatUtils.formatDecimal(event.km, 1)} · " +
+        "${FormatUtils.formatDurationMinSec(event.lostSec.roundToInt())} lost · $parts$speeds"
 }
 
 /** ~21% larger than bodyMedium (14sp), for both label and value of a stat line. */

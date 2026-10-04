@@ -243,6 +243,9 @@ object CyclingConstants {
     const val SPEED_IQ_MIN_EVENT_ENERGY_J = 1500.0       // events below this aren't reported
     const val SPEED_IQ_MOVING_KMH = 2.0                  // pedalling samples for P need at least this speed
     const val SPEED_IQ_TOP_EVENTS = 5
+    const val SPEED_IQ_STANDING_KMH = 2.0                // below this (or timer paused) counts as standing
+    const val SPEED_IQ_COFFEE_STOP_SEC = 180             // a single stop longer than this isn't counted
+    const val SPEED_IQ_MIN_STANDING_ONLY_SEC = 5         // a stop with no braking counts from this long
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

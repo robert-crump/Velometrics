@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.velometrics.app.util.CyclingConstants.TRACK_FIT_PADDING
 import com.velometrics.app.util.GpsTrackParser
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -34,6 +35,10 @@ import org.maplibre.android.maps.Style
  * re-centering whenever [drawerFraction] changes (e.g. as the drawer is dragged). Shows a
  * "No GPS data available" placeholder when [points] is empty.
  *
+ * With a [focus], the map centres on that point instead of fitting the track (e.g. a tapped Speed IQ
+ * event, #230), still kept above the drawer. Each tap passes a new [MapFocus], so tapping the same
+ * point again re-centres.
+ *
  * [overlayContent] renders extra Compose UI on top of the map (e.g. a legend); callers that need
  * to add map-style-level layers (rendered on the map itself, not as Compose UI) can do so from
  * [onMapReady], which fires after the track has been added and the camera has made its initial fit.
@@ -44,6 +49,7 @@ fun TrackMapWithDrawer(
     drawerFraction: Float,
     trackId: String,
     trackColor: String = "#2196F3",
+    focus: MapFocus? = null,
     onMapReady: (MapLibreMap, Style) -> Unit = { _, _ -> },
     overlayContent: @Composable BoxWithConstraintsScope.() -> Unit = {}
 ) {
@@ -75,10 +81,22 @@ fun TrackMapWithDrawer(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val mapHeightPx = with(density) { maxHeight.toPx() }
 
-            // Re-center track whenever the drawer snaps to a new position
-            LaunchedEffect(drawerFraction) {
+            // Re-center track (or the focus) whenever the drawer snaps to a new position
+            LaunchedEffect(drawerFraction, focus) {
                 if (drawerFraction >= 1.0f) return@LaunchedEffect
                 val map = mapRef.value ?: return@LaunchedEffect
+                if (focus != null) {
+                    map.animateCamera(
+                        CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.Builder()
+                                .target(LatLng(focus.lat, focus.lon))
+                                .zoom(focus.zoom)
+                                .padding(0.0, 0.0, 0.0, (mapHeightPx * drawerFraction).toDouble())
+                                .build()
+                        )
+                    )
+                    return@LaunchedEffect
+                }
                 val bounds = boundsRef.value ?: return@LaunchedEffect
                 val bottomPx = (mapHeightPx * drawerFraction).toInt() + TRACK_FIT_PADDING
                 map.animateCamera(
@@ -114,3 +132,6 @@ fun TrackMapWithDrawer(
         }
     }
 }
+
+/** A point to centre the map on; not a data class, so every request is new even for the same point. */
+class MapFocus(val lat: Double, val lon: Double, val zoom: Double)

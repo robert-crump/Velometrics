@@ -249,6 +249,9 @@ object CyclingConstants {
     const val SPEED_IQ_MIN_STANDING_ONLY_SEC = 5         // a stop with no braking counts from this long
     const val SPEED_IQ_FALLBACK_RIDES = 10               // a ride without power takes P from this many earlier power rides (#229)
     const val SPEED_IQ_FALLBACK_FTP_FRACTION = 0.6       // ...else from this fraction of FTP as of the ride
+    const val SPEED_IQ_MARKER_COLOR = "#D32F2F"           // numbered event markers on the Ride Detail map (#230)
+    const val SPEED_IQ_MARKER_RADIUS = 11f
+    const val SPEED_IQ_FOCUS_ZOOM = 15.0                  // tapping an event row zooms the map to this
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

@@ -46,6 +46,7 @@ import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.RouteRecap
 import com.velometrics.app.domain.service.SessionNarrative
 import com.velometrics.app.ui.components.*
+import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
@@ -76,6 +77,7 @@ fun SessionDetailScreen(
     val speedHistogramAverages by viewModel.speedHistogramAverages.collectAsState()
     val deleteError by viewModel.deleteError.collectAsState()
     val maxHr by viewModel.maxHr.collectAsState()
+    val speedIqShowOnMap by viewModel.speedIqShowOnMap.collectAsState()
 
     var overflowMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -118,6 +120,10 @@ fun SessionDetailScreen(
         } else {
             val s = session!!
             var drawerFraction by remember { mutableStateOf(0.5f) }
+            var drawerSnapRequest by remember { mutableStateOf<DrawerSnapRequest?>(null) }
+            var mapFocus by remember { mutableStateOf<MapFocus?>(null) }
+            val speedIqMarkers = speedIqMarkers(s.speedIq, speedIqShowOnMap)
+            LaunchedEffect(speedIqShowOnMap) { if (!speedIqShowOnMap) mapFocus = null }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -127,7 +133,9 @@ fun SessionDetailScreen(
                 SessionDetailMap(
                     gpsTrack = s.gpsTrack,
                     intervals = intervals,
-                    drawerFraction = drawerFraction
+                    speedIqMarkers = speedIqMarkers,
+                    drawerFraction = drawerFraction,
+                    focus = mapFocus
                 )
 
                 // Section membership per #188: which cards each group would render, computed up
@@ -170,6 +178,7 @@ fun SessionDetailScreen(
                 PullUpDrawer(
                     initialFraction = 0.5f,
                     onFractionSnapped = { drawerFraction = it },
+                    snapRequest = drawerSnapRequest,
                     headerStart = { docked -> BackControl(docked, onNavigateBack) },
                     headerEnd = { docked ->
                         OverflowControl(docked, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
@@ -227,7 +236,22 @@ fun SessionDetailScreen(
                     }
 
                     s.speedIq?.let { speedIq ->
-                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq, s.distanceKm, s.netDurationSec, onNavigateToSettings) }
+                        val hasEvents = speedIq.hasElevation && speedIq.topEvents.isNotEmpty()
+                        SectionCard(
+                            title = "Speed IQ",
+                            headerAction = if (hasEvents) {
+                                { ShowOnMapToggle(speedIqShowOnMap, viewModel::setSpeedIqShowOnMap) }
+                            } else null
+                        ) {
+                            SpeedIqContent(
+                                speedIq, s.distanceKm, s.netDurationSec, onNavigateToSettings,
+                                // Rows only move the map while the markers are shown (#230)
+                                onEventClick = if (speedIqShowOnMap) { event ->
+                                    mapFocus = MapFocus(event.lat, event.lon, CyclingConstants.SPEED_IQ_FOCUS_ZOOM)
+                                    drawerSnapRequest = DrawerSnapRequest(SPEED_IQ_FOCUS_DRAWER_FRACTION)
+                                } else null
+                            )
+                        }
                     }
 
                     if (heartRateSectionVisible) {
@@ -344,7 +368,9 @@ private fun FloatingCircleButton(
 private fun SessionDetailMap(
     gpsTrack: String?,
     intervals: List<IntervalSession>,
-    drawerFraction: Float
+    speedIqMarkers: List<SpeedIqMarker>,
+    drawerFraction: Float,
+    focus: MapFocus?
 ) {
     val points = remember(gpsTrack) { GpsTrackParser.parse(gpsTrack) }
     val mapStyleRef = remember { mutableStateOf<Style?>(null) }
@@ -357,10 +383,16 @@ private fun SessionDetailMap(
         }
     }
 
+    LaunchedEffect(mapStyleRef.value, speedIqMarkers) {
+        val style = mapStyleRef.value ?: return@LaunchedEffect
+        MapSpeedIqRenderer.render(style, speedIqMarkers)
+    }
+
     TrackMapWithDrawer(
         points = points,
         drawerFraction = drawerFraction,
         trackId = "session-detail",
+        focus = focus,
         onMapReady = { _, style -> mapStyleRef.value = style },
         overlayContent = {
             // Interval duration legend overlay
@@ -495,7 +527,11 @@ private fun RideDetailTheme(content: @Composable () -> Unit) {
  * vertical spacing rather than dividers. Not collapsible.
  */
 @Composable
-private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SectionCard(
+    title: String,
+    headerAction: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     Card(
         modifier = Modifier
@@ -509,19 +545,45 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                headerAction?.invoke()
+            }
             content()
         }
     }
 }
 
+/** Lowest drawer snap: a tapped Speed IQ event's marker is centred in the map above it (#230). */
+private const val SPEED_IQ_FOCUS_DRAWER_FRACTION = 0.15f
+
+/** "Show on map" switch in the Speed IQ card header (#230). */
+@Composable
+private fun ShowOnMapToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "Show on map",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 /**
  * Speed IQ (#226, #227): braking and standing totals, the potential average speed, then up to five
- * events ranked by time lost, e.g. `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`.
+ * events ranked by time lost, e.g. `1. km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`.
+ * The numbers match the map markers (#230); [onEventClick] is null while they're hidden.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec: Int, onOpenSettings: () -> Unit) {
+private fun SpeedIqContent(
+    speedIq: SpeedIq,
+    distanceKm: Double,
+    netDurationSec: Int,
+    onOpenSettings: () -> Unit,
+    onEventClick: ((BrakingEvent) -> Unit)? = null
+) {
     if (!speedIq.hasElevation) {
         Text(
             text = "No elevation data",
@@ -566,10 +628,13 @@ private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec:
             }
         }
     }
-    speedIq.topEvents.forEach { event ->
+    speedIq.topEvents.forEachIndexed { i, event ->
         Text(
-            text = speedIqEventRow(event),
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light)
+            text = "${i + 1}. ${speedIqEventRow(event)}",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light),
+            modifier = if (onEventClick != null) {
+                Modifier.fillMaxWidth().clickable { onEventClick(event) }
+            } else Modifier
         )
     }
     if (speedIq.referencePowerEstimated) {

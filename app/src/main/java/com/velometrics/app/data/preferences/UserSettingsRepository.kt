@@ -3,6 +3,7 @@
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -29,6 +30,7 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
         private val KEY_MAX_HR = intPreferencesKey("max_hr")
         private val KEY_SYSTEM_WEIGHT_KG = intPreferencesKey("system_weight_kg")
+        private val KEY_SPEED_IQ_SHOW_ON_MAP = booleanPreferencesKey("speed_iq_show_on_map")
     }
 
     val homeLat: Flow<Double> = context.dataStore.data.map { prefs ->
@@ -54,6 +56,11 @@ class UserSettingsRepository @Inject constructor(
     /** Rider + bike + kit for Speed IQ (#228), stored per ride at import; null until set. */
     val systemWeightKg: Flow<Int?> = context.dataStore.data.map { prefs ->
         prefs[KEY_SYSTEM_WEIGHT_KG]
+    }
+
+    /** Speed IQ "Show on map" toggle (#230): one switch for every ride, off until turned on. */
+    val speedIqShowOnMap: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SPEED_IQ_SHOW_ON_MAP] ?: false
     }
 
     // FTP now lives in FtpHistoryRepository (#218); this reads and clears the old single setting once.
@@ -83,6 +90,12 @@ class UserSettingsRepository @Inject constructor(
     suspend fun saveSystemWeightKg(kg: Int) {
         context.dataStore.edit { prefs ->
             prefs[KEY_SYSTEM_WEIGHT_KG] = kg
+        }
+    }
+
+    suspend fun saveSpeedIqShowOnMap(show: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SPEED_IQ_SHOW_ON_MAP] = show
         }
     }
 

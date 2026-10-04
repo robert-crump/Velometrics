@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,8 @@ private val HEADER_ROW_HEIGHT = 48.dp
  * - At 100% with scroll at top, a downward drag collapses the drawer.
  * - After snapping to 100% via body-drag, scrolling is blocked until a new touch begins.
  * - Early snap: 10% past the second-to-last position triggers a snap to the last position.
+ * - [snapRequest] moves the drawer from code (e.g. lowering it to show a map marker, #230); each
+ *   new request animates there and reports it through [onFractionSnapped].
  */
 @Composable
 fun PullUpDrawer(
@@ -73,6 +76,7 @@ fun PullUpDrawer(
     initialFraction: Float = 0.5f,
     snapFractions: List<Float> = listOf(0.15f, 0.50f, 1.00f),
     onFractionSnapped: (Float) -> Unit = {},
+    snapRequest: DrawerSnapRequest? = null,
     headerStart: (@Composable (docked: Boolean) -> Unit)? = null,
     headerEnd: (@Composable (docked: Boolean) -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
@@ -103,6 +107,13 @@ fun PullUpDrawer(
     val scrollState = rememberScrollState()
 
     val blockScrollUntilNewTouch = remember { mutableStateOf(false) }
+
+    LaunchedEffect(snapRequest) {
+        val target = snapRequest?.fraction ?: return@LaunchedEffect
+        currentFraction = target
+        onFractionSnapped(target)
+        animatedFraction.animateTo(target, animationSpec = snapSpec)
+    }
     val isCollapsingFromFull = remember { mutableStateOf(false) }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -298,3 +309,6 @@ fun PullUpDrawer(
         }
     }
 }
+
+/** A request to move a [PullUpDrawer] to [fraction]; not a data class, so repeating one re-applies it. */
+class DrawerSnapRequest(val fraction: Float)

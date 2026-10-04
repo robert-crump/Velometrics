@@ -38,7 +38,7 @@ class SessionDetailViewModel @Inject constructor(
     private val sessionComparator: SessionComparator,
     sessionNarrativeAssembler: SessionNarrativeAssembler,
     private val rideLifecycle: RideLifecycle,
-    userSettingsRepository: UserSettingsRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     ftpHistoryRepository: FtpHistoryRepository,
     globalAverageCache: GlobalAverageCache,
     repeatedIntervalsCache: RepeatedIntervalsCache
@@ -51,6 +51,14 @@ class SessionDetailViewModel @Inject constructor(
     /** Current max HR setting; the HR-vs-distance zone bands are drawn from it at view time (#204). */
     val maxHr: StateFlow<Int> = userSettingsRepository.maxHr
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CyclingConstants.DEFAULT_MAX_HR)
+
+    /** Speed IQ "Show on map" (#230): shared by every ride and kept across restarts. */
+    val speedIqShowOnMap: StateFlow<Boolean> = userSettingsRepository.speedIqShowOnMap
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setSpeedIqShowOnMap(show: Boolean) {
+        viewModelScope.launch { userSettingsRepository.saveSpeedIqShowOnMap(show) }
+    }
 
     private val sessionId: Long = savedStateHandle.get<Long>("sessionId") ?: 0L
 

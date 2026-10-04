@@ -36,6 +36,7 @@ import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.PowerCurvePoint
+import com.velometrics.app.domain.model.SpeedIq
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
 import com.velometrics.app.domain.service.RouteRecap
@@ -46,6 +47,7 @@ import com.velometrics.app.util.GpsTrackParser
 import com.velometrics.app.util.MapOverlayUtils
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 @Composable
 fun SessionDetailScreen(
@@ -217,6 +219,10 @@ fun SessionDetailScreen(
                             )
                             Hrr60Card(intervals = intervals)
                         }
+                    }
+
+                    s.speedIq?.let { speedIq ->
+                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq) }
                     }
 
                     if (heartRateSectionVisible) {
@@ -501,6 +507,36 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
             Text(text = title, style = MaterialTheme.typography.titleLarge)
             content()
         }
+    }
+}
+
+/**
+ * Speed IQ braking events (#226): totals headline, then up to five events ranked by penalty, e.g.
+ * `km 17.5 · 57 s braking · 50→0 km/h`.
+ */
+@Composable
+private fun SpeedIqContent(speedIq: SpeedIq) {
+    if (!speedIq.hasElevation) {
+        Text(
+            text = "No elevation data",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    val events = if (speedIq.eventCount == 1) "1 event" else "${speedIq.eventCount} events"
+    Text(
+        text = "Braking ${FormatUtils.formatDurationMinSec(speedIq.brakingPenaltySec.roundToInt())} · $events",
+        style = StatLineTextStyle.copy(fontWeight = FontWeight.Bold)
+    )
+    speedIq.topEvents.forEach { event ->
+        val penaltySec = event.penaltySec.roundToInt()
+        val penalty = if (penaltySec < 60) "$penaltySec s" else FormatUtils.formatDurationMinSec(penaltySec)
+        Text(
+            text = "km ${FormatUtils.formatDecimal(event.km, 1)} · $penalty braking · " +
+                "${event.peakKmh.roundToInt()}→${event.lowKmh.roundToInt()} km/h",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light)
+        )
     }
 }
 

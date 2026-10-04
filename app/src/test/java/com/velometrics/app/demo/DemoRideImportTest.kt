@@ -118,6 +118,15 @@ class DemoRideImportTest {
                         )
                     )
                 }
+                imported.forEach {
+                    val iq = it.session.speedIq
+                    println(
+                        "%2d speedIq events=%s braking=%.0fs P=%s top=%s".format(
+                            it.ride.index, iq?.eventCount, iq?.brakingPenaltySec ?: 0.0, iq?.referencePowerW,
+                            iq?.topEvents?.joinToString { e -> "km %.1f %.0fs %.0f->%.0f".format(e.km, e.penaltySec, e.peakKmh, e.lowKmh) }
+                        )
+                    )
+                }
                 println("routes: $routes")
                 Fixture(imported, routes)
             } finally {
@@ -141,6 +150,19 @@ class DemoRideImportTest {
             assertTrue(it.ride.fileName, it.session.hasHR)
             assertEquals(it.ride.fileName, 100.0, it.session.gpsQualityPercent, 0.0)
             assertEquals(it.ride.fileName, 100.0, it.session.powerQualityPercent!!, 0.0)
+        }
+    }
+
+    @Test
+    fun `every ride gets a plausible number of Speed IQ braking events`() {
+        imported.forEach {
+            val speedIq = it.session.speedIq
+            assertNotNull(it.ride.fileName, speedIq)
+            assertTrue(it.ride.fileName, speedIq!!.hasElevation)
+            // Every ride has at least one stop; corners and descents add a handful more.
+            assertTrue("${it.ride.fileName}: ${speedIq.eventCount} events", speedIq.eventCount in 1..40)
+            assertTrue(it.ride.fileName, speedIq.topEvents.size <= 5)
+            assertTrue(it.ride.fileName, speedIq.topEvents.all { e -> e.peakKmh > e.lowKmh && e.penaltySec > 0 })
         }
     }
 

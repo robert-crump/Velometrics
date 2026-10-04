@@ -68,7 +68,10 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         maxSpeedKmh = maxSpeedKmh,
         avgTemperatureC = avgTemperatureC,
         cardiacDriftCauses = cardiacDriftCauses.toCardiacDriftCauses(),
-        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec
+        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec,
+        speedIq = speedIqSummary.parseJsonOrNull<SpeedIqSummary>()?.let { summary ->
+            summary.toDomain(speedIqEvents.parseJsonOrNull<List<BrakingEvent>>().orEmpty())
+        }
     )
 }
 
@@ -113,8 +116,29 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         maxSpeedKmh = maxSpeedKmh,
         avgTemperatureC = avgTemperatureC,
         cardiacDriftCauses = cardiacDriftCauses?.toCodes(),
-        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec
+        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec,
+        speedIqSummary = speedIq?.let { SpeedIqSummary.of(it).toJsonString() },
+        speedIqEvents = speedIq?.topEvents?.toJsonString()
     )
+}
+
+/** Stored form of [SpeedIq] without its events, which live in their own column (#226). */
+data class SpeedIqSummary(
+    val hasElevation: Boolean,
+    val brakingPenaltySec: Double,
+    val eventCount: Int,
+    val referencePowerW: Int,
+    val systemMassKg: Double
+) {
+    fun toDomain(topEvents: List<BrakingEvent>) =
+        SpeedIq(hasElevation, brakingPenaltySec, eventCount, referencePowerW, systemMassKg, topEvents)
+
+    companion object {
+        fun of(speedIq: SpeedIq) = SpeedIqSummary(
+            speedIq.hasElevation, speedIq.brakingPenaltySec, speedIq.eventCount,
+            speedIq.referencePowerW, speedIq.systemMassKg
+        )
+    }
 }
 
 /** Stored form of [CyclingSession.cardiacDriftCauses]: comma-separated names, "" for an empty list. */

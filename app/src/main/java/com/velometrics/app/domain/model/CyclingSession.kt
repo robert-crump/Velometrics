@@ -65,5 +65,8 @@ data class CyclingSession(
     val cardiacDriftCauses: List<CardiacDriftCause>? = null,
     // Median net duration of the rider's >= 60 min rides in the 6 weeks before this one, frozen
     // when the causes were evaluated; the DURATION cause's "vs. usual" evidence.
-    val cardiacDriftDurationBaselineSec: Int? = null
+    val cardiacDriftDurationBaselineSec: Int? = null,
+    // Braking events (#226), computed at import by BrakingDetector; null on rides without power
+    // and on rides imported before this existed (no backfill).
+    val speedIq: SpeedIq? = null
 )

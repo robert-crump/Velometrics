@@ -1,0 +1,179 @@
+package com.velometrics.app.domain.service
+
+import com.velometrics.app.data.fitimport.HrDistanceSeriesBuilder
+import com.velometrics.app.domain.model.BrakingEvent
+import com.velometrics.app.domain.model.Datapoint
+import com.velometrics.app.domain.model.SpeedIq
+import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.median
+import java.time.Duration
+
+/**
+ * Speed IQ braking events (#226), energy-based: per second, the energy that went neither into
+ * speed, height, drag nor rolling resistance was braked away.
+ *
+ * `E = ½m(v₁²−v₂²) + m·g·(h₁−h₂) + pedal work − drag − rolling` per record-to-record step, so an
+ * event's energy is just the sum of its steps. Speed is smoothed over 3 s and altitude over ~10 s
+ * (both centred). A step braking above [CyclingConstants.SPEED_IQ_BRAKE_POWER_W] for at least
+ * [CyclingConstants.SPEED_IQ_MIN_BRAKE_SEC] starts a stretch, stretches less than
+ * [CyclingConstants.SPEED_IQ_JOIN_GAP_SEC] apart are one event, and an event counts from
+ * [CyclingConstants.SPEED_IQ_MIN_EVENT_ENERGY_J]. Its penalty is E / P, with P the median of the
+ * ride's pedalling samples: the seconds of pedalling the braked energy was worth.
+ */
+object BrakingDetector {
+
+    /**
+     * Null without pedalling samples (no power; that fallback is #229). A ride where too few
+     * records carry an altitude gets [SpeedIq.hasElevation] false and no events.
+     */
+    fun analyze(
+        datapoints: List<Datapoint>,
+        massKg: Double = CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG
+    ): SpeedIq? {
+        val referencePower = datapoints
+            .filter { (it.power ?: 0) > 0 && (it.speedKmh ?: 0.0) >= CyclingConstants.SPEED_IQ_MOVING_KMH }
+            .map { it.power!!.toDouble() }
+            .median() ?: return null
+
+        val altitudeCount = datapoints.count { it.altitude != null }
+        if (altitudeCount == 0 || altitudeCount < datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD) {
+            return SpeedIq(false, 0.0, 0, referencePower.toInt(), massKg, emptyList())
+        }
+
+        val cumulativeM = HrDistanceSeriesBuilder.cumulativeMeters(datapoints)
+        val events = segments(datapoints).flatMap { detect(datapoints, it, cumulativeM, massKg, referencePower) }
+        return SpeedIq(
+            hasElevation = true,
+            brakingPenaltySec = events.sumOf { it.penaltySec },
+            eventCount = events.size,
+            referencePowerW = referencePower.toInt(),
+            systemMassKg = massKg,
+            topEvents = events.sortedByDescending { it.penaltySec }.take(CyclingConstants.SPEED_IQ_TOP_EVENTS)
+        )
+    }
+
+    /** Index ranges of records with no gap over [CyclingConstants.SPEED_IQ_MAX_SAMPLE_GAP_SEC] (timer pauses). */
+    private fun segments(datapoints: List<Datapoint>): List<IntRange> {
+        val result = mutableListOf<IntRange>()
+        var start = 0
+        for (i in 1..datapoints.size) {
+            val split = i == datapoints.size || run {
+                val dt = Duration.between(datapoints[i - 1].timestamp, datapoints[i].timestamp).seconds
+                dt <= 0 || dt > CyclingConstants.SPEED_IQ_MAX_SAMPLE_GAP_SEC
+            }
+            if (split) {
+                if (i - start >= 2) result += start until i
+                start = i
+            }
+        }
+        return result
+    }
+
+    private fun detect(
+        datapoints: List<Datapoint>,
+        segment: IntRange,
+        cumulativeM: DoubleArray,
+        massKg: Double,
+        referencePower: Double
+    ): List<BrakingEvent> {
+        val first = segment.first
+        val n = segment.last - first + 1
+        val t = DoubleArray(n) { Duration.between(datapoints[first].timestamp, datapoints[first + it].timestamp).seconds.toDouble() }
+        val rawSpeed = DoubleArray(n) { k ->
+            val i = first + k
+            datapoints[i].speedKmh?.div(CyclingConstants.MTS_PER_SEC_TO_KMH)
+                ?: if (k == 0) 0.0 else (cumulativeM[i] - cumulativeM[i - 1]) / (t[k] - t[k - 1])
+        }
+        val v = smooth(t, rawSpeed, CyclingConstants.SPEED_IQ_SPEED_SMOOTH_HALF_SEC)
+        val h = smooth(t, filledAltitudes(datapoints, segment), CyclingConstants.SPEED_IQ_ALTITUDE_SMOOTH_HALF_SEC)
+
+        // Step k runs from record k to k + 1; a record's power covers the second before it.
+        val g = CyclingConstants.SPEED_IQ_GRAVITY
+        val stepEnergy = DoubleArray(n - 1)
+        val stepDt = DoubleArray(n - 1)
+        for (k in 0 until n - 1) {
+            val dt = t[k + 1] - t[k]
+            val vAvg = (v[k] + v[k + 1]) / 2
+            val kinetic = 0.5 * massKg * (v[k] * v[k] - v[k + 1] * v[k + 1])
+            val potential = massKg * g * (h[k] - h[k + 1])
+            val pedal = (datapoints[first + k + 1].power ?: 0) * dt
+            val drag = 0.5 * CyclingConstants.SPEED_IQ_AIR_DENSITY * CyclingConstants.SPEED_IQ_CDA_M2 * vAvg * vAvg * vAvg * dt
+            val rolling = CyclingConstants.SPEED_IQ_CRR * massKg * g * vAvg * dt
+            stepEnergy[k] = kinetic + potential + pedal - drag - rolling
+            stepDt[k] = dt
+        }
+
+        return groupEvents(DoubleArray(n - 1) { stepEnergy[it] / stepDt[it] }, stepDt).mapNotNull { steps ->
+            val energy = steps.sumOf { stepEnergy[it] }
+            if (energy < CyclingConstants.SPEED_IQ_MIN_EVENT_ENERGY_J) return@mapNotNull null
+            // Records first..last+1 bound the event's steps, extended while the speed keeps falling
+            // (the last metres to a halt brake too little to stay above the threshold); peak is the
+            // fastest record before the slowest.
+            var lastRecord = steps.last + 1
+            while (lastRecord + 1 < n && rawSpeed[lastRecord + 1] < rawSpeed[lastRecord]) lastRecord++
+            val records = steps.first..lastRecord
+            val lowK = records.minBy { rawSpeed[it] }
+            val peakK = (records.first..lowK).maxBy { rawSpeed[it] }
+            val low = datapoints[first + lowK]
+            BrakingEvent(
+                km = cumulativeM[first + lowK] / 1000.0,
+                brakingEnergyJ = energy,
+                penaltySec = energy / referencePower,
+                peakKmh = rawSpeed[peakK] * CyclingConstants.MTS_PER_SEC_TO_KMH,
+                lowKmh = rawSpeed[lowK] * CyclingConstants.MTS_PER_SEC_TO_KMH,
+                lat = low.lat,
+                lon = low.lon
+            )
+        }
+    }
+
+    /**
+     * Step ranges of braking events: runs of steps above [CyclingConstants.SPEED_IQ_BRAKE_POWER_W]
+     * lasting at least [CyclingConstants.SPEED_IQ_MIN_BRAKE_SEC], joined across gaps shorter than
+     * [CyclingConstants.SPEED_IQ_JOIN_GAP_SEC]. The energy threshold is applied by the caller.
+     */
+    internal fun groupEvents(brakeW: DoubleArray, dtSec: DoubleArray): List<IntRange> {
+        val runs = mutableListOf<IntRange>()
+        var k = 0
+        while (k < brakeW.size) {
+            if (brakeW[k] <= CyclingConstants.SPEED_IQ_BRAKE_POWER_W) { k++; continue }
+            val start = k
+            while (k < brakeW.size && brakeW[k] > CyclingConstants.SPEED_IQ_BRAKE_POWER_W) k++
+            if ((start until k).sumOf { dtSec[it] } >= CyclingConstants.SPEED_IQ_MIN_BRAKE_SEC) runs += start until k
+        }
+        val events = mutableListOf<IntRange>()
+        for (run in runs) {
+            val previous = events.lastOrNull()
+            val gapSec = previous?.let { (previous.last + 1 until run.first).sumOf { dtSec[it] } }
+            if (previous != null && gapSec!! < CyclingConstants.SPEED_IQ_JOIN_GAP_SEC) {
+                events[events.lastIndex] = previous.first..run.last
+            } else {
+                events += run
+            }
+        }
+        return events
+    }
+
+    /** Altitudes over [segment], missing ones carried from the nearest earlier (else later) record. */
+    private fun filledAltitudes(datapoints: List<Datapoint>, segment: IntRange): DoubleArray {
+        val firstKnown = segment.firstNotNullOfOrNull { datapoints[it].altitude } ?: 0.0
+        var last = firstKnown
+        return DoubleArray(segment.last - segment.first + 1) { k ->
+            datapoints[segment.first + k].altitude?.also { last = it } ?: last
+        }
+    }
+
+    /** Centred moving average over records within [halfSec] seconds of each record. */
+    private fun smooth(t: DoubleArray, values: DoubleArray, halfSec: Int): DoubleArray {
+        val result = DoubleArray(values.size)
+        var lo = 0
+        var hi = 0
+        var sum = 0.0
+        for (i in values.indices) {
+            while (hi < values.size && t[hi] - t[i] <= halfSec) { sum += values[hi]; hi++ }
+            while (t[i] - t[lo] > halfSec) { sum -= values[lo]; lo++ }
+            result[i] = sum / (hi - lo)
+        }
+        return result
+    }
+}

@@ -228,6 +228,22 @@ object CyclingConstants {
     )
     const val HR_LOAD_CALIBRATION_CONSTANT = 0.36
 
+    // Speed IQ braking events (#226). P_brake per second = -m·v·a - m·g·dh/dt + P_pedal - drag - rolling.
+    const val SPEED_IQ_DEFAULT_SYSTEM_MASS_KG = 85.0   // rider + bike + kit until the setting exists (#228)
+    const val SPEED_IQ_CDA_M2 = 0.37
+    const val SPEED_IQ_CRR = 0.013
+    const val SPEED_IQ_AIR_DENSITY = 1.225              // kg/m³
+    const val SPEED_IQ_GRAVITY = 9.81
+    const val SPEED_IQ_SPEED_SMOOTH_HALF_SEC = 1         // centred 3 s window
+    const val SPEED_IQ_ALTITUDE_SMOOTH_HALF_SEC = 5      // centred ~10 s window
+    const val SPEED_IQ_MAX_SAMPLE_GAP_SEC = 5            // a longer gap between records (timer paused) splits the stream
+    const val SPEED_IQ_BRAKE_POWER_W = 150.0             // a second counts as braking above this
+    const val SPEED_IQ_MIN_BRAKE_SEC = 2                 // ...for at least this many seconds in a row
+    const val SPEED_IQ_JOIN_GAP_SEC = 5                  // braking stretches closer than this are one event
+    const val SPEED_IQ_MIN_EVENT_ENERGY_J = 1500.0       // events below this aren't reported
+    const val SPEED_IQ_MOVING_KMH = 2.0                  // pedalling samples for P need at least this speed
+    const val SPEED_IQ_TOP_EVENTS = 5
+
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(
         "0 km/h" to "#000000",

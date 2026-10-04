@@ -1,3 +1,32 @@
+## Issue #226 -- Speed IQ: braking events card on Ride Detail (tracer bullet)
+Completed: 2026-10-04
+
+### What was done
+
+- `BrakingDetector` (pure, domain/service): per record-to-record step,
+  `E = ½m(v₁²−v₂²) + m·g·(h₁−h₂) + pedal work − drag − rolling`, with speed smoothed over 3 s and
+  altitude over ~10 s (both centred). A step's P_brake = E / dt. Runs above 150 W lasting >= 2 s are
+  joined across gaps < 5 s, and an event counts from 1.5 kJ. Penalty = E / P, where P = median of
+  the pedalling samples (power > 0, >= 2 km/h). Record gaps > 5 s (timer pauses) split the stream.
+  m = 85 kg (constant until #228); CdA 0.37, Crr 0.013, rho 1.225. All thresholds are in `CyclingConstants.SPEED_IQ_*`.
+- The event km and the lowest speed come from the slowest record. The search continues past the
+  event's last step while the speed keeps falling, because the last metres to a halt brake below
+  the threshold. The peak is the fastest record before the slowest one.
+- `CyclingSession.speedIq` is computed in `SessionMetricsCalculator` (power rides only) and stored
+  as two JSON columns, `speedIqSummary` and `speedIqEvents` (top 5), in Room v24 (MIGRATION_23_24).
+  Import-time only, no backfill. A ride without altitude stores `hasElevation=false`.
+- Ride Detail drawer: a "Speed IQ" section card after Speed: `Braking 1:13 · 4 events`, then rows
+  like `km 10.1 · 31 s braking · 42→0 km/h`, or "No elevation data". No card when `speedIq` is null
+  (no power, or imported before this change).
+- Demo rides: 2–13 events each, with stops and the same corners recurring per loop.
+- Deviation: with this formula, #223's worked example (85 kg, −5 %, 50→0 km/h in 15 s) gives
+  ≈ 9.1 kJ / ≈ 48 s, not ≈ 10.9 kJ / 57 s. Drag over the stop is ~2.3 kJ. The test asserts 9.1 kJ.
+- Not done: no visual check on a device; README screenshots don't show the card yet.
+
+`testDebugUnitTest` (incl. `BrakingDetectorTest`, migration 23->24, demo ride Speed IQ) and
+`assembleDebug` pass. The first test run hit a one-off native Robolectric crash
+(libandroid_runtime finalizer); the rerun was clean.
+
 ## Issue #222 -- Cardiac drift: add tips
 Completed: 2026-10-04
 
@@ -86,63 +115,3 @@ Completed: 2026-09-30
 - Two runs gave the same home.png; README has a one-line note. Other four screenshots are the next issue.
 
 `testDebugUnitTest` passes (one unrelated Robolectric native JVM crash on the first try, clean on rerun).
-
-## Issue #219 -- README demo data: synthetic .fit rides from GPX loops
-Completed: 2026-09-30
-
-### What was done
-
-- New `app/src/sharedTest` source set (java + assets) wired into both `test` (assets as classpath resources) and
-  `androidTest` (as instrumentation assets). Four komoot loops reduced to lat/lon/ele only under `assets/demo/`.
-- `com.velometrics.app.demo`: `DemoTrack` (5 m resampling, smoothed elevation/grade, cornering speed limit with a
-  braking envelope), `DemoLoop` (pinned efforts per loop), `DemoRideModel` (plan + 1 Hz sim: power -> physics speed ->
-  lagged HR, sprints, stops with timer events, AR(1) GPS jitter), `DemoFitWriter` (Garmin `BufferEncoder`, not
-  `FileEncoder`, to get bytes without temp files), `DemoRideGenerator.generate(today, openAsset, masterSeed)`:
-  30 rides over 10 weeks (9 Aachen / 7 Herzogenrath / 7 Mechelen / 7 Süd-Limburg), hero = Süd-Limburg on `today`.
-- Deviations from the issue text, tuned to hit the acceptance numbers: outside-effort climbing capped at 0.90 FTP (not
-  1.05) so only pinned efforts become intervals; Süd-Limburg base 0.82 FTP (not 0.65-0.72) to reach ~200 W @ 2 h;
-  Herzogenrath carries a pinned ~22 min threshold block (1.00-1.08 FTP, building over the block) for the 20 min point.
-- Measured: 5 s 975 W, 20 min 278 W, 2 h 194 W; all rides import at 100 % GPS/power quality; Aachen 4 intervals/ride,
-  Mechelen 7 climbs/ride, sprint counts match the plan, 4 repeated routes (one per loop).
-- Tests: `DemoRideGeneratorTest` (determinism, calendar, loop mix, FIT integrity, clean GPX, hero shape) and
-  `DemoRideImportTest` (Robolectric + Room: real `FitImportServiceImpl`, real `RouteClusteringService`; repeated
-  intervals checked via `IntervalSimilarity` since archetype building needs the map-matched road graph).
-- Not done here: the device screenshot test that consumes the generator.
-
-`testDebugUnitTest` and `compileDebugAndroidTestKotlin` pass.
-
-## Issue #204 -- Heart rate vs. distance chart on Session Detail
-Completed: 2026-09-19
-
-### What was done
-
-- New nullable `cycling_sessions.hrDistanceSeries` JSON column (Room v21, MIGRATION_20_21): 100 `HrDistancePoint`
-  (distanceKm, heartRate, altitudeM) per ride, built at import by `HrDistanceSeriesBuilder` (called from
-  `SessionMetricsCalculator`). Point k = first record whose cumulative haversine distance reaches k/100 of the ride;
-  point 100 = last record. `computeDistance` now shares the builder's cumulative-distance helper, so the chart's
-  X axis ends at `distanceKm`.
-- Missing HR (or 0) / altitude at a sampled record falls back to the nearest record within +-5 (earlier wins ties),
-  else null. Series is null under 1 km (indoor/no GPS) or with no HR at all. No backfill for pre-existing rides.
-- `HrDistanceChart` (Canvas): HR line (null breaks it) over a filled elevation backdrop with faint HR zone bands from
-  the *current* max HR setting (`SessionDetailViewModel.maxHr`), drag cursor with distance + bpm readout (no altitude).
-  Sits at the top of the Heart Rate section, gated on the series existing.
-- Tests: `HrDistanceSeriesBuilderTest` (sampling, fallback window/ties, zero HR, thresholds), migration 20->21.
-
-`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
-
-## Issue #217 -- Repeated Route recap on Session Detail
-Completed: 2026-09-19
-
-### What was done
-
-- `SessionNarrativeAssembler` gains a `RepeatedRoutesCache` dependency, `observeRouteRecap(sessionId)` (reactive on the
-  cache) and a pure `buildRouteRecap(sessionId, route)`. Recap = median of all *other* rides on the route (excludes the
-  current one), only for routes with >= ROUTE_CLUSTER_MIN_GROUP_SIZE rides; speed/power/HR lines each drop independently.
-  Headline uses the route name when `isCustomName`, else "Vs. other rides on this route".
-- `SessionDetailViewModel.routeRecap`; `RideSummaryGrid` renders a tappable block under the Tag recap (same styling),
-  navigating via new `onNavigateToRepeatedRoute` to `RepeatedRouteDetailScreen`. Omitted when no route.
-- Tests: new `RouteRecapTest` (format, median exclusion, headline branching, per-stat omission, membership, cache lookup).
-- Speed medians print with one decimal ("27.0 km/h") for consistency with the current value.
-
-`testDebugUnitTest` and `assembleDebug` pass. No visual check on a device this run.
-

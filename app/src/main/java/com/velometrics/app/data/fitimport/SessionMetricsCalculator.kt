@@ -3,6 +3,7 @@
 import com.velometrics.app.util.Json
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.Datapoint
+import com.velometrics.app.domain.service.BrakingDetector
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.median
@@ -119,7 +120,9 @@ class SessionMetricsCalculator @Inject constructor() {
             maxHeartRate = datapoints.mapNotNull { it.heartRate }.filter { it > 0 }.maxOrNull(),
             maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull(),
             // 18. Ride temperature (#222): plain mean of the records that carry one
-            avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average()
+            avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average(),
+            // 19. Speed IQ braking events (#226); rides without power get none yet (#229)
+            speedIq = if (hasPower) BrakingDetector.analyze(datapoints) else null
         )
     }
 

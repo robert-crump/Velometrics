@@ -16,5 +16,6 @@ data class Datapoint(
     val vectorY: Float? = null,
     val angleDeg: Double? = null,
     val heartRate: Int? = null,
-    val altitude: Double? = null
+    val altitude: Double? = null,
+    val temperatureC: Int? = null
 )

@@ -65,7 +65,10 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         hrDistanceSeries = hrSeries,
         maxPower = maxPower,
         maxHeartRate = maxHeartRate,
-        maxSpeedKmh = maxSpeedKmh
+        maxSpeedKmh = maxSpeedKmh,
+        avgTemperatureC = avgTemperatureC,
+        cardiacDriftCauses = cardiacDriftCauses.toCardiacDriftCauses(),
+        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec
     )
 }
 
@@ -107,9 +110,18 @@ fun CyclingSession.toEntity(): CyclingSessionEntity {
         hrDistanceSeries = hrDistanceSeries?.toJsonString(),
         maxPower = maxPower,
         maxHeartRate = maxHeartRate,
-        maxSpeedKmh = maxSpeedKmh
+        maxSpeedKmh = maxSpeedKmh,
+        avgTemperatureC = avgTemperatureC,
+        cardiacDriftCauses = cardiacDriftCauses?.toCodes(),
+        cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec
     )
 }
+
+/** Stored form of [CyclingSession.cardiacDriftCauses]: comma-separated names, "" for an empty list. */
+fun List<CardiacDriftCause>.toCodes(): String = joinToString(",") { it.name }
+
+fun String?.toCardiacDriftCauses(): List<CardiacDriftCause>? =
+    this?.split(",")?.filter { it.isNotBlank() }?.map { CardiacDriftCause.valueOf(it) }
 
 fun SessionMetricSampleEntity.toDomain(): SessionMetricSample {
     return SessionMetricSample(

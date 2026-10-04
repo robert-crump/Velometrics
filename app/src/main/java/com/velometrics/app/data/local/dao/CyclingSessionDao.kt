@@ -127,6 +127,17 @@ interface CyclingSessionDao {
     @Query("UPDATE cycling_sessions SET tag = :tag WHERE id = :sessionId")
     suspend fun updateTag(sessionId: Long, tag: String?)
 
+    @Query("UPDATE cycling_sessions SET cardiacDriftCauses = :causes, cardiacDriftDurationBaselineSec = :baselineSec WHERE id = :sessionId")
+    suspend fun updateCardiacDriftAdvice(sessionId: Long, causes: String?, baselineSec: Int?)
+
+    /** Net durations of the rides starting in [fromEpochMs, toEpochMs): the cardiac drift duration baseline (#222). */
+    @Query("SELECT netDurationSec FROM cycling_sessions WHERE sessionStart >= :fromEpochMs AND sessionStart < :toEpochMs")
+    suspend fun getNetDurationsBetween(fromEpochMs: Long, toEpochMs: Long): List<Int>
+
+    /** Rides with advice-worthy drift whose causes were never evaluated (imported before #222). */
+    @Query("SELECT * FROM cycling_sessions WHERE cardiacDriftPercent >= :minPercent AND cardiacDriftCauses IS NULL")
+    suspend fun getSessionsMissingCardiacDriftCauses(minPercent: Double): List<CyclingSessionEntity>
+
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC LIMIT :limit")
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSessionEntity>
 

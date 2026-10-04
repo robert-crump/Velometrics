@@ -7,6 +7,7 @@ import com.velometrics.app.data.dropbox.DropboxAuthRepository
 import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.RideClassificationService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,6 +27,7 @@ class SettingsViewModel @Inject constructor(
     private val ftpHistoryRepository: FtpHistoryRepository,
     private val sessionRepository: CyclingSessionRepository,
     private val rideClassificationService: RideClassificationService,
+    private val cardiacDriftAdviceService: CardiacDriftAdviceService,
     private val dropboxAuthRepository: DropboxAuthRepository,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
@@ -73,8 +75,8 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * Debug-only pair to [dumpSessionTagsForReview]: writes the tags the classifier would
-     * produce now (ride-date FTP, current thresholds) onto every stored session. Tags are otherwise
-     * frozen at import (ADR 0001).
+     * produce now (ride-date FTP, current thresholds) onto every stored session, and re-evaluates the
+     * cardiac drift causes (#222) the same way. Both are otherwise frozen at import (ADR 0001).
      */
     fun applyRetag() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -82,6 +84,7 @@ class SettingsViewModel @Inject constructor(
             val ftpHistory = ftpHistoryRepository.history.first()
             val stale = rideClassificationService.reviewRows(ftpHistory).count { it.isStale }
             rideClassificationService.reclassifyAll(ftpHistory)
+            cardiacDriftAdviceService.recomputeAll(ftpHistory)
             _retagStatus.value = "Re-tagged $stale rides"
         }
     }

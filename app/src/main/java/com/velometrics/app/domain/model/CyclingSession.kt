@@ -55,5 +55,15 @@ data class CyclingSession(
     // existed (FIT data isn't retained, so no backfill).
     val maxPower: Int? = null,
     val maxHeartRate: Int? = null,
-    val maxSpeedKmh: Double? = null
+    val maxSpeedKmh: Double? = null,
+    // Mean FIT record temperature in °C (#222); import-time only, null without a sensor or on
+    // rides imported before this existed (no backfill).
+    val avgTemperatureC: Double? = null,
+    // Likely causes of MEDIUM/HIGH cardiac drift (#222), ranked, at most two. Empty = evaluated but
+    // nothing fired (generic advice); null = no advice (LOW drift, no drift, or not yet evaluated).
+    // Set at import by CardiacDriftAdviceService, backfilled onto older rides at app start.
+    val cardiacDriftCauses: List<CardiacDriftCause>? = null,
+    // Median net duration of the rider's >= 60 min rides in the 6 weeks before this one, frozen
+    // when the causes were evaluated; the DURATION cause's "vs. usual" evidence.
+    val cardiacDriftDurationBaselineSec: Int? = null
 )

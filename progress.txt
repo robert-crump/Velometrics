@@ -1,3 +1,31 @@
+## Issue #222 -- Cardiac drift: add tips
+Completed: 2026-10-04
+
+### What was done
+
+- Plan from a /grill-me session, posted as a comment on #222. The recap redo (two prose sentences instead of stat
+  lines) is split out as #224.
+- `CardiacDriftBand` renamed to LOW / MEDIUM / HIGH (5 % / 10 % unchanged); the HR card now reads "7.2% (medium)".
+- FIT record temperature is read into `Datapoint.temperatureC`; `avgTemperatureC` is persisted at import (no
+  backfill).
+- `CardiacDriftAdvisor` (pure) ranks up to two causes for MEDIUM/HIGH drift: HEAT (avg >= 25 °C), INTENSITY
+  (NP/FTP on the ride date >= 0.75), DURATION (>= 1.3x the median of the rider's >= 60 min rides in the 6 weeks
+  before, needs >= 3 such rides). An empty list means the generic hydration/food advice.
+- `CardiacDriftAdviceService.evaluate` runs at import. New columns `cardiacDriftCauses` (comma-separated codes,
+  "" = none fired) and `cardiacDriftDurationBaselineSec` (Room v23, MIGRATION_22_23).
+- Backfill: `CardiacDriftAdviceBackfill` runs at app start and only touches drift >= 5 % rows with null causes.
+  The debug "Apply re-tag" Settings row also calls `recomputeAll`.
+- Session Detail: a "Cardiac drift" block under the recaps in `RideSummaryGrid`, two sentences rendered at display
+  time (diagnosis with evidence, then advice). It says "start riding earlier" only for hot rides started after
+  11:00, adds "eat every 30–45 min" on rides >= 2 h, and has no fatigue/TSB rule and no elite tips.
+- Demo data: records carry a temperature (12–19 °C rising over the block). The hero ride is now a 14:xx start at
+  ~28–30 °C with a lower HR baseline and more drift (8.0 %, HEAT). The other rides' random streams are unchanged.
+  Herzogenrath ride 22 drifts 7.5 % by itself, so it shows INTENSITY advice.
+- Not done: `docs/screenshots/*.png` still show the old hero ride until `./gradlew readmeScreenshots` is rerun.
+
+`testDebugUnitTest` (incl. new `CardiacDriftAdvisorTest`, `CardiacDriftAdviceServiceTest`, migration 22->23) and
+`assembleDebug` pass. No visual check on a device this run.
+
 ## Horizontal HR and power zone charts (no issue)
 Completed: 2026-10-03
 

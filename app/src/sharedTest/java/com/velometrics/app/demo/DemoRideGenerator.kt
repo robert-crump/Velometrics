@@ -50,6 +50,7 @@ object DemoRideGenerator {
     /** Day of each weekly slot relative to the week's last ride day. */
     private val SLOT_DAY_OFFSETS = listOf(-5L, -3L, 0L)
     private val SLOT_START_TIMES = listOf(LocalTime.of(17, 30), LocalTime.of(17, 45), LocalTime.of(9, 0))
+    private val HERO_START_TIME = LocalTime.of(14, 0)
 
     fun generate(
         today: LocalDate,
@@ -65,10 +66,12 @@ object DemoRideGenerator {
         return schedule.mapIndexed { index, (week, slot, loop) ->
             val rng = Random(rideSeed(masterSeed, index))
             val date = today.minusWeeks((WEEKS.size - 1 - week).toLong()).plusDays(SLOT_DAY_OFFSETS[slot])
-            val start = date.atTime(SLOT_START_TIMES[slot].plusMinutes(rng.nextInt(40).toLong()))
+            val isHero = index == schedule.lastIndex
+            // The hero is a hot afternoon ride (#222), so its drift advice says "start riding earlier".
+            val slotStart = if (isHero) HERO_START_TIME else SLOT_START_TIMES[slot]
+            val start = date.atTime(slotStart.plusMinutes(rng.nextInt(40).toLong()))
                 .atZone(ZONE).toInstant()
             val track = tracks.getValue(loop)
-            val isHero = index == schedule.lastIndex
             val plan = DemoRideModel.plan(track, loop, start, index / schedule.lastIndex.toDouble(), isHero, rng)
             val result = DemoRideModel.simulate(track, loop, plan, rng)
             DemoRide(

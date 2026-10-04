@@ -50,6 +50,15 @@ object CyclingConstants {
     const val CARDIAC_DRIFT_MIN_RIDE_SEC = 3600         // gate: ride must be >= 60 min (6 buckets)
     const val CARDIAC_DRIFT_POWER_EXCLUSION_FTP_FRACTION = 0.25  // exclude samples below 25% FTP from bucket averages
     const val CARDIAC_DRIFT_BUCKET_DROP_FRACTION = 0.5  // drop a bucket if more than half its samples are excluded
+    // Cardiac drift advice (#222): cause rules for MEDIUM/HIGH drift
+    const val CARDIAC_DRIFT_HEAT_MIN_TEMP_C = 25.0          // avg ride temperature that counts as hot
+    const val CARDIAC_DRIFT_LATE_START_HOUR = 11            // hot ride starting after this local hour -> "start riding earlier"
+    const val CARDIAC_DRIFT_INTENSITY_MIN_IF = 0.75         // NP / FTP above endurance pace
+    const val CARDIAC_DRIFT_DURATION_FACTOR = 1.3           // net duration vs. the usual long-ride median
+    const val CARDIAC_DRIFT_BASELINE_WINDOW_DAYS = 42L      // usual long ride = rides >= 60 min in the previous 6 weeks
+    const val CARDIAC_DRIFT_BASELINE_MIN_RIDES = 3
+    const val CARDIAC_DRIFT_FUELING_MIN_SEC = 7200          // rides >= 2 h always get the eating advice
+    const val CARDIAC_DRIFT_MAX_CAUSES = 2
 
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117

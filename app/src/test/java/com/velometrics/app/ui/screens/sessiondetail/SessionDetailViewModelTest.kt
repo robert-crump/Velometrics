@@ -91,6 +91,9 @@ class SessionDetailViewModelTest {
         userSettingsRepository = mockk<com.velometrics.app.data.preferences.UserSettingsRepository> {
             every { maxHr } returns kotlinx.coroutines.flow.flowOf(190)
         },
+        ftpHistoryRepository = mockk<com.velometrics.app.data.preferences.FtpHistoryRepository> {
+            every { history } returns kotlinx.coroutines.flow.flowOf(com.velometrics.app.domain.model.FtpHistory.constant(250))
+        },
         globalAverageCache = GlobalAverageCacheImpl(sessionRepository, scope),
         repeatedIntervalsCache = RepeatedIntervalsCacheImpl(FakeRepeatedIntervalRepository(), scope)
     )

@@ -18,6 +18,7 @@ import com.velometrics.app.data.repository.CyclingSessionRepositoryImpl
 import com.velometrics.app.data.repository.IntervalRepositoryImpl
 import com.velometrics.app.domain.model.RideTag
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
 import com.velometrics.app.domain.service.RideClassifier
@@ -89,7 +90,8 @@ class FitImportServiceTransactionTest {
             userSettingsRepository = settings,
             ftpHistoryRepository = ftpHistory,
             bestEffortRepository = BestEffortRepositoryImpl(db.sessionBestEffortDao()),
-            velometricsDatabase = db
+            velometricsDatabase = db,
+            cardiacDriftAdviceService = CardiacDriftAdviceService(sessions)
         )
     }
 

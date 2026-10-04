@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.domain.repository
 
+import com.velometrics.app.domain.model.CardiacDriftCause
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
@@ -34,6 +35,12 @@ interface CyclingSessionRepository {
     suspend fun updateIntervalStats(sessionId: Long, count: Int, totalSec: Int)
     /** Sets [CyclingSession.tag] directly, without a full read-modify-write round trip. */
     suspend fun updateTag(sessionId: Long, tag: String?)
+    /** Sets [CyclingSession.cardiacDriftCauses] and its duration baseline directly (#222). */
+    suspend fun updateCardiacDriftAdvice(sessionId: Long, causes: List<CardiacDriftCause>?, durationBaselineSec: Int?)
+    /** Net durations of the rides starting at or after [from] and before [to] (#222). */
+    suspend fun getNetDurationsBetween(from: Instant, to: Instant): List<Int>
+    /** Rides with drift >= [minPercent] whose drift causes were never evaluated (#222). */
+    suspend fun getSessionsMissingCardiacDriftCauses(minPercent: Double): List<CyclingSession>
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
     suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>
     suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample>

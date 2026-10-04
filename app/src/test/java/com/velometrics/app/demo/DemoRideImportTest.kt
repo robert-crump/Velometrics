@@ -18,6 +18,8 @@ import com.velometrics.app.data.repository.IntervalRepositoryImpl
 import com.velometrics.app.data.repository.RepeatedRouteRepositoryImpl
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
+import com.velometrics.app.domain.model.CardiacDriftCause
+import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
 import com.velometrics.app.domain.service.IntervalSimilarity
@@ -88,7 +90,8 @@ class DemoRideImportTest {
                         override suspend fun takeLegacyFtp(): Int = DemoRideGenerator.FTP
                     }),
                     bestEffortRepository = BestEffortRepositoryImpl(db.sessionBestEffortDao()),
-                    velometricsDatabase = db
+                    velometricsDatabase = db,
+                    cardiacDriftAdviceService = CardiacDriftAdviceService(sessions)
                 )
                 val imported = DemoRideTestSupport.rides.map { ride ->
                     val result = service.importFile(ride.fileName, ride.fitBytes)
@@ -207,6 +210,19 @@ class DemoRideImportTest {
         assertNotNull(hero.session.cardiacDriftPercent)
         assertTrue(hero.session.pauseDurationSec > 0)
         assertTrue(hero.session.sprintCount > 0)
+    }
+
+    @Test
+    fun `hero ride is a hot afternoon ride whose drift advice names the heat`() {
+        val hero = imported.last()
+        assertTrue("${hero.session.avgTemperatureC}", hero.session.avgTemperatureC!! >= 25.0)
+        assertTrue("${hero.session.cardiacDriftPercent}", hero.session.cardiacDriftPercent!! >= 5.0)
+        assertEquals(CardiacDriftCause.HEAT, hero.session.cardiacDriftCauses?.firstOrNull())
+        // Every other ride is cool, so heat is never named for it.
+        imported.dropLast(1).forEach {
+            assertTrue(it.ride.fileName, it.session.avgTemperatureC!! < 25.0)
+            assertTrue(it.ride.fileName, CardiacDriftCause.HEAT !in it.session.cardiacDriftCauses.orEmpty())
+        }
     }
 
     @Test

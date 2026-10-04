@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
+import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
@@ -13,6 +14,7 @@ import com.velometrics.app.domain.model.RepeatedIntervalRef
 import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
+import com.velometrics.app.domain.service.CardiacDriftAdvisor
 import com.velometrics.app.domain.service.DeleteResult
 import com.velometrics.app.domain.service.RideLifecycle
 import com.velometrics.app.domain.service.SessionComparison
@@ -24,6 +26,7 @@ import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 import javax.inject.Inject
 
 @HiltViewModel
@@ -36,6 +39,7 @@ class SessionDetailViewModel @Inject constructor(
     sessionNarrativeAssembler: SessionNarrativeAssembler,
     private val rideLifecycle: RideLifecycle,
     userSettingsRepository: UserSettingsRepository,
+    ftpHistoryRepository: FtpHistoryRepository,
     globalAverageCache: GlobalAverageCache,
     repeatedIntervalsCache: RepeatedIntervalsCache
 ) : ViewModel() {
@@ -63,6 +67,11 @@ class SessionDetailViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Cardiac drift advice paragraph (#222), or null for rides without MEDIUM/HIGH drift. */
+    val cardiacDriftAdvice: StateFlow<String?> = combine(_session, ftpHistoryRepository.history) { s, ftpHistory ->
+        s?.let { CardiacDriftAdvisor.paragraph(it, ftpHistory.ftpOn(it.sessionStart.atZone(ZoneId.systemDefault()).toLocalDate())) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _comparison = MutableStateFlow<SessionComparison?>(null)
     val comparison: StateFlow<SessionComparison?> = _comparison.asStateFlow()

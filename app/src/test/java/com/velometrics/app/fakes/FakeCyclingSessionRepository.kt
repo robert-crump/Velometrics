@@ -1,5 +1,6 @@
 ﻿package com.velometrics.app.fakes
 
+import com.velometrics.app.domain.model.CardiacDriftCause
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
@@ -99,6 +100,20 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
         val index = sessions.indexOfFirst { it.id == sessionId }
         if (index >= 0) sessions[index] = sessions[index].copy(tag = tag)
     }
+
+    override suspend fun updateCardiacDriftAdvice(sessionId: Long, causes: List<CardiacDriftCause>?, durationBaselineSec: Int?) {
+        val index = sessions.indexOfFirst { it.id == sessionId }
+        if (index >= 0) sessions[index] = sessions[index].copy(
+            cardiacDriftCauses = causes,
+            cardiacDriftDurationBaselineSec = durationBaselineSec
+        )
+    }
+
+    override suspend fun getNetDurationsBetween(from: Instant, to: Instant): List<Int> =
+        sessions.filter { it.sessionStart >= from && it.sessionStart < to }.map { it.netDurationSec }
+
+    override suspend fun getSessionsMissingCardiacDriftCauses(minPercent: Double): List<CyclingSession> =
+        sessions.filter { s -> s.cardiacDriftCauses == null && s.cardiacDriftPercent?.let { it >= minPercent } == true }
 
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> =
         sessions.sortedByDescending { it.sessionStart }.take(limit)

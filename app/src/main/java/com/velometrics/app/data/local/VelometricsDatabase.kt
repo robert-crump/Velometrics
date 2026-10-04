@@ -16,7 +16,7 @@ import com.velometrics.app.data.local.entity.*
         SessionBestEffortEntity::class,
         FtpHistoryEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

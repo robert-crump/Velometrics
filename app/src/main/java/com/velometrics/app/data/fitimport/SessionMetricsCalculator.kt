@@ -117,7 +117,9 @@ class SessionMetricsCalculator @Inject constructor() {
             hrDistanceSeries = hrDistanceSeries,
             maxPower = if (hasPower) datapoints.mapNotNull { it.power }.maxOrNull() else null,
             maxHeartRate = datapoints.mapNotNull { it.heartRate }.filter { it > 0 }.maxOrNull(),
-            maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull()
+            maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull(),
+            // 18. Ride temperature (#222): plain mean of the records that carry one
+            avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average()
         )
     }
 

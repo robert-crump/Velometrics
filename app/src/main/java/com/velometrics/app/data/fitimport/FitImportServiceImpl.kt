@@ -10,6 +10,7 @@ import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.BestEffortCalculator
+import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
 import com.velometrics.app.domain.service.RideClassifier
@@ -44,7 +45,8 @@ class FitImportServiceImpl @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val ftpHistoryRepository: FtpHistoryRepository,
     private val bestEffortRepository: BestEffortRepository,
-    private val velometricsDatabase: VelometricsDatabase
+    private val velometricsDatabase: VelometricsDatabase,
+    private val cardiacDriftAdviceService: CardiacDriftAdviceService
 ) : FitImportService {
 
     companion object {
@@ -106,7 +108,7 @@ class FitImportServiceImpl @Inject constructor(
             // 8. Compute metrics against the FTP in force on the ride date (ADR 0001, #218)
             val rideDate = datapoints.first().timestamp.atZone(ZoneId.systemDefault()).toLocalDate()
             val ftp = ftpHistoryRepository.history.first().ftpOn(rideDate)
-            val session = metricsCalculator.compute(
+            val computed = metricsCalculator.compute(
                 fileName = fileName,
                 fileSha1 = fileSha1,
                 datapoints = datapoints,
@@ -117,6 +119,8 @@ class FitImportServiceImpl @Inject constructor(
                 ftp = ftp,
                 maxHr = maxHr
             )
+            // 8b. Likely causes of elevated cardiac drift (#222), judged against the rides before this one
+            val session = cardiacDriftAdviceService.evaluate(computed, ftp)
 
             Log.d(TAG, "$fileName: dist=${session.distanceKm}km, duration=${session.netDurationSec}s, " +
                     "avgPower=${session.averagePower}W, np=${session.normalizedPower}W")
@@ -238,6 +242,7 @@ class FitImportServiceImpl @Inject constructor(
             val power: Int? = mesg.getPower()
             val heartRate: Int? = mesg.getHeartRate()?.toInt()
             val altitude: Double? = (mesg.getEnhancedAltitude() ?: mesg.getAltitude())?.toDouble()
+            val temperatureC: Int? = mesg.getTemperature()?.toInt()
 
             val fitTimestamp = mesg.getTimestamp() ?: return@RecordMesgListener
             val timestamp = fitTimestamp.date.toInstant()
@@ -250,7 +255,8 @@ class FitImportServiceImpl @Inject constructor(
                     power = power,
                     timestamp = timestamp,
                     heartRate = heartRate,
-                    altitude = altitude
+                    altitude = altitude,
+                    temperatureC = temperatureC
                 )
             )
         })

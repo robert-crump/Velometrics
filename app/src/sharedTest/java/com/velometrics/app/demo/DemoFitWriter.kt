@@ -58,6 +58,7 @@ object DemoFitWriter {
                 distance = s.distanceM.toFloat()
                 power = s.power
                 heartRate = s.heartRate.toShort()
+                temperature = s.temperatureC.toByte()
             })
         }
         flushEventsUpTo(Long.MAX_VALUE)

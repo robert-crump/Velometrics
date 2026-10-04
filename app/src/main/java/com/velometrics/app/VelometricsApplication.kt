@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.velometrics.app.data.cache.AllTimeStatsCache
+import com.velometrics.app.data.cache.CardiacDriftAdviceBackfill
 import com.velometrics.app.data.cache.GlobalAverageCache
 import com.velometrics.app.data.cache.RecapWarmer
 import com.velometrics.app.data.cache.RepeatedIntervalsCache
@@ -26,9 +27,11 @@ class VelometricsApplication : Application(), Configuration.Provider {
     @Inject lateinit var globalAverageCache: GlobalAverageCache
     @Inject lateinit var allTimeStatsCache: AllTimeStatsCache
     @Inject lateinit var recapWarmer: RecapWarmer
+    @Inject lateinit var cardiacDriftAdviceBackfill: CardiacDriftAdviceBackfill
 
     override fun onCreate() {
         super.onCreate()
         recapWarmer.start()
+        cardiacDriftAdviceBackfill.start()
     }
 }

@@ -60,6 +60,7 @@ fun SessionDetailScreen(
     val comparison by viewModel.comparison.collectAsState()
     val narrative by viewModel.narrative.collectAsState()
     val routeRecap by viewModel.routeRecap.collectAsState()
+    val cardiacDriftAdvice by viewModel.cardiacDriftAdvice.collectAsState()
     val powerCurve by viewModel.powerCurve.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
@@ -169,7 +170,8 @@ fun SessionDetailScreen(
                 ) {
                     RideSummaryGrid(
                         session = s, comparison = comparison, narrative = narrative,
-                        routeRecap = routeRecap, onRouteRecapClick = onNavigateToRepeatedRoute
+                        routeRecap = routeRecap, onRouteRecapClick = onNavigateToRepeatedRoute,
+                        cardiacDriftAdvice = cardiacDriftAdvice
                     )
 
                     SectionCard(title = "Power") {
@@ -583,7 +585,8 @@ private fun RideSummaryGrid(
     comparison: SessionComparison?,
     narrative: SessionNarrative?,
     routeRecap: RouteRecap?,
-    onRouteRecapClick: (Long) -> Unit
+    onRouteRecapClick: (Long) -> Unit,
+    cardiacDriftAdvice: String?
 ) {
     var comparisonMode by remember { mutableStateOf(ComparisonMode.LAST_5) }
     val avgSpeed = if (session.netDurationSec > 0)
@@ -638,6 +641,13 @@ private fun RideSummaryGrid(
                     topPadding = if (narrative != null) 8.dp else 24.dp
                 )
             }
+        }
+        if (cardiacDriftAdvice != null) {
+            RecapLines(
+                headline = "Cardiac drift",
+                lines = listOf(cardiacDriftAdvice),
+                topPadding = if (narrative != null || routeRecap != null) 8.dp else 24.dp
+            )
         }
         Spacer(modifier = Modifier.height(SUMMARY_GAP))
 

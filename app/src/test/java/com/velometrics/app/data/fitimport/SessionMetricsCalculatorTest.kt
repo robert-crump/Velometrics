@@ -13,7 +13,8 @@ class SessionMetricsCalculatorTest {
         index: Int,
         heartRate: Int? = null,
         altitude: Double? = null,
-        power: Int? = null
+        power: Int? = null,
+        temperatureC: Int? = null
     ): Datapoint {
         return Datapoint(
             lat = 50.78 + index * 0.0001,
@@ -22,8 +23,23 @@ class SessionMetricsCalculatorTest {
             power = power,
             timestamp = Instant.parse("2026-01-01T00:00:00Z").plusSeconds(index.toLong()),
             heartRate = heartRate,
-            altitude = altitude
+            altitude = altitude,
+            temperatureC = temperatureC
         )
+    }
+
+    @Test
+    fun `avgTemperatureC is the mean of the records that carry a temperature`() {
+        val withTemp = (0 until 10).map { datapoint(it, temperatureC = if (it < 4) null else 20 + it) }
+        val withoutTemp = (0 until 10).map { datapoint(it) }
+
+        fun compute(points: List<Datapoint>) = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = points,
+            hasPower = false, timerEvents = emptyList(), rawRecordCount = 10, originalPowerCount = 0
+        )
+
+        assertEquals(26.5, compute(withTemp).avgTemperatureC!!, 1e-9) // mean of 24..29
+        assertNull(compute(withoutTemp).avgTemperatureC)
     }
 
     @Test

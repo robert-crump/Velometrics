@@ -1,11 +1,13 @@
 ﻿package com.velometrics.app.data.repository
 
 import com.velometrics.app.data.local.dao.CyclingSessionDao
+import com.velometrics.app.domain.model.CardiacDriftCause
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.util.toCodes
 import com.velometrics.app.util.toDomain
 import com.velometrics.app.util.toEntity
 import java.time.Instant
@@ -100,6 +102,16 @@ class CyclingSessionRepositoryImpl @Inject constructor(
     override suspend fun updateTag(sessionId: Long, tag: String?) {
         dao.updateTag(sessionId, tag)
     }
+
+    override suspend fun updateCardiacDriftAdvice(sessionId: Long, causes: List<CardiacDriftCause>?, durationBaselineSec: Int?) {
+        dao.updateCardiacDriftAdvice(sessionId, causes?.toCodes(), durationBaselineSec)
+    }
+
+    override suspend fun getNetDurationsBetween(from: Instant, to: Instant): List<Int> =
+        dao.getNetDurationsBetween(from.toEpochMilli(), to.toEpochMilli())
+
+    override suspend fun getSessionsMissingCardiacDriftCauses(minPercent: Double): List<CyclingSession> =
+        dao.getSessionsMissingCardiacDriftCauses(minPercent).map { it.toDomain() }
 
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> {
         return dao.getRecentSessionsList(limit).map { it.toDomain() }

@@ -22,7 +22,8 @@ data class DemoSample(
     val speedMps: Double,
     val power: Int,
     val heartRate: Int,
-    val distanceM: Double
+    val distanceM: Double,
+    val temperatureC: Int
 )
 
 enum class DemoTimerEventType { START, STOP, STOP_ALL }
@@ -41,7 +42,14 @@ data class DemoRidePlan(
     val sprints: List<DemoSprint>,
     val stops: List<DemoStop>,
     val driftBpm: Double,
-    val altitudeOffsetM: Double
+    val altitudeOffsetM: Double,
+    /** Seconds of moving time until [driftBpm] is fully reached. */
+    val driftFullSec: Double,
+    /** Shifts the whole heart-rate curve; the hero's lower start leaves its drift room under HR_MAX. */
+    val hrOffsetBpm: Double,
+    val startTemperatureC: Double,
+    /** Warming over the first two hours of moving time (afternoon heat). */
+    val temperatureRiseC: Double
 )
 
 /**
@@ -53,6 +61,9 @@ data class DemoRidePlan(
  * - Speed: gravity + rolling resistance + aero drag with inertia, integrated every second; braked
  *   for corners and stops, capped at 65 km/h.
  * - Heart rate: first-order lag to 100 + 0.32·P (slower down than up) plus cardiac drift.
+ * - Temperature: cool spring rides warming towards early summer over the block; the hero ride is a
+ *   hot afternoon (#222) with enough drift to show the cardiac drift advice. Neither draws from
+ *   the ride's random stream, so every other ride stays byte-identical.
  */
 object DemoRideModel {
     const val FTP = 260
@@ -75,6 +86,12 @@ object DemoRideModel {
     private const val HR_TAU_UP = 30.0
     private const val HR_TAU_DOWN = 45.0
     private const val DRIFT_FULL_SEC = 3 * 3600.0
+    private const val HERO_DRIFT_BPM = 30.0
+    private const val HERO_DRIFT_FULL_SEC = 3 * 3600.0
+    private const val HERO_HR_OFFSET_BPM = -15.0
+    private const val HERO_START_TEMPERATURE_C = 27.5
+    private const val HERO_TEMPERATURE_RISE_C = 3.0
+    private const val TEMPERATURE_RISE_SEC = 2 * 3600.0
 
     private const val GPS_JITTER_SD_M = 2.0
     private const val GPS_JITTER_PHI = 0.97
@@ -141,8 +158,12 @@ object DemoRideModel {
             effortTargets = effortTargets,
             sprints = sprints,
             stops = stops,
-            driftBpm = 3.0 + rng.nextDouble() * 3.0,
-            altitudeOffsetM = rng.nextGaussian() * 3.0
+            driftBpm = (3.0 + rng.nextDouble() * 3.0).let { if (isHero) HERO_DRIFT_BPM else it },
+            altitudeOffsetM = rng.nextGaussian() * 3.0,
+            driftFullSec = if (isHero) HERO_DRIFT_FULL_SEC else DRIFT_FULL_SEC,
+            hrOffsetBpm = if (isHero) HERO_HR_OFFSET_BPM else 0.0,
+            startTemperatureC = if (isHero) HERO_START_TEMPERATURE_C else 12.0 + 7.0 * progress,
+            temperatureRiseC = if (isHero) HERO_TEMPERATURE_RISE_C else 1.0
         )
     }
 
@@ -180,13 +201,15 @@ object DemoRideModel {
                 speedMps = v,
                 power = power,
                 heartRate = hr.roundToInt(),
-                distanceM = d
+                distanceM = d,
+                temperatureC = (plan.startTemperatureC +
+                    plan.temperatureRiseC * min(1.0, movingSec / TEMPERATURE_RISE_SEC)).roundToInt()
             )
         }
 
         fun updateHr(power: Double) {
-            val drift = plan.driftBpm * min(1.0, movingSec / DRIFT_FULL_SEC)
-            val target = HR_BASE + HR_PER_WATT * power + drift
+            val drift = plan.driftBpm * min(1.0, movingSec / plan.driftFullSec)
+            val target = HR_BASE + plan.hrOffsetBpm + HR_PER_WATT * power + drift
             val tau = if (target > hr) HR_TAU_UP else HR_TAU_DOWN
             hr = min(HR_MAX, hr + (target - hr) / tau)
         }

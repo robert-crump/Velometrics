@@ -1,3 +1,29 @@
+## Issue #229 -- Speed IQ: rides without power (estimated reference power)
+Completed: 2026-10-04
+
+### What was done
+
+- `BrakingDetector.analyze(..., estimatedReferencePowerW)`: if the estimate is given, the ride's power
+  readings are ignored, so pedal work is 0 during braking, and P is the estimate.
+  `SpeedIq.referencePowerEstimated` (also in the summary JSON) is true for these rides. No migration:
+  Gson reads a missing boolean as false.
+- Fallback for P (`BrakingDetector.estimateReferencePower`): the median of the stored per-ride P
+  (`SpeedIqSummary.referencePowerW`) over the last `SPEED_IQ_FALLBACK_RIDES` = 10 power rides before
+  the one being imported, else `SPEED_IQ_FALLBACK_FTP_FRACTION` = 60 % of FTP as of the ride. Power
+  rides already stored their P, so no new column. New query
+  `CyclingSessionDao.getPowerRideSpeedIqSummariesBefore` / `getSpeedIqReferencePowersBefore` (hasPower = 1,
+  summary not null, sessionStart < ride start). Power rides imported before #226 have no P and don't count.
+- `FitImportServiceImpl` computes the estimate only when `!hasPower` and passes it to
+  `SessionMetricsCalculator.compute(estimatedReferencePowerW)`. Rides with power are unchanged.
+- Card: an estimated P adds "No power data · braking counted at est. 165 W" under the events.
+- Tests: `SpeedIqWithoutPowerImportTest` (Robolectric, real import + Room) covers the median of the last
+  10 power rides before the ride (older and later rides left out), the 60 % of FTP fallback with a
+  retest-dated FTP, and a power ride keeping its measured P. BrakingDetector tests check estimated P,
+  that pedal work is ignored, and the median/FTP math. A SpeedIqSummary test checks the JSON round-trip.
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (532 tests) and `assembleDebug` pass.
+
 ## Issue #228 -- Speed IQ: system weight setting (as of ride)
 Completed: 2026-10-04
 
@@ -117,27 +143,4 @@ Completed: 2026-10-03
   `./gradlew readmeScreenshots` is rerun.
 
 `assembleDebug` and `testDebugUnitTest` pass. No visual check on a device this run.
-
-## Issue #221 -- README screenshots: ride, ride-power, route, stats + README rewrite
-Completed: 2026-09-30
-
-### What was done
-
-- `ReadmeScreenshots` now captures all five shots, each from a fresh `MainActivity` at Home, navigating by UI
-  clicks: hero ride by its date text; Routes tab -> "Aachen"; overflow -> "All-time stats".
-- Routes are renamed after their loop (Aachen / Herzogenrath / Mechelen / Süd-Limburg, matched by session start)
-  via `RepeatedRouteRepository` (added to `ReadmeScreenshotsEntryPoint`), so titles/recaps don't say "Repeated Route N".
-- `MapSettle` (androidTest): hooks every on-screen `MapView` (will-start-rendering-frame resets, did-become-idle
-  stamps, `triggerRepaint` to force a fresh idle) and waits for style loaded + 1.5 s idle, so tiles are complete.
-- ride-power: swipe the drawer to full, a down+cancel touch clears the drawer's "block scroll until new touch",
-  then semantic `ScrollBy` aligns the Power title 24 dp under the docked header. route/stats align the card
-  title under the TopAppBar the same way (`scrollTitleTo`, measured from the Back button's bounds).
-- README rewritten store-style per the issue. Deviations after checking the app: Analyze bullet says "power and
-  heart-rate zones, normalized power, intervals and sprints, cardiac drift" (no per-ride TSS or stop analysis
-  exist); Training load bullet says "fitness, fatigue and form" (CTL/ATL/TSB, not weeks/months); footnote also
-  credits CARTO (the dark basemap).
-- home.png came out byte-identical to #220's. Known app quirk visible in stats.png: the power curve's peak label
-  overlaps the "1000" axis label.
-
-`readmeScreenshots` (1 test OK, 5 PNGs) and `testDebugUnitTest` pass.
 

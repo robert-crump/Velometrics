@@ -118,6 +118,11 @@ class FakeCyclingSessionRepository : CyclingSessionRepository {
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> =
         sessions.sortedByDescending { it.sessionStart }.take(limit)
 
+    override suspend fun getSpeedIqReferencePowersBefore(before: Instant, limit: Int): List<Int> =
+        sessions.filter { it.hasPower && it.speedIq != null && it.sessionStart < before }
+            .sortedByDescending { it.sessionStart }.take(limit)
+            .mapNotNull { s -> s.speedIq!!.takeUnless { it.referencePowerEstimated }?.referencePowerW }
+
     override fun getSessionsByIds(ids: List<Long>): Flow<List<CyclingSession>> =
         flowOf(sessions.filter { it.id in ids })
 

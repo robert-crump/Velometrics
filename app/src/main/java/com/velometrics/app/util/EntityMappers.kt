@@ -133,18 +133,20 @@ data class SpeedIqSummary(
     val standingSec: Double = 0.0,
     val standingInTimerSec: Double = 0.0,
     /** False when stored before #228, when every ride used the assumed 85 kg. */
-    val massFromSettings: Boolean = false
+    val massFromSettings: Boolean = false,
+    /** False when stored before #229, when only rides with power had Speed IQ. */
+    val referencePowerEstimated: Boolean = false
 ) {
     fun toDomain(topEvents: List<BrakingEvent>) = SpeedIq(
         hasElevation, brakingPenaltySec, standingSec, standingInTimerSec, eventCount,
-        referencePowerW, systemMassKg, massFromSettings, topEvents
+        referencePowerW, systemMassKg, massFromSettings, referencePowerEstimated, topEvents
     )
 
     companion object {
         fun of(speedIq: SpeedIq) = SpeedIqSummary(
             speedIq.hasElevation, speedIq.brakingPenaltySec, speedIq.eventCount,
             speedIq.referencePowerW, speedIq.systemMassKg, speedIq.standingSec, speedIq.standingInTimerSec,
-            speedIq.massFromSettings
+            speedIq.massFromSettings, speedIq.referencePowerEstimated
         )
     }
 }

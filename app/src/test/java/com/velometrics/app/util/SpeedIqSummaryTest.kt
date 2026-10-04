@@ -31,4 +31,18 @@ class SpeedIqSummaryTest {
         assertEquals(85.0, restored.systemMassKg, 0.0)
         assertFalse(restored.massFromSettings)
     }
+
+    @Test
+    fun `an estimated P survives the stored JSON and older summaries read as measured`() {
+        val speedIq = SpeedIq(
+            hasElevation = true, brakingPenaltySec = 60.0, standingSec = 0.0, standingInTimerSec = 0.0,
+            eventCount = 2, referencePowerW = 165, systemMassKg = 85.0, referencePowerEstimated = true, topEvents = emptyList()
+        )
+        val restored = SpeedIqSummary.of(speedIq).toJsonString().parseJson<SpeedIqSummary>().toDomain(emptyList())
+        assertTrue(restored.referencePowerEstimated)
+        assertEquals(165, restored.referencePowerW)
+
+        val old = """{"hasElevation":true,"brakingPenaltySec":60.0,"eventCount":2,"referencePowerW":190,"systemMassKg":85.0}"""
+        assertFalse(old.parseJson<SpeedIqSummary>().toDomain(emptyList()).referencePowerEstimated)
+    }
 }

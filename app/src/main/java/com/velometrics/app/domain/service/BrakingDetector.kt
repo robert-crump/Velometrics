@@ -29,20 +29,42 @@ import java.time.Instant
 object BrakingDetector {
 
     /**
-     * Null without pedalling samples (no power; that fallback is #229). A ride where too few
-     * records carry an altitude gets [SpeedIq.hasElevation] false and no events. [pauses] are the
-     * FIT timer's stop→start intervals, the same ones that make up the ride's pause duration.
+     * A ride without power passes [estimatedReferencePowerW] (#229, see [estimateReferencePower]):
+     * its power readings are ignored, so pedal work counts as 0, and P is that estimate. Otherwise
+     * null without pedalling samples. A ride where too few records carry an altitude gets
+     * [SpeedIq.hasElevation] false and no events. [pauses] are the FIT timer's stop→start
+     * intervals, the same ones that make up the ride's pause duration.
      */
     fun analyze(
         datapoints: List<Datapoint>,
         pauses: List<ClosedRange<Instant>> = emptyList(),
-        massKg: Double = CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG
+        massKg: Double = CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG,
+        estimatedReferencePowerW: Double? = null
     ): SpeedIq? {
-        val referencePower = datapoints
+        val estimated = estimatedReferencePowerW != null
+        val points = if (estimated) datapoints.map { it.copy(power = null) } else datapoints
+        val referencePower = estimatedReferencePowerW?.takeIf { it > 0 } ?: points
             .filter { (it.power ?: 0) > 0 && (it.speedKmh ?: 0.0) >= CyclingConstants.SPEED_IQ_MOVING_KMH }
             .map { it.power!!.toDouble() }
             .median() ?: return null
+        return analyzeAt(points, pauses, massKg, referencePower).copy(referencePowerEstimated = estimated)
+    }
 
+    /**
+     * P for a ride without power (#229): the median of [priorReferencePowersW], the per-ride P of
+     * the last [CyclingConstants.SPEED_IQ_FALLBACK_RIDES] rides with power before it, else
+     * [CyclingConstants.SPEED_IQ_FALLBACK_FTP_FRACTION] of the FTP as of the ride.
+     */
+    fun estimateReferencePower(priorReferencePowersW: List<Int>, ftp: Int): Double =
+        priorReferencePowersW.filter { it > 0 }.map { it.toDouble() }.median()
+            ?: (ftp * CyclingConstants.SPEED_IQ_FALLBACK_FTP_FRACTION)
+
+    private fun analyzeAt(
+        datapoints: List<Datapoint>,
+        pauses: List<ClosedRange<Instant>>,
+        massKg: Double,
+        referencePower: Double
+    ): SpeedIq {
         val altitudeCount = datapoints.count { it.altitude != null }
         if (altitudeCount == 0 || altitudeCount < datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD) {
             return SpeedIq(false, 0.0, 0.0, 0.0, 0, referencePower.toInt(), massKg, topEvents = emptyList())

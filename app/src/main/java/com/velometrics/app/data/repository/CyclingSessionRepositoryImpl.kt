@@ -7,6 +7,8 @@ import com.velometrics.app.domain.model.CyclingSessionSummary
 import com.velometrics.app.domain.model.SessionClusterData
 import com.velometrics.app.domain.model.SessionMetricSample
 import com.velometrics.app.domain.repository.CyclingSessionRepository
+import com.velometrics.app.util.SpeedIqSummary
+import com.velometrics.app.util.parseJsonOrNull
 import com.velometrics.app.util.toCodes
 import com.velometrics.app.util.toDomain
 import com.velometrics.app.util.toEntity
@@ -116,6 +118,10 @@ class CyclingSessionRepositoryImpl @Inject constructor(
     override suspend fun getRecentSessionsList(limit: Int): List<CyclingSession> {
         return dao.getRecentSessionsList(limit).map { it.toDomain() }
     }
+
+    override suspend fun getSpeedIqReferencePowersBefore(before: Instant, limit: Int): List<Int> =
+        dao.getPowerRideSpeedIqSummariesBefore(before.toEpochMilli(), limit)
+            .mapNotNull { it.parseJsonOrNull<SpeedIqSummary>()?.takeUnless { s -> s.referencePowerEstimated }?.referencePowerW }
 
     override suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample> {
         return dao.getSessionMetricSamplesBeforeDate(epochMs, limit).map { it.toDomain() }

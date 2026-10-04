@@ -42,6 +42,8 @@ interface CyclingSessionRepository {
     /** Rides with drift >= [minPercent] whose drift causes were never evaluated (#222). */
     suspend fun getSessionsMissingCardiacDriftCauses(minPercent: Double): List<CyclingSession>
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSession>
+    /** Speed IQ P of the latest [limit] rides with power starting before [before], newest first (#229). */
+    suspend fun getSpeedIqReferencePowersBefore(before: Instant, limit: Int): List<Int>
     suspend fun getSessionMetricSamplesBeforeDate(epochMs: Long, limit: Int): List<SessionMetricSample>
     suspend fun getAllSessionMetricSamplesBeforeDate(epochMs: Long): List<SessionMetricSample>
     /** Tag-scoped sibling of [getAllSessionMetricSamplesBeforeDate] (#171). */

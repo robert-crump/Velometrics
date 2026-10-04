@@ -213,6 +213,33 @@ class BrakingDetectorTest {
         assertNull(BrakingDetector.analyze(trace.toDatapoints()))
     }
 
+    @Test
+    fun `a ride without power is analysed at the estimated P with pedal work at 0`() {
+        val measured = BrakingDetector.analyze(descentStop().toDatapoints())!!
+        // The same ride without a power meter: power readings are ignored, not just missing.
+        val noPower = descentStop().toDatapoints().map { it.copy(power = null) }
+        val estimated = BrakingDetector.analyze(noPower, estimatedReferencePowerW = 165.0)!!
+
+        assertTrue(estimated.referencePowerEstimated)
+        assertFalse(measured.referencePowerEstimated)
+        assertEquals(165, estimated.referencePowerW)
+        assertEquals(1, estimated.eventCount)
+        val event = estimated.topEvents.single()
+        assertEquals(measured.topEvents.single().brakingEnergyJ, event.brakingEnergyJ, 1.0)
+        assertEquals(event.brakingEnergyJ / 165.0, event.penaltySec, 1e-9)
+
+        // Stray power readings on a ride flagged without power don't add pedal work.
+        val stray = descentStop().toDatapoints().map { it.copy(power = 400) }
+        assertEquals(event.brakingEnergyJ, BrakingDetector.analyze(stray, estimatedReferencePowerW = 165.0)!!.topEvents.single().brakingEnergyJ, 1e-9)
+    }
+
+    @Test
+    fun `the estimated P is the median of the earlier rides' P, else 60 percent of FTP`() {
+        assertEquals(165.0, BrakingDetector.estimateReferencePower((120..210 step 10).toList(), ftp = 250), 1e-9)
+        assertEquals(190.0, BrakingDetector.estimateReferencePower(listOf(150, 190, 260), ftp = 250), 1e-9)
+        assertEquals(150.0, BrakingDetector.estimateReferencePower(emptyList(), ftp = 250), 1e-9)
+    }
+
     /** Pedal at 40 km/h, then brake evenly to [lowKmh] over 10 s with no power. */
     private fun approachLight(lowKmh: Double): Trace {
         val trace = pedalling(30, speedMps = 40 / 3.6)

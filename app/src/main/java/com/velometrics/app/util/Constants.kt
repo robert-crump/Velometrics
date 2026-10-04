@@ -247,6 +247,8 @@ object CyclingConstants {
     const val SPEED_IQ_STANDING_KMH = 2.0                // below this (or timer paused) counts as standing
     const val SPEED_IQ_COFFEE_STOP_SEC = 180             // a single stop longer than this isn't counted
     const val SPEED_IQ_MIN_STANDING_ONLY_SEC = 5         // a stop with no braking counts from this long
+    const val SPEED_IQ_FALLBACK_RIDES = 10               // a ride without power takes P from this many earlier power rides (#229)
+    const val SPEED_IQ_FALLBACK_FTP_FRACTION = 0.6       // ...else from this fraction of FTP as of the ride
 
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(

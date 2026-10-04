@@ -141,6 +141,14 @@ interface CyclingSessionDao {
     @Query("SELECT * FROM cycling_sessions ORDER BY sessionStart DESC LIMIT :limit")
     suspend fun getRecentSessionsList(limit: Int): List<CyclingSessionEntity>
 
+    /** Speed IQ summaries of the latest rides with power before [beforeEpochMs], newest first (#229). */
+    @Query(
+        """SELECT speedIqSummary FROM cycling_sessions
+           WHERE hasPower = 1 AND speedIqSummary IS NOT NULL AND sessionStart < :beforeEpochMs
+           ORDER BY sessionStart DESC LIMIT :limit"""
+    )
+    suspend fun getPowerRideSpeedIqSummariesBefore(beforeEpochMs: Long, limit: Int): List<String>
+
     @Query(
         """SELECT id, netDurationSec, distanceKm, averagePower, normalizedPower, fatEfficiencyScore,
            avgHeartRate, elevationGainM, fatBurnedGrams, carbsBurnedGrams, cardiacDriftPercent, hasPower,

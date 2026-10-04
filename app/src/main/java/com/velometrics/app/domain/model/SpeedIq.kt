@@ -18,12 +18,17 @@ data class SpeedIq(
     val standingInTimerSec: Double,
     /** Braking events plus standing-only events. */
     val eventCount: Int,
-    /** P in penalty = E_brake / P: the median of the ride's pedalling samples. */
+    /**
+     * P in penalty = E_brake / P: the median of the ride's pedalling samples, or for a ride without
+     * power an estimate from earlier rides or FTP ([referencePowerEstimated], #229).
+     */
     val referencePowerW: Int,
     /** Rider + bike + kit used for this ride: the setting at import, else the 85 kg default. */
     val systemMassKg: Double,
     /** False when [systemMassKg] is the assumed default (the setting was unset at import, or the ride predates #228). */
     val massFromSettings: Boolean = false,
+    /** True for a ride without power, whose [referencePowerW] is estimated and pedal work counted as 0. */
+    val referencePowerEstimated: Boolean = false,
     /** At most [com.velometrics.app.util.CyclingConstants.SPEED_IQ_TOP_EVENTS], highest [BrakingEvent.lostSec] first. */
     val topEvents: List<BrakingEvent>
 ) {

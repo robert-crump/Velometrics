@@ -10,6 +10,7 @@ import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.BestEffortCalculator
+import com.velometrics.app.domain.service.BrakingDetector
 import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
@@ -109,6 +110,13 @@ class FitImportServiceImpl @Inject constructor(
             // 8. Compute metrics against the FTP in force on the ride date (ADR 0001, #218)
             val rideDate = datapoints.first().timestamp.atZone(ZoneId.systemDefault()).toLocalDate()
             val ftp = ftpHistoryRepository.history.first().ftpOn(rideDate)
+            // Speed IQ's P for a ride without power, from the power rides before it or FTP (#229)
+            val estimatedReferencePowerW = if (hasPower) null else BrakingDetector.estimateReferencePower(
+                sessionRepository.getSpeedIqReferencePowersBefore(
+                    datapoints.first().timestamp, CyclingConstants.SPEED_IQ_FALLBACK_RIDES
+                ),
+                ftp
+            )
             val computed = metricsCalculator.compute(
                 fileName = fileName,
                 fileSha1 = fileSha1,
@@ -119,7 +127,8 @@ class FitImportServiceImpl @Inject constructor(
                 originalPowerCount = originalPowerCount,
                 ftp = ftp,
                 maxHr = maxHr,
-                systemWeightKg = systemWeightKg
+                systemWeightKg = systemWeightKg,
+                estimatedReferencePowerW = estimatedReferencePowerW
             )
             // 8b. Likely causes of elevated cardiac drift (#222), judged against the rides before this one
             val session = cardiacDriftAdviceService.evaluate(computed, ftp)

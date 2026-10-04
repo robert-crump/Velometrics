@@ -572,6 +572,14 @@ private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec:
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light)
         )
     }
+    if (speedIq.referencePowerEstimated) {
+        // No power on this ride: P comes from earlier power rides or FTP (#229)
+        Text(
+            text = "No power data · braking counted at est. ${speedIq.referencePowerW} W",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
     if (!speedIq.massFromSettings) {
         // No system weight was set when this ride was imported (#228)
         Text(

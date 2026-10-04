@@ -77,6 +77,7 @@ class DemoRideImportTest {
                 val sessions = CyclingSessionRepositoryImpl(db.cyclingSessionDao())
                 val settings = mockk<UserSettingsRepository>()
                 every { settings.maxHr } returns flowOf(190)
+                every { settings.systemWeightKg } returns flowOf(null)
                 val intervalRepository = IntervalRepositoryImpl(db.intervalSessionDao())
                 val service = FitImportServiceImpl(
                     sessionRepository = sessions,

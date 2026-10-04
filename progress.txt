@@ -1,3 +1,26 @@
+## Issue #228 -- Speed IQ: system weight setting (as of ride)
+Completed: 2026-10-04
+
+### What was done
+
+- Settings > Training has a "System weight (rider + bike + kit)" row after FTP. It's a DataStore int
+  (`system_weight_kg`), null until set, and must be 40–200 kg (`CyclingConstants.SYSTEM_WEIGHT_RANGE_KG`).
+  `NumberEditDialog` now takes a nullable current value and a valid range, and shows an error when
+  the input is out of range. The row says "Not set — Speed IQ assumes 85 kg" until a weight is set.
+- As of ride: `FitImportServiceImpl` reads the setting once per import and passes it to
+  `SessionMetricsCalculator.compute(systemWeightKg)`, which runs the `BrakingDetector` with that mass.
+  `SpeedIq.systemMassKg` is stored per ride, so changing the setting only affects later imports.
+- `SpeedIq.massFromSettings` (also in the summary JSON) is false when the weight wasn't set. No
+  migration: Gson reads a missing boolean as false, so rides imported before this show as assumed 85 kg.
+- If the weight was assumed, the card ends with "Assumed 85 kg rider + bike + kit · Set your weight in
+  Settings". Tapping it opens Settings on top of the ride.
+- Tests: penalty is linear in mass (equal steps at 70/85/100 kg on a hard stop). A gentle stop isn't
+  used because its last steps fall under the 150 W threshold at 70 kg. Also tested: the calculator uses
+  the setting or the 85 kg default, and the summary JSON round-trips the weight, including old rows.
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (526 tests) and `assembleDebug` pass.
+
 ## Issue #227 -- Speed IQ: standing time and potential average speed
 Completed: 2026-10-04
 

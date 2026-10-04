@@ -29,6 +29,23 @@ class SessionMetricsCalculatorTest {
     }
 
     @Test
+    fun `Speed IQ uses the system weight as of import and flags the assumed default`() {
+        val points = (0 until 60).map { datapoint(it, altitude = 100.0, power = 190) }
+        fun speedIq(weightKg: Int?) = calculator.compute(
+            fileName = "test.fit", fileSha1 = "sha1", datapoints = points, hasPower = true,
+            timerEvents = emptyList(), rawRecordCount = 60, originalPowerCount = 60, systemWeightKg = weightKg
+        ).speedIq!!
+
+        val set = speedIq(72)
+        assertEquals(72.0, set.systemMassKg, 0.0)
+        assertTrue(set.massFromSettings)
+
+        val unset = speedIq(null)
+        assertEquals(85.0, unset.systemMassKg, 0.0)
+        assertFalse(unset.massFromSettings)
+    }
+
+    @Test
     fun `avgTemperatureC is the mean of the records that carry a temperature`() {
         val withTemp = (0 until 10).map { datapoint(it, temperatureC = if (it < 4) null else 20 + it) }
         val withoutTemp = (0 until 10).map { datapoint(it) }

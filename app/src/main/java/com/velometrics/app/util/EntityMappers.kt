@@ -131,17 +131,20 @@ data class SpeedIqSummary(
     val systemMassKg: Double,
     /** Both 0 when stored before #227 (Gson leaves missing fields at 0). */
     val standingSec: Double = 0.0,
-    val standingInTimerSec: Double = 0.0
+    val standingInTimerSec: Double = 0.0,
+    /** False when stored before #228, when every ride used the assumed 85 kg. */
+    val massFromSettings: Boolean = false
 ) {
     fun toDomain(topEvents: List<BrakingEvent>) = SpeedIq(
         hasElevation, brakingPenaltySec, standingSec, standingInTimerSec, eventCount,
-        referencePowerW, systemMassKg, topEvents
+        referencePowerW, systemMassKg, massFromSettings, topEvents
     )
 
     companion object {
         fun of(speedIq: SpeedIq) = SpeedIqSummary(
             speedIq.hasElevation, speedIq.brakingPenaltySec, speedIq.eventCount,
-            speedIq.referencePowerW, speedIq.systemMassKg, speedIq.standingSec, speedIq.standingInTimerSec
+            speedIq.referencePowerW, speedIq.systemMassKg, speedIq.standingSec, speedIq.standingInTimerSec,
+            speedIq.massFromSettings
         )
     }
 }

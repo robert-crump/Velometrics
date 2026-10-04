@@ -28,6 +28,7 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_HOME_DISPLAY_NAME = stringPreferencesKey("home_display_name")
         private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
         private val KEY_MAX_HR = intPreferencesKey("max_hr")
+        private val KEY_SYSTEM_WEIGHT_KG = intPreferencesKey("system_weight_kg")
     }
 
     val homeLat: Flow<Double> = context.dataStore.data.map { prefs ->
@@ -48,6 +49,11 @@ class UserSettingsRepository @Inject constructor(
 
     val maxHr: Flow<Int> = context.dataStore.data.map { prefs ->
         prefs[KEY_MAX_HR] ?: CyclingConstants.DEFAULT_MAX_HR
+    }
+
+    /** Rider + bike + kit for Speed IQ (#228), stored per ride at import; null until set. */
+    val systemWeightKg: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SYSTEM_WEIGHT_KG]
     }
 
     // FTP now lives in FtpHistoryRepository (#218); this reads and clears the old single setting once.
@@ -71,6 +77,12 @@ class UserSettingsRepository @Inject constructor(
     suspend fun saveDropboxSyncFolder(path: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_DROPBOX_SYNC_FOLDER] = path
+        }
+    }
+
+    suspend fun saveSystemWeightKg(kg: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SYSTEM_WEIGHT_KG] = kg
         }
     }
 

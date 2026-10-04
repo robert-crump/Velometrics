@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.*
@@ -39,6 +40,7 @@ fun SettingsScreen(
     val dumpStatus by viewModel.dumpStatus.collectAsState()
     val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
     val currentFtp by viewModel.currentFtp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
+    val systemWeightKg by viewModel.systemWeightKg.collectAsState(initial = null)
     val ftpEntries by viewModel.ftpEntries.collectAsState(initial = emptyList())
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
@@ -52,6 +54,7 @@ fun SettingsScreen(
 
     var ftpDialog by remember { mutableStateOf<FtpDialogTarget?>(null) }
     var showMaxHrDialog by remember { mutableStateOf(false) }
+    var showWeightDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
 
     ftpDialog?.let { target ->
@@ -65,6 +68,24 @@ fun SettingsScreen(
             onDelete = { date ->
                 ftpDialog = null
                 viewModel.deleteFtpEntry(date)
+            }
+        )
+    }
+
+    if (showWeightDialog) {
+        val range = CyclingConstants.SYSTEM_WEIGHT_RANGE_KG
+        NumberEditDialog(
+            title = "System weight",
+            label = "Rider + bike + kit (kg)",
+            currentValue = systemWeightKg,
+            validRange = range,
+            helperText = "Used by Speed IQ to turn braking into lost seconds " +
+                "(${range.first}–${range.last} kg). Each ride keeps the weight it was imported with; " +
+                "a change applies to future imports only.",
+            onDismiss = { showWeightDialog = false },
+            onConfirm = { parsed ->
+                showWeightDialog = false
+                viewModel.saveSystemWeight(parsed)
             }
         )
     }
@@ -163,6 +184,14 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            SettingsRow(
+                icon = Icons.Default.Scale,
+                title = "System weight (rider + bike + kit)",
+                subtitle = systemWeightKg?.let { "$it kg" }
+                    ?: "Not set — Speed IQ assumes ${CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG.roundToInt()} kg",
+                onClick = { showWeightDialog = true }
             )
 
             SettingsRow(
@@ -322,20 +351,23 @@ private fun SettingsRow(
 }
 
 /**
- * Numeric-field edit dialog shared by the FTP and Max-HR editors: a labeled number field plus a
- * helper-text blurb, saving only when the trimmed input parses to a positive int different from
- * [currentValue] (otherwise the dialog just stays open, same as before extraction).
+ * Numeric-field edit dialog shared by the Max-HR and system-weight editors: a labeled number field
+ * plus a helper-text blurb, saving only when the trimmed input parses to an int in [validRange]
+ * different from [currentValue] (null = unset, empty field); otherwise the dialog just stays open.
  */
 @Composable
 private fun NumberEditDialog(
     title: String,
     label: String,
-    currentValue: Int,
+    currentValue: Int?,
     helperText: String,
     onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit
+    onConfirm: (Int) -> Unit,
+    validRange: IntRange = 1..Int.MAX_VALUE
 ) {
-    var input by remember { mutableStateOf(currentValue.toString()) }
+    var input by remember { mutableStateOf(currentValue?.toString() ?: "") }
+    val parsed = input.trim().toIntOrNull()
+    val outOfRange = parsed != null && parsed !in validRange
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -345,6 +377,10 @@ private fun NumberEditDialog(
                     value = input,
                     onValueChange = { input = it },
                     label = { Text(label) },
+                    isError = outOfRange,
+                    supportingText = if (outOfRange) {
+                        { Text("Must be ${validRange.first}–${validRange.last}") }
+                    } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -359,8 +395,7 @@ private fun NumberEditDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val parsed = input.trim().toIntOrNull()
-                if (parsed != null && parsed > 0 && parsed != currentValue) {
+                if (parsed != null && parsed in validRange && parsed != currentValue) {
                     onConfirm(parsed)
                 }
             }) { Text("Save") }

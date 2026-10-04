@@ -29,7 +29,8 @@ class SessionMetricsCalculator @Inject constructor() {
         rawRecordCount: Int,
         originalPowerCount: Int,
         ftp: Int = CyclingConstants.DEFAULT_FTP,
-        maxHr: Int = CyclingConstants.DEFAULT_MAX_HR
+        maxHr: Int = CyclingConstants.DEFAULT_MAX_HR,
+        systemWeightKg: Int? = null
     ): CyclingSession {
         // 1. Timestamps
         val sessionStart = datapoints.first().timestamp
@@ -122,8 +123,14 @@ class SessionMetricsCalculator @Inject constructor() {
             maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull(),
             // 18. Ride temperature (#222): plain mean of the records that carry one
             avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average(),
-            // 19. Speed IQ braking and standing (#226, #227); rides without power get none yet (#229)
-            speedIq = if (hasPower) BrakingDetector.analyze(datapoints, pauses) else null
+            // 19. Speed IQ braking and standing (#226, #227) with the system weight as of import (#228);
+            // rides without power get none yet (#229)
+            speedIq = if (hasPower) {
+                BrakingDetector.analyze(
+                    datapoints, pauses,
+                    systemWeightKg?.toDouble() ?: CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG
+                )?.copy(massFromSettings = systemWeightKg != null)
+            } else null
         )
     }
 

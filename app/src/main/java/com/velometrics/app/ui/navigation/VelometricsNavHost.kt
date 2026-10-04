@@ -71,7 +71,8 @@ fun VelometricsNavHost(
                 },
                 onNavigateToRepeatedRoute = { routeId ->
                     navController.navigate(Screen.RepeatedRouteDetail.createRoute(routeId))
-                }
+                },
+                onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
             )
         }
 

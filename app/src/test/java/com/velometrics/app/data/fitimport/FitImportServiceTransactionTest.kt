@@ -76,6 +76,7 @@ class FitImportServiceTransactionTest {
     private fun service(sessions: CyclingSessionRepository, retest: Pair<LocalDate, Int>? = null): FitImportServiceImpl {
         val settings = mockk<UserSettingsRepository>()
         every { settings.maxHr } returns flowOf(190)
+        every { settings.systemWeightKg } returns flowOf(null)
         val ftpHistory = FtpHistoryRepository(db.ftpHistoryDao(), object : LegacyFtpStore {
             override suspend fun takeLegacyFtp(): Int = 250
         })

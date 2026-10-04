@@ -58,6 +58,7 @@ fun SessionDetailScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToRepeatedInterval: (Long) -> Unit = {},
     onNavigateToRepeatedRoute: (Long) -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     viewModel: SessionDetailViewModel = hiltViewModel()
 ) {
     val session by viewModel.session.collectAsState()
@@ -226,7 +227,7 @@ fun SessionDetailScreen(
                     }
 
                     s.speedIq?.let { speedIq ->
-                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq, s.distanceKm, s.netDurationSec) }
+                        SectionCard(title = "Speed IQ") { SpeedIqContent(speedIq, s.distanceKm, s.netDurationSec, onNavigateToSettings) }
                     }
 
                     if (heartRateSectionVisible) {
@@ -520,7 +521,7 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec: Int) {
+private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec: Int, onOpenSettings: () -> Unit) {
     if (!speedIq.hasElevation) {
         Text(
             text = "No elevation data",
@@ -569,6 +570,15 @@ private fun SpeedIqContent(speedIq: SpeedIq, distanceKm: Double, netDurationSec:
         Text(
             text = speedIqEventRow(event),
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light)
+        )
+    }
+    if (!speedIq.massFromSettings) {
+        // No system weight was set when this ride was imported (#228)
+        Text(
+            text = "Assumed ${speedIq.systemMassKg.roundToInt()} kg rider + bike + kit · Set your weight in Settings",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable(onClick = onOpenSettings).padding(vertical = 4.dp)
         )
     }
 }

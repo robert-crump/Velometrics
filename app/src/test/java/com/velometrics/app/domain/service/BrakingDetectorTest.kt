@@ -101,9 +101,8 @@ class BrakingDetectorTest {
         assertEquals(0, result.eventCount)
     }
 
-    @Test
-    fun `braking from 50 to 0 kmh evenly over 15 s on a 5 percent descent`() {
-        // 30 s pedalling on the flat at 190 W sets P; then the descent at 50 km/h, the stop, standing.
+    /** 30 s pedalling on the flat at 190 W sets P; then a 5 % descent at 50 km/h, an even 15 s stop, standing. */
+    private fun descentStop(): Trace {
         val trace = pedalling(30, altitude = 200.0)
         var h = 200.0
         repeat(10) { trace.add(50 / 3.6, h, 0); h -= 50 / 3.6 * 0.05 }
@@ -115,8 +114,12 @@ class BrakingDetectorTest {
             trace.add(v, h, 0)
         }
         repeat(20) { trace.add(0.0, h, 0) }
+        return trace
+    }
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+    @Test
+    fun `braking from 50 to 0 kmh evenly over 15 s on a 5 percent descent`() {
+        val result = BrakingDetector.analyze(descentStop().toDatapoints())!!
 
         // Over the ~104 m stop: ½mv² 8.2 kJ + m·g·Δh 4.3 kJ − drag 2.3 kJ − rolling 1.1 kJ ≈ 9.1 kJ.
         // (#223's worked example says ≈ 10.9 kJ / 57 s; with CdA 0.37 and ρ 1.225 the drag over the
@@ -292,6 +295,29 @@ class BrakingDetectorTest {
         assertEquals(0, shortResult.eventCount)
         assertEquals(0.0, shortResult.standingSec, 0.0)
         assertEquals(0.0, shortResult.standingInTimerSec, 0.0)
+    }
+
+    @Test
+    fun `penalty seconds scale linearly with system mass`() {
+        // A hard stop on a descent, so every step brakes far above the threshold at all three masses
+        // and the event spans the same steps (a gentle stop's tail would drop out at 70 kg).
+        val trace = pedalling(30, altitude = 200.0)
+        var h = 200.0
+        repeat(10) { trace.add(50 / 3.6, h, 0); h -= 50 / 3.6 * 0.05 }
+        for (s in 1..6) {
+            val v = 50 / 3.6 * (1 - s / 6.0)
+            h -= v * 0.05
+            trace.add(v, h, 0)
+        }
+        standing(20, trace)
+        val datapoints = trace.toDatapoints()
+        val penalty = listOf(70.0, 85.0, 100.0).map { m ->
+            BrakingDetector.analyze(datapoints, massKg = m)!!.also { assertEquals(m, it.systemMassKg, 0.0) }.brakingPenaltySec
+        }
+
+        // Kinetic, potential and rolling terms are all m-proportional; drag is not, so the line has an offset.
+        assertTrue(penalty[0] < penalty[1] && penalty[1] < penalty[2])
+        assertEquals(penalty[1] - penalty[0], penalty[2] - penalty[1], 1e-6)
     }
 
     @Test

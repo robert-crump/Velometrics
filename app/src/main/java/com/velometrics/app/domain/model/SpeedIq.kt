@@ -20,7 +20,10 @@ data class SpeedIq(
     val eventCount: Int,
     /** P in penalty = E_brake / P: the median of the ride's pedalling samples. */
     val referencePowerW: Int,
+    /** Rider + bike + kit used for this ride: the setting at import, else the 85 kg default. */
     val systemMassKg: Double,
+    /** False when [systemMassKg] is the assumed default (the setting was unset at import, or the ride predates #228). */
+    val massFromSettings: Boolean = false,
     /** At most [com.velometrics.app.util.CyclingConstants.SPEED_IQ_TOP_EVENTS], highest [BrakingEvent.lostSec] first. */
     val topEvents: List<BrakingEvent>
 ) {

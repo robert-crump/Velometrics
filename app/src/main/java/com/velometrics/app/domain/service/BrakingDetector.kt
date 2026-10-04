@@ -45,7 +45,7 @@ object BrakingDetector {
 
         val altitudeCount = datapoints.count { it.altitude != null }
         if (altitudeCount == 0 || altitudeCount < datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD) {
-            return SpeedIq(false, 0.0, 0.0, 0.0, 0, referencePower.toInt(), massKg, emptyList())
+            return SpeedIq(false, 0.0, 0.0, 0.0, 0, referencePower.toInt(), massKg, topEvents = emptyList())
         }
 
         val cumulativeM = HrDistanceSeriesBuilder.cumulativeMeters(datapoints)

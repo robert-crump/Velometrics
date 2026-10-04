@@ -56,6 +56,7 @@ class FitImportServiceImpl @Inject constructor(
     override suspend fun importFile(fileName: String, bytes: ByteArray, forceImport: Boolean): ImportResult {
         return try {
             val maxHr = userSettingsRepository.maxHr.first()
+            val systemWeightKg = userSettingsRepository.systemWeightKg.first()
 
             // 1. SHA-1 hash and duplicate check
             val fileSha1 = sha1Hex(bytes)
@@ -117,7 +118,8 @@ class FitImportServiceImpl @Inject constructor(
                 rawRecordCount = parseResult.totalRecordCount,
                 originalPowerCount = originalPowerCount,
                 ftp = ftp,
-                maxHr = maxHr
+                maxHr = maxHr,
+                systemWeightKg = systemWeightKg
             )
             // 8b. Likely causes of elevated cardiac drift (#222), judged against the rides before this one
             val session = cardiacDriftAdviceService.evaluate(computed, ftp)

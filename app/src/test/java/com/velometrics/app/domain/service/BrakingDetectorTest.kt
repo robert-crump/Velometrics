@@ -178,7 +178,7 @@ class BrakingDetectorTest {
     }
 
     @Test
-    fun `only the top 5 events are kept, the totals count them all`() {
+    fun `only the top 5 events are kept in ride order, the totals count them all`() {
         val trace = pedalling(30, speedMps = 40 / 3.6)
         repeat(7) { i ->
             val peak = (30 + i * 3) / 3.6
@@ -191,7 +191,7 @@ class BrakingDetectorTest {
 
         assertEquals(7, result.eventCount)
         assertEquals(5, result.topEvents.size)
-        assertTrue(result.topEvents.zipWithNext().all { (a, b) -> a.lostSec >= b.lostSec })
+        assertTrue(result.topEvents.zipWithNext().all { (a, b) -> a.km < b.km })
         assertTrue(result.brakingPenaltySec > result.topEvents.sumOf { it.penaltySec })
     }
 

@@ -70,7 +70,8 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         cardiacDriftCauses = cardiacDriftCauses.toCardiacDriftCauses(),
         cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec,
         speedIq = speedIqSummary.parseJsonOrNull<SpeedIqSummary>()?.let { summary ->
-            summary.toDomain(speedIqEvents.parseJsonOrNull<List<BrakingEvent>>().orEmpty())
+            // Older rows are stored highest lost time first; show them in ride order too
+            summary.toDomain(speedIqEvents.parseJsonOrNull<List<BrakingEvent>>().orEmpty().sortedBy { it.km })
         }
     )
 }

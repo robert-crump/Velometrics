@@ -29,7 +29,7 @@ data class SpeedIq(
     val massFromSettings: Boolean = false,
     /** True for a ride without power, whose [referencePowerW] is estimated and pedal work counted as 0. */
     val referencePowerEstimated: Boolean = false,
-    /** At most [com.velometrics.app.util.CyclingConstants.SPEED_IQ_TOP_EVENTS], highest [BrakingEvent.lostSec] first. */
+    /** At most [com.velometrics.app.util.CyclingConstants.SPEED_IQ_TOP_EVENTS], the highest [BrakingEvent.lostSec] in ride order (by [BrakingEvent.km]). */
     val topEvents: List<BrakingEvent>
 ) {
     /**

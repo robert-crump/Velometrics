@@ -114,6 +114,7 @@ object BrakingDetector {
             referencePowerW = referencePower.toInt(),
             systemMassKg = massKg,
             topEvents = events.sortedByDescending { it.lostSec }.take(CyclingConstants.SPEED_IQ_TOP_EVENTS)
+                .sortedBy { it.km }
         )
     }
 

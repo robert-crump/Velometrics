@@ -21,6 +21,11 @@ import java.time.Instant
  * [CyclingConstants.SPEED_IQ_MIN_EVENT_ENERGY_J]. Its penalty is E / P, with P the median of the
  * ride's pedalling samples: the seconds of pedalling the braked energy was worth.
  *
+ * Plausibility (#232): a step whose centred 3 s power is above
+ * [CyclingConstants.SPEED_IQ_PEDAL_VETO_FTP_FRACTION] of FTP is pedalling, not braking: it breaks
+ * the run and adds no energy. An event also needs its speed to drop by at least
+ * [CyclingConstants.SPEED_IQ_MIN_SPEED_DROP_KMH] from peak to low.
+ *
  * Standing (#227) is clock seconds below [CyclingConstants.SPEED_IQ_STANDING_KMH] or with the timer
  * paused. A stop touching a braking event belongs to it; one with no braking is its own event from
  * [CyclingConstants.SPEED_IQ_MIN_STANDING_ONLY_SEC]. A stop longer than
@@ -33,13 +38,15 @@ object BrakingDetector {
      * its power readings are ignored, so pedal work counts as 0, and P is that estimate. Otherwise
      * null without pedalling samples. A ride where too few records carry an altitude gets
      * [SpeedIq.hasElevation] false and no events. [pauses] are the FIT timer's stop→start
-     * intervals, the same ones that make up the ride's pause duration.
+     * intervals, the same ones that make up the ride's pause duration. [ftp] is the FTP in force on
+     * the ride date (ADR 0001) for the pedalling veto; null, or a ride without power, skips the veto.
      */
     fun analyze(
         datapoints: List<Datapoint>,
         pauses: List<ClosedRange<Instant>> = emptyList(),
         massKg: Double = CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG,
-        estimatedReferencePowerW: Double? = null
+        estimatedReferencePowerW: Double? = null,
+        ftp: Int? = null
     ): SpeedIq? {
         val estimated = estimatedReferencePowerW != null
         val points = if (estimated) datapoints.map { it.copy(power = null) } else datapoints
@@ -47,7 +54,8 @@ object BrakingDetector {
             .filter { (it.power ?: 0) > 0 && (it.speedKmh ?: 0.0) >= CyclingConstants.SPEED_IQ_MOVING_KMH }
             .map { it.power!!.toDouble() }
             .median() ?: return null
-        return analyzeAt(points, pauses, massKg, referencePower).copy(referencePowerEstimated = estimated)
+        val vetoPowerW = ftp?.takeIf { !estimated && it > 0 }?.let { it * CyclingConstants.SPEED_IQ_PEDAL_VETO_FTP_FRACTION }
+        return analyzeAt(points, pauses, massKg, referencePower, vetoPowerW).copy(referencePowerEstimated = estimated)
     }
 
     /**
@@ -63,7 +71,8 @@ object BrakingDetector {
         datapoints: List<Datapoint>,
         pauses: List<ClosedRange<Instant>>,
         massKg: Double,
-        referencePower: Double
+        referencePower: Double,
+        vetoPowerW: Double?
     ): SpeedIq {
         val altitudeCount = datapoints.count { it.altitude != null }
         if (altitudeCount == 0 || altitudeCount < datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD) {
@@ -71,7 +80,7 @@ object BrakingDetector {
         }
 
         val cumulativeM = HrDistanceSeriesBuilder.cumulativeMeters(datapoints)
-        val braking = segments(datapoints).flatMap { detect(datapoints, it, cumulativeM, massKg, referencePower) }
+        val braking = segments(datapoints).flatMap { detect(datapoints, it, cumulativeM, massKg, referencePower, vetoPowerW) }
 
         val standingSec = DoubleArray(braking.size)
         val standingOnly = mutableListOf<BrakingEvent>()
@@ -185,7 +194,8 @@ object BrakingDetector {
         segment: IntRange,
         cumulativeM: DoubleArray,
         massKg: Double,
-        referencePower: Double
+        referencePower: Double,
+        vetoPowerW: Double?
     ): List<Detected> {
         val first = segment.first
         val n = segment.last - first + 1
@@ -197,6 +207,9 @@ object BrakingDetector {
         }
         val v = smooth(t, rawSpeed, CyclingConstants.SPEED_IQ_SPEED_SMOOTH_HALF_SEC)
         val h = smooth(t, filledAltitudes(datapoints, segment), CyclingConstants.SPEED_IQ_ALTITUDE_SMOOTH_HALF_SEC)
+        val p = vetoPowerW?.let {
+            smooth(t, DoubleArray(n) { k -> (datapoints[first + k].power ?: 0).toDouble() }, CyclingConstants.SPEED_IQ_SPEED_SMOOTH_HALF_SEC)
+        }
 
         // Step k runs from record k to k + 1; a record's power covers the second before it.
         val g = CyclingConstants.SPEED_IQ_GRAVITY
@@ -210,7 +223,9 @@ object BrakingDetector {
             val pedal = (datapoints[first + k + 1].power ?: 0) * dt
             val drag = 0.5 * CyclingConstants.SPEED_IQ_AIR_DENSITY * CyclingConstants.SPEED_IQ_CDA_M2 * vAvg * vAvg * vAvg * dt
             val rolling = CyclingConstants.SPEED_IQ_CRR * massKg * g * vAvg * dt
-            stepEnergy[k] = kinetic + potential + pedal - drag - rolling
+            // A pedalling step is neither braking nor part of an event's energy (#232)
+            val vetoed = p != null && p[k + 1] > vetoPowerW!!
+            stepEnergy[k] = if (vetoed) 0.0 else kinetic + potential + pedal - drag - rolling
             stepDt[k] = dt
         }
 
@@ -225,6 +240,9 @@ object BrakingDetector {
             val records = steps.first..lastRecord
             val lowK = records.minBy { rawSpeed[it] }
             val peakK = (records.first..lowK).maxBy { rawSpeed[it] }
+            if ((rawSpeed[peakK] - rawSpeed[lowK]) * CyclingConstants.MTS_PER_SEC_TO_KMH < CyclingConstants.SPEED_IQ_MIN_SPEED_DROP_KMH) {
+                return@mapNotNull null
+            }
             val low = datapoints[first + lowK]
             val event = BrakingEvent(
                 km = cumulativeM[first + lowK] / 1000.0,

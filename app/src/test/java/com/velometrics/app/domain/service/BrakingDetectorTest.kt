@@ -355,4 +355,66 @@ class BrakingDetectorTest {
         )
         assertEquals(31.1, speedIq.potentialAvgKmh(60.0, 7200)!!, 0.05)
     }
+
+    /** [before] s at 200 W and [fromKmh], then [fromKmh] → [toKmh] evenly at [powerW] over [seconds] s, then 200 W at [toKmh]. */
+    private fun speedChange(fromKmh: Double, toKmh: Double, seconds: Int, powerW: Int, grade: Double = 0.0, before: Int = 30): Trace {
+        val trace = Trace()
+        var h = 500.0
+        repeat(before) { trace.add(fromKmh / 3.6, h, 200) }
+        for (s in 1..seconds) {
+            val v = (fromKmh + (toKmh - fromKmh) * s / seconds) / 3.6
+            h -= v * grade
+            trace.add(v, h, powerW)
+        }
+        repeat(30) { trace.add(toKmh / 3.6, h, 200) }
+        return trace
+    }
+
+    @Test
+    fun `pedalling at 200 W through a speed dip is not braking with FTP 250`() {
+        // 40 -> 24 km/h in 8 s while holding 200 W: the model reads ~365 W braked away per second.
+        val datapoints = speedChange(40.0, 24.0, seconds = 8, powerW = 200).toDatapoints()
+        assertEquals("without the veto the dip reads as braking", 1, BrakingDetector.analyze(datapoints)!!.eventCount)
+
+        // 200 W > 30 % of 250 W
+        assertEquals(0, BrakingDetector.analyze(datapoints, ftp = 250)!!.eventCount)
+    }
+
+    @Test
+    fun `coasting 40 to 39 kmh on a descent is no event, 40 to 34 kmh is`() {
+        // An 8 % descent at 40 km/h coasting: gravity outpulls drag and rolling by ~300 W, so 20 s
+        // holding the speed carries ~6 kJ the model calls braking. A 1 km/h drop isn't a braking event.
+        val ghost = speedChange(40.0, 39.0, seconds = 20, powerW = 0, grade = 0.08).toDatapoints()
+        assertEquals(0, BrakingDetector.analyze(ghost, ftp = 250)!!.eventCount)
+
+        val real = speedChange(40.0, 34.0, seconds = 20, powerW = 0, grade = 0.08).toDatapoints()
+        val event = BrakingDetector.analyze(real, ftp = 250)!!.topEvents.single()
+        // The first coasting second's 3 s power still averages in the 200 W before it, so it's
+        // vetoed and the event starts one record (0.3 km/h) in.
+        assertEquals(39.7, event.peakKmh, 0.31)
+        assertEquals(34.0, event.lowKmh, 0.01)
+    }
+
+    @Test
+    fun `a real 44 to 18 kmh stop is still detected with the veto`() {
+        val datapoints = speedChange(44.0, 18.0, seconds = 8, powerW = 0).toDatapoints()
+
+        val result = BrakingDetector.analyze(datapoints, ftp = 250)!!
+
+        assertEquals(1, result.eventCount)
+        val event = result.topEvents.single()
+        // The first braking second is vetoed by the pedalling next to it (3 s centred power), so the
+        // event starts one 3.25 km/h step in.
+        assertEquals(40.75, event.peakKmh, 0.01)
+        assertEquals(18.0, event.lowKmh, 0.01)
+        assertTrue(event.brakingEnergyJ > CyclingConstants.SPEED_IQ_MIN_EVENT_ENERGY_J)
+    }
+
+    @Test
+    fun `a ride without power skips the veto`() {
+        // Stray 400 W readings on a ride flagged without power would veto every step at FTP 250.
+        val stray = descentStop().toDatapoints().map { it.copy(power = 400) }
+        val result = BrakingDetector.analyze(stray, estimatedReferencePowerW = 165.0, ftp = 250)!!
+        assertEquals(1, result.eventCount)
+    }
 }

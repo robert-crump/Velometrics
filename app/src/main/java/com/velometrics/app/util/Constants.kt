@@ -242,6 +242,8 @@ object CyclingConstants {
     const val SPEED_IQ_MIN_BRAKE_SEC = 2                 // ...for at least this many seconds in a row
     const val SPEED_IQ_JOIN_GAP_SEC = 5                  // braking stretches closer than this are one event
     const val SPEED_IQ_MIN_EVENT_ENERGY_J = 1500.0       // events below this aren't reported
+    const val SPEED_IQ_PEDAL_VETO_FTP_FRACTION = 0.3     // a step above this share of ride-date FTP (3 s avg) isn't braking (#232)
+    const val SPEED_IQ_MIN_SPEED_DROP_KMH = 5.0          // an event's peak minus low speed must be at least this (#232)
     const val SPEED_IQ_MOVING_KMH = 2.0                  // pedalling samples for P need at least this speed
     const val SPEED_IQ_TOP_EVENTS = 5
     const val SPEED_IQ_STANDING_KMH = 2.0                // below this (or timer paused) counts as standing

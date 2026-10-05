@@ -9,9 +9,7 @@ import com.velometrics.app.data.preferences.FtpHistoryRepository
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.RepeatedIntervalRef
-import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.CardiacDriftAdvisor
@@ -34,7 +32,6 @@ class SessionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val sessionRepository: CyclingSessionRepository,
     private val intervalRepository: IntervalRepository,
-    private val bestEffortRepository: BestEffortRepository,
     private val sessionComparator: SessionComparator,
     sessionNarrativeAssembler: SessionNarrativeAssembler,
     private val rideLifecycle: RideLifecycle,
@@ -92,10 +89,6 @@ class SessionDetailViewModel @Inject constructor(
     val routeRecap: StateFlow<RouteRecap?> = sessionNarrativeAssembler.observeRouteRecap(sessionId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), sessionNarrativeAssembler.cachedRouteRecap(sessionId))
 
-    /** This ride's own best-effort power curve (#173), or empty if it has no power data at all. */
-    private val _powerCurve = MutableStateFlow<List<PowerCurvePoint>>(emptyList())
-    val powerCurve: StateFlow<List<PowerCurvePoint>> = _powerCurve.asStateFlow()
-
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -132,7 +125,6 @@ class SessionDetailViewModel @Inject constructor(
 
             if (loaded != null) {
                 _comparison.value = sessionComparator.computeComparison(loaded)
-                _powerCurve.value = bestEffortRepository.getForSession(sessionId)?.toPowerCurvePoints().orEmpty()
             }
         }
     }

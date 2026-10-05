@@ -38,7 +38,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.PowerCurvePoint
 import com.velometrics.app.domain.model.BrakingEvent
 import com.velometrics.app.domain.model.SpeedIq
 import com.velometrics.app.domain.model.energy
@@ -69,7 +68,6 @@ fun SessionDetailScreen(
     val narrative by viewModel.narrative.collectAsState()
     val routeRecap by viewModel.routeRecap.collectAsState()
     val cardiacDriftAdvice by viewModel.cardiacDriftAdvice.collectAsState()
-    val powerCurve by viewModel.powerCurve.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val powerZoneAverages by viewModel.powerZoneAverages.collectAsState()
     val hrZoneAverages by viewModel.hrZoneAverages.collectAsState()
@@ -144,7 +142,6 @@ fun SessionDetailScreen(
                 // with nothing to expand into.
                 val showPowerZones = s.hasPower && s.powerZoneDistribution != null
                 val showPowerPlaceholder = !s.hasPower
-                val showPowerCurve = s.hasPower && powerCurve.any { it.watts != null }
                 val showSprint = s.hasPower && s.sprintCount > 0 && s.sprintHistogram != null
 
                 val showHrZones = s.hrZoneDistribution != null
@@ -205,9 +202,6 @@ fun SessionDetailScreen(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
                             )
-                        }
-                        if (showPowerCurve) {
-                            PowerCurveChart(points = powerCurve)
                         }
                         StatLines(powerLines)
                     }

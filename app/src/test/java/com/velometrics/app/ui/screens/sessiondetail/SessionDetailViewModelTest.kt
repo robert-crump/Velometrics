@@ -10,7 +10,6 @@ import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.DropboxSyncCursorRepository
 import com.velometrics.app.domain.service.SessionComparator
 import com.velometrics.app.domain.service.SessionNarrativeAssembler
-import com.velometrics.app.fakes.FakeBestEffortRepository
 import com.velometrics.app.fakes.FakeCyclingSessionRepository
 import com.velometrics.app.fakes.FakeDropboxSyncCursorRepository
 import com.velometrics.app.fakes.RideLifecycleFixture
@@ -81,7 +80,6 @@ class SessionDetailViewModelTest {
         savedStateHandle = SavedStateHandle(mapOf("sessionId" to sessionId)),
         sessionRepository = sessionRepository,
         intervalRepository = FakeIntervalRepository(),
-        bestEffortRepository = FakeBestEffortRepository(),
         sessionComparator = SessionComparator(sessionRepository),
         sessionNarrativeAssembler = SessionNarrativeAssembler(
             sessionRepository, FakeIntervalRepository(), SessionComparator(sessionRepository),

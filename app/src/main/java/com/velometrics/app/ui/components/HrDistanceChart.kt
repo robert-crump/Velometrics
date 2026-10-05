@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -28,7 +29,8 @@ private val zoneBandColors = listOf(
 )
 
 /**
- * Heart rate vs. distance line (#204) over a filled elevation backdrop and faint HR zone bands.
+ * Heart rate vs. distance line (#204) over a filled elevation backdrop, faint HR zone bands and a
+ * dashed line in each zone's color at its upper limit.
  * A null-HR point breaks the line rather than being interpolated. Dragging shows a cursor with
  * the distance and bpm at that point. Zone bands use [maxHr] as passed in (the current setting),
  * so they follow settings changes; [points] only carries raw bpm.
@@ -97,6 +99,22 @@ fun HrDistanceChart(points: List<HrDistancePoint>, maxHr: Int) {
                             color = zoneBandColors[i].copy(alpha = 0.10f),
                             topLeft = Offset(rect.left, yScale.map(hi)),
                             size = Size(rect.width, yScale.map(lo) - yScale.map(hi))
+                        )
+                    }
+                }
+
+                // Dashed line at each zone's upper limit in that zone's color (Zone 5 has none).
+                val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
+                CyclingConstants.HR_ZONES.dropLast(1).forEachIndexed { i, (_, range) ->
+                    val bpm = range.second * maxHr
+                    if (bpm in yLo.toDouble()..yHi.toDouble()) {
+                        val y = yScale.map(bpm)
+                        drawLine(
+                            color = zoneBandColors[i],
+                            start = Offset(rect.left, y),
+                            end = Offset(rect.right, y),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = dash
                         )
                     }
                 }

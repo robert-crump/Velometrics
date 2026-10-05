@@ -239,7 +239,14 @@ object CyclingConstants {
     const val DEFAULT_RIDER_WEIGHT_KG = 75               // onboarding pre-fill (#238): 85 kg system default − bike/kit
     val FTP_RANGE_W = 50..700                            // plausible FTP for the onboarding field
     val MAX_HR_RANGE_BPM = 100..230                      // plausible max HR for the onboarding field
-    const val SPEED_IQ_CDA_M2 = 0.37
+    // Calibrated against three real rides (#231, 96 kg, FTP 300): every rider-confirmed braking spot
+    // (a full stop after a 56 km/h descent, red lights, a T-junction) is a top-5 event, so the
+    // 150 W / 2 s / 5 s join / 1.5 kJ / 2 km/h / 3 min thresholds and smoothing windows stay as they
+    // are. Only CdA changed: steady (< 0.05 m/s²) stretches above 20 km/h fitted 0.25-0.32, and at
+    // 0.37 a steady 56 km/h descent showed 200-380 W of negative braking, cutting the descent stop's
+    // onset short (49 instead of 54 km/h, 38 s instead of 44 s). 0.30 is the top of the fitted
+    // range, so coasting fast without braking still doesn't read as braking.
+    const val SPEED_IQ_CDA_M2 = 0.30
     const val SPEED_IQ_CRR = 0.013
     const val SPEED_IQ_AIR_DENSITY = 1.225              // kg/m³
     const val SPEED_IQ_GRAVITY = 9.81

@@ -121,14 +121,14 @@ class BrakingDetectorTest {
     fun `braking from 50 to 0 kmh evenly over 15 s on a 5 percent descent`() {
         val result = BrakingDetector.analyze(descentStop().toDatapoints())!!
 
-        // Over the ~104 m stop: ½mv² 8.2 kJ + m·g·Δh 4.3 kJ − drag 2.3 kJ − rolling 1.1 kJ ≈ 9.1 kJ.
-        // (#223's worked example says ≈ 10.9 kJ / 57 s; with CdA 0.37 and ρ 1.225 the drag over the
-        // stop is ~2.3 kJ, which puts the same formula at ≈ 9.1 kJ / ≈ 48 s.)
+        // Over the ~104 m stop: ½mv² 8.2 kJ + m·g·Δh 4.3 kJ − drag 1.9 kJ − rolling 1.1 kJ ≈ 9.5 kJ.
+        // (#223's worked example says ≈ 10.9 kJ / 57 s; with CdA 0.30 (#231) and ρ 1.225 the drag over
+        // the stop is ~1.9 kJ, which puts the same formula at ≈ 9.5-9.8 kJ / ≈ 51 s.)
         assertEquals(1, result.eventCount)
         assertEquals(190, result.referencePowerW)
         val event = result.topEvents.single()
-        assertEquals(9100.0, event.brakingEnergyJ, 500.0)
-        assertEquals(48.0, event.penaltySec, 3.0)
+        assertEquals(9700.0, event.brakingEnergyJ, 500.0)
+        assertEquals(51.0, event.penaltySec, 3.0)
         assertEquals(50.0, event.peakKmh, 0.01)
         assertEquals(0.0, event.lowKmh, 0.01)
         assertEquals(result.brakingPenaltySec, event.penaltySec, 1e-9)
@@ -403,9 +403,9 @@ class BrakingDetectorTest {
 
         assertEquals(1, result.eventCount)
         val event = result.topEvents.single()
-        // The first braking second is vetoed by the pedalling next to it (3 s centred power), so the
-        // event starts one 3.25 km/h step in.
-        assertEquals(40.75, event.peakKmh, 0.01)
+        // The 3 s centred power of the first braking second (200 W, 0, 0) stays under the veto, so the
+        // event starts at the real peak.
+        assertEquals(44.0, event.peakKmh, 0.01)
         assertEquals(18.0, event.lowKmh, 0.01)
         assertTrue(event.brakingEnergyJ > CyclingConstants.SPEED_IQ_MIN_EVENT_ENERGY_J)
     }

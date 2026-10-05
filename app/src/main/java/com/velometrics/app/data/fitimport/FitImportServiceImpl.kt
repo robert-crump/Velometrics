@@ -221,13 +221,13 @@ class FitImportServiceImpl @Inject constructor(
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private data class ParseResult(
+    internal data class ParseResult(
         val rawDatapoints: List<Datapoint>,
         val timerEvents: List<TimerEvent>,
         val totalRecordCount: Int
     )
 
-    private fun parseFitFile(bytes: ByteArray): ParseResult {
+    internal fun parseFitFile(bytes: ByteArray): ParseResult {
         val datapoints = mutableListOf<Datapoint>()
         val timerEvents = mutableListOf<TimerEvent>()
         var totalRecordCount = 0
@@ -334,7 +334,7 @@ class FitImportServiceImpl @Inject constructor(
         return result
     }
 
-    private fun interpolatePower(datapoints: List<Datapoint>): List<Datapoint> {
+    internal fun interpolatePower(datapoints: List<Datapoint>): List<Datapoint> {
         if (datapoints.isEmpty()) return datapoints
 
         val result = datapoints.toMutableList()

@@ -208,7 +208,7 @@ class SessionMetricsCalculator @Inject constructor() {
     }
 
     /** The timer's stop→start intervals; a stop never followed by a start isn't one. */
-    private fun pauseIntervals(timerEvents: List<TimerEvent>): List<ClosedRange<Instant>> {
+    internal fun pauseIntervals(timerEvents: List<TimerEvent>): List<ClosedRange<Instant>> {
         val pauses = mutableListOf<ClosedRange<Instant>>()
         var lastStopTime: Instant? = null
 

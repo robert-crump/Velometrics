@@ -46,7 +46,8 @@ object BrakingDetector {
         pauses: List<ClosedRange<Instant>> = emptyList(),
         massKg: Double = CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG,
         estimatedReferencePowerW: Double? = null,
-        ftp: Int? = null
+        ftp: Int? = null,
+        topEventCount: Int = CyclingConstants.SPEED_IQ_TOP_EVENTS
     ): SpeedIq? {
         val estimated = estimatedReferencePowerW != null
         val points = if (estimated) datapoints.map { it.copy(power = null) } else datapoints
@@ -55,7 +56,7 @@ object BrakingDetector {
             .map { it.power!!.toDouble() }
             .median() ?: return null
         val vetoPowerW = ftp?.takeIf { !estimated && it > 0 }?.let { it * CyclingConstants.SPEED_IQ_PEDAL_VETO_FTP_FRACTION }
-        return analyzeAt(points, pauses, massKg, referencePower, vetoPowerW).copy(referencePowerEstimated = estimated)
+        return analyzeAt(points, pauses, massKg, referencePower, vetoPowerW, topEventCount).copy(referencePowerEstimated = estimated)
     }
 
     /**
@@ -72,7 +73,8 @@ object BrakingDetector {
         pauses: List<ClosedRange<Instant>>,
         massKg: Double,
         referencePower: Double,
-        vetoPowerW: Double?
+        vetoPowerW: Double?,
+        topEventCount: Int
     ): SpeedIq {
         val altitudeCount = datapoints.count { it.altitude != null }
         if (altitudeCount == 0 || altitudeCount < datapoints.size * CyclingConstants.POWER_DATA_COVERAGE_THRESHOLD) {
@@ -113,7 +115,7 @@ object BrakingDetector {
             eventCount = events.size,
             referencePowerW = referencePower.toInt(),
             systemMassKg = massKg,
-            topEvents = events.sortedByDescending { it.lostSec }.take(CyclingConstants.SPEED_IQ_TOP_EVENTS)
+            topEvents = events.sortedByDescending { it.lostSec }.take(topEventCount)
                 .sortedBy { it.km }
         )
     }

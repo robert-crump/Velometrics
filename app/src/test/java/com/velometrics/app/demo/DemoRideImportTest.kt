@@ -145,12 +145,13 @@ class DemoRideImportTest {
     private fun ridesOf(loop: DemoLoop) = imported.filter { it.ride.loop == loop }
 
     @Test
-    fun `every ride imports with power, heart rate and no GPS points discarded`() {
+    fun `every ride imports with power, heart rate and almost no GPS points discarded`() {
         assertEquals(rides.size, imported.size)
         imported.forEach {
             assertTrue(it.ride.fileName, it.session.hasPower)
             assertTrue(it.ride.fileName, it.session.hasHR)
-            assertEquals(it.ride.fileName, 100.0, it.session.gpsQualityPercent, 0.0)
+            // The synthetic stops and GPS jitter trip the 5 m/s² acceleration rule (#233) a few times a ride
+            assertTrue(it.ride.fileName, it.session.gpsQualityPercent >= 99.5)
             assertEquals(it.ride.fileName, 100.0, it.session.powerQualityPercent!!, 0.0)
         }
     }

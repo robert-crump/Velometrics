@@ -29,6 +29,9 @@ object CyclingConstants {
     const val GPS_LEAP_MAX_DISTANCE_M = 500.0
     const val GPS_LEAP_MAX_TIME_SEC = 5.0
     const val GPS_IMPLIED_MAX_SPEED_KMH = 120.0
+    const val GPS_MAX_ACCURACY_M = 15.0              // FIT gps_accuracy above this is discarded (#233)
+    const val GPS_MAX_ACCELERATION_MPS2 = 5.0        // |a| from GPS-implied speed above this is discarded
+    const val GPS_ACCELERATION_MAX_GAP_SEC = 10.0    // no acceleration check across longer gaps
 
     // GPS / location acquisition
     const val GPS_ROUGH_FIX_ACCURACY_M = 200f       // acceptable accuracy for a rough position

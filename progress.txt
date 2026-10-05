@@ -1,3 +1,30 @@
+## Issue #233 -- Import: GPS filter for accuracy and acceleration, as in Ride-Graph
+Completed: 2026-10-05
+
+### What was done
+
+- The filter moved out of `FitImportServiceImpl` into the pure `GpsQualityFilter` (data/fitimport),
+  which returns the kept stream plus discard counts. The service only logs `result.logLine()`.
+- New `Datapoint.gpsAccuracyM`, read from the FIT record's `gps_accuracy` (null when absent).
+- Accuracy rule: a record with `gpsAccuracyM` > `GPS_MAX_ACCURACY_M` = 15 m is discarded. Files without
+  the field are untouched.
+- Acceleration rule: implied speed = haversine distance / elapsed time from the last kept record. A record
+  whose |Δv| / Δt against the previous kept segment's implied speed exceeds `GPS_MAX_ACCELERATION_MPS2`
+  = 5 m/s² is discarded. Gaps over `GPS_ACCELERATION_MAX_GAP_SEC` = 10 s (and zero-time steps) are
+  neither checked nor used as the reference speed for the next step. Ride-Graph's `quality_filter.py`
+  wasn't available locally, so the semantics follow the issue text.
+- Log line: `GPS filter: kept=…, discardZero, discardSpeed, discardPower, discardAccuracy, discardLeap,
+  discardImplied, discardAccel`.
+- Tests (GpsQualityFilterTest): accuracy 16 m dropped / 15 m kept, missing field, a 10 m/s² GPS jump
+  dropped, 4.5 m/s² braking kept, no check across an 11 s gap, a 10 s gap still checked, log counters,
+  existing rules.
+- DemoRideImportTest: the synthetic demo rides stop at ~7 m/s² and have GPS jitter, so 29/30 lose 1–7
+  points (worst 99.84 %). The "no GPS points discarded" check is now `gpsQualityPercent >= 99.5`. The
+  generator is unchanged.
+- Existing rides change only after delete and re-sync.
+
+`testDebugUnitTest` (560 tests) and `assembleDebug` pass.
+
 ## Issue #238 -- Onboarding: rider profile and Dropbox connect on first run
 Completed: 2026-10-05
 
@@ -96,32 +123,5 @@ Completed: 2026-10-04
 - Not done: no visual check on a device (marker look, camera padding, drawer animation).
 
 `testDebugUnitTest` (536 tests) and `assembleDebug` pass.
-
-
-## Issue #229 -- Speed IQ: rides without power (estimated reference power)
-Completed: 2026-10-04
-
-### What was done
-
-- `BrakingDetector.analyze(..., estimatedReferencePowerW)`: if the estimate is given, the ride's power
-  readings are ignored, so pedal work is 0 during braking, and P is the estimate.
-  `SpeedIq.referencePowerEstimated` (also in the summary JSON) is true for these rides. No migration:
-  Gson reads a missing boolean as false.
-- Fallback for P (`BrakingDetector.estimateReferencePower`): the median of the stored per-ride P
-  (`SpeedIqSummary.referencePowerW`) over the last `SPEED_IQ_FALLBACK_RIDES` = 10 power rides before
-  the one being imported, else `SPEED_IQ_FALLBACK_FTP_FRACTION` = 60 % of FTP as of the ride. Power
-  rides already stored their P, so no new column. New query
-  `CyclingSessionDao.getPowerRideSpeedIqSummariesBefore` / `getSpeedIqReferencePowersBefore` (hasPower = 1,
-  summary not null, sessionStart < ride start). Power rides imported before #226 have no P and don't count.
-- `FitImportServiceImpl` computes the estimate only when `!hasPower` and passes it to
-  `SessionMetricsCalculator.compute(estimatedReferencePowerW)`. Rides with power are unchanged.
-- Card: an estimated P adds "No power data · braking counted at est. 165 W" under the events.
-- Tests: `SpeedIqWithoutPowerImportTest` (Robolectric, real import + Room) covers the median of the last
-  10 power rides before the ride (older and later rides left out), the 60 % of FTP fallback with a
-  retest-dated FTP, and a power ride keeping its measured P. BrakingDetector tests check estimated P,
-  that pedal work is ignored, and the median/FTP math. A SpeedIqSummary test checks the JSON round-trip.
-- Not done: no visual check on a device.
-
-`testDebugUnitTest` (532 tests) and `assembleDebug` pass.
 
 

@@ -27,7 +27,6 @@ import com.garmin.fit.MesgBroadcaster
 import com.garmin.fit.RecordMesgListener
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
-import java.time.Duration
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -254,6 +253,7 @@ class FitImportServiceImpl @Inject constructor(
             val heartRate: Int? = mesg.getHeartRate()?.toInt()
             val altitude: Double? = (mesg.getEnhancedAltitude() ?: mesg.getAltitude())?.toDouble()
             val temperatureC: Int? = mesg.getTemperature()?.toInt()
+            val gpsAccuracyM: Int? = mesg.getGpsAccuracy()?.toInt()
 
             val fitTimestamp = mesg.getTimestamp() ?: return@RecordMesgListener
             val timestamp = fitTimestamp.date.toInstant()
@@ -267,7 +267,8 @@ class FitImportServiceImpl @Inject constructor(
                     timestamp = timestamp,
                     heartRate = heartRate,
                     altitude = altitude,
-                    temperatureC = temperatureC
+                    temperatureC = temperatureC,
+                    gpsAccuracyM = gpsAccuracyM
                 )
             )
         })
@@ -294,63 +295,9 @@ class FitImportServiceImpl @Inject constructor(
     }
 
     private fun filterGpsQuality(datapoints: List<Datapoint>): List<Datapoint> {
-        if (datapoints.isEmpty()) return emptyList()
-
-        val filtered = mutableListOf<Datapoint>()
-        val discardCounts = mutableMapOf("zero" to 0, "speed" to 0, "power" to 0, "leap" to 0, "implied" to 0)
-
-        var lastValid: Datapoint? = null
-
-        for (dp in datapoints) {
-            // Discard zero lat/lon
-            if (dp.lat == 0.0 || dp.lon == 0.0) {
-                discardCounts["zero"] = discardCounts.getValue("zero") + 1
-                continue
-            }
-
-            // Discard unrealistic speed
-            if (dp.speedKmh != null && dp.speedKmh > CyclingConstants.MAX_REALISTIC_SPEED_KMH) {
-                discardCounts["speed"] = discardCounts.getValue("speed") + 1
-                continue
-            }
-
-            // Discard unrealistic power
-            if (dp.power != null && dp.power > CyclingConstants.MAX_REALISTIC_POWER) {
-                discardCounts["power"] = discardCounts.getValue("power") + 1
-                continue
-            }
-
-            // Check against previous valid point
-            if (lastValid != null) {
-                val distM = GeoUtils.haversineDistance(lastValid.lat, lastValid.lon, dp.lat, dp.lon)
-                val elapsedSec = Duration.between(lastValid.timestamp, dp.timestamp).seconds.toDouble()
-
-                // Discard GPS leap: distance > 500m AND elapsed < 5s
-                if (distM > CyclingConstants.GPS_LEAP_MAX_DISTANCE_M &&
-                    elapsedSec < CyclingConstants.GPS_LEAP_MAX_TIME_SEC) {
-                    discardCounts["leap"] = discardCounts.getValue("leap") + 1
-                    continue
-                }
-
-                // Discard if implied speed > 120 km/h
-                if (elapsedSec > 0) {
-                    val impliedSpeedKmh = (distM / elapsedSec) * CyclingConstants.MTS_PER_SEC_TO_KMH
-                    if (impliedSpeedKmh > CyclingConstants.GPS_IMPLIED_MAX_SPEED_KMH) {
-                        discardCounts["implied"] = discardCounts.getValue("implied") + 1
-                        continue
-                    }
-                }
-            }
-
-            filtered.add(dp)
-            lastValid = dp
-        }
-
-        Log.d(TAG, "GPS filter: kept=${filtered.size}, discardZero=${discardCounts.getValue("zero")}, " +
-                "discardSpeed=${discardCounts.getValue("speed")}, discardPower=${discardCounts.getValue("power")}, " +
-                "discardLeap=${discardCounts.getValue("leap")}, discardImplied=${discardCounts.getValue("implied")}")
-
-        return filtered
+        val result = GpsQualityFilter.filter(datapoints)
+        Log.d(TAG, result.logLine())
+        return result.kept
     }
 
     private fun computeVectorsAndAngles(datapoints: List<Datapoint>): List<Datapoint> {

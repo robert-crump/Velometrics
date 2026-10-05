@@ -17,5 +17,7 @@ data class Datapoint(
     val angleDeg: Double? = null,
     val heartRate: Int? = null,
     val altitude: Double? = null,
-    val temperatureC: Int? = null
+    val temperatureC: Int? = null,
+    /** FIT record gps_accuracy in metres; null when the file doesn't carry it. */
+    val gpsAccuracyM: Int? = null
 )

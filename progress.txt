@@ -1,3 +1,17 @@
+## Issue #234 -- Zone charts: largest bar at most 80% of the width
+Completed: 2026-10-05
+
+### What was done
+
+- `HorizontalTickedBarChart` (shared by the HR and power zone charts): the largest bar or all-rides
+  average tick now ends at 80 % of the bar area (`MAX_BAR_FILL`); all bars and ticks scale by the
+  same factor, so their proportions are unchanged. The remaining 20 % stays empty.
+- New pure `barFraction(value, maxPct)`; TalkBack descriptions unchanged, no text added.
+- Tests: `HorizontalTickedBarChartTest` (largest at 80 %, proportions kept, zero stays zero).
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (576 tests) and `assembleDebug` pass.
+
 ## Issue #240 -- Map edge-to-edge, status bar scrim, chip rows closer together
 Completed: 2026-10-05
 
@@ -68,30 +82,3 @@ Completed: 2026-10-05
   HR/altitude, and point 0 falling back to a later record when the first lacks values.
 
 `testDebugUnitTest` (562 tests) and `assembleDebug` pass.
-
-## Issue #233 -- Import: GPS filter for accuracy and acceleration, as in Ride-Graph
-Completed: 2026-10-05
-
-### What was done
-
-- The filter moved out of `FitImportServiceImpl` into the pure `GpsQualityFilter` (data/fitimport),
-  which returns the kept stream plus discard counts. The service only logs `result.logLine()`.
-- New `Datapoint.gpsAccuracyM`, read from the FIT record's `gps_accuracy` (null when absent).
-- Accuracy rule: a record with `gpsAccuracyM` > `GPS_MAX_ACCURACY_M` = 15 m is discarded. Files without
-  the field are untouched.
-- Acceleration rule: implied speed = haversine distance / elapsed time from the last kept record. A record
-  whose |Δv| / Δt against the previous kept segment's implied speed exceeds `GPS_MAX_ACCELERATION_MPS2`
-  = 5 m/s² is discarded. Gaps over `GPS_ACCELERATION_MAX_GAP_SEC` = 10 s (and zero-time steps) are
-  neither checked nor used as the reference speed for the next step. Ride-Graph's `quality_filter.py`
-  wasn't available locally, so the semantics follow the issue text.
-- Log line: `GPS filter: kept=…, discardZero, discardSpeed, discardPower, discardAccuracy, discardLeap,
-  discardImplied, discardAccel`.
-- Tests (GpsQualityFilterTest): accuracy 16 m dropped / 15 m kept, missing field, a 10 m/s² GPS jump
-  dropped, 4.5 m/s² braking kept, no check across an 11 s gap, a 10 s gap still checked, log counters,
-  existing rules.
-- DemoRideImportTest: the synthetic demo rides stop at ~7 m/s² and have GPS jitter, so 29/30 lose 1–7
-  points (worst 99.84 %). The "no GPS points discarded" check is now `gpsQualityPercent >= 99.5`. The
-  generator is unchanged.
-- Existing rides change only after delete and re-sync.
-
-`testDebugUnitTest` (560 tests) and `assembleDebug` pass.

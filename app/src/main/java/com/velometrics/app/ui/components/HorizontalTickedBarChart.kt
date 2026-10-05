@@ -20,6 +20,15 @@ private val BAR_THICKNESS = 14.dp
 private val ROW_GAP = 4.dp
 private val LABEL_WIDTH = 24.dp
 
+/** Share of the bar area the largest bar or tick may fill; the rest stays empty. */
+internal const val MAX_BAR_FILL = 0.8f
+
+/**
+ * Converts [value] to a fraction of the bar area width, scaled so the largest bar or tick
+ * ([maxPct]) ends at [MAX_BAR_FILL].
+ */
+internal fun barFraction(value: Float, maxPct: Float): Float = value / maxPct * MAX_BAR_FILL
+
 /**
  * One row in a [HorizontalTickedBarChart].
  * @param tickPercentage optional comparison value (0-100 scale), drawn as a thin vertical tick
@@ -35,8 +44,8 @@ data class HorizontalBarEntry(
 /**
  * Horizontal bar+tick-mark chart used by [PowerZoneChart] and [HeartRateZoneChart]: one row per
  * entry, top to bottom in the given order, each a fixed-width short label followed by a bar whose
- * length is proportional to its percentage (relative to the largest percentage/tick across all
- * entries) and an optional thin tick mark for a comparison value. Rows have a fixed thickness, so
+ * length is proportional to its percentage (the largest percentage/tick across all entries ends
+ * at [MAX_BAR_FILL] of the bar area) and an optional thin tick mark for a comparison value. Rows have a fixed thickness, so
  * the chart's height grows with the entry count. No percentage text is drawn; values are exposed
  * to accessibility services only.
  */
@@ -56,8 +65,8 @@ fun HorizontalTickedBarChart(
         verticalArrangement = Arrangement.spacedBy(ROW_GAP)
     ) {
         entries.forEach { entry ->
-            val fraction = entry.percentage / maxPct
-            val tickFraction = entry.tickPercentage?.let { it / maxPct }
+            val fraction = barFraction(entry.percentage, maxPct)
+            val tickFraction = entry.tickPercentage?.let { barFraction(it, maxPct) }
 
             // The bar is drawn on a Canvas, which carries no semantics of its own — merge the row
             // into one accessible node so TalkBack announces label, value, and comparison tick.

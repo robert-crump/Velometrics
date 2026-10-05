@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -11,7 +12,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -29,6 +34,8 @@ import com.velometrics.app.ui.components.AppNavigationRail
 import com.velometrics.app.ui.components.BottomNavBar
 import com.velometrics.app.ui.navigation.VelometricsNavHost
 import com.velometrics.app.ui.navigation.WindowWidthSizeClass
+import com.velometrics.app.ui.screens.onboarding.OnboardingScreen
+import com.velometrics.app.ui.screens.onboarding.OnboardingViewModel
 import com.velometrics.app.ui.theme.VelometricsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -47,53 +54,64 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VelometricsTheme {
-                val navController = rememberNavController()
-                val widthClass = WindowWidthSizeClass.fromWidth(LocalConfiguration.current.screenWidthDp)
-                // Compact (phones): bottom nav bar, full-width content. Medium/expanded
-                // (tablets, foldables unfolded, desktop windows): a nav rail instead, per MD3's
-                // canonical adaptive layouts, with content width capped so text doesn't stretch
-                // to an unreadable line length.
-                val useRail = widthClass != WindowWidthSizeClass.Compact
+                // First-run onboarding (#238) replaces the whole app, nav bar included, until it's done.
+                val onboarding: OnboardingViewModel = hiltViewModel()
+                when (onboarding.visible.collectAsState().value) {
+                    null -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+                    true -> OnboardingScreen(onboarding)
+                    false -> AppContent()
+                }
+            }
+        }
+    }
 
-                // Session Detail draws its map edge-to-edge, so the status bar must stay see-through
-                // there: don't reserve the top inset for it.
-                val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-                val edgeToEdgeTop = currentRoute == Screen.SessionDetail.route
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    contentWindowInsets = if (edgeToEdgeTop) {
-                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-                    } else {
-                        ScaffoldDefaults.contentWindowInsets
-                    },
-                    bottomBar = { if (!useRail) BottomNavBar(navController = navController) }
-                ) { innerPadding ->
-                    if (useRail) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                                .consumeWindowInsets(innerPadding)
-                        ) {
-                            AppNavigationRail(navController = navController)
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                                VelometricsNavHost(
-                                    navController = navController,
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .widthIn(max = MAX_CONTENT_WIDTH)
-                                )
-                            }
-                        }
-                    } else {
+    @Composable
+    private fun AppContent() {
+        val navController = rememberNavController()
+        val widthClass = WindowWidthSizeClass.fromWidth(LocalConfiguration.current.screenWidthDp)
+        // Compact (phones): bottom nav bar, full-width content. Medium/expanded
+        // (tablets, foldables unfolded, desktop windows): a nav rail instead, per MD3's
+        // canonical adaptive layouts, with content width capped so text doesn't stretch
+        // to an unreadable line length.
+        val useRail = widthClass != WindowWidthSizeClass.Compact
+
+        // Session Detail draws its map edge-to-edge, so the status bar must stay see-through
+        // there: don't reserve the top inset for it.
+        val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+        val edgeToEdgeTop = currentRoute == Screen.SessionDetail.route
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = if (edgeToEdgeTop) {
+                WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+            } else {
+                ScaffoldDefaults.contentWindowInsets
+            },
+            bottomBar = { if (!useRail) BottomNavBar(navController = navController) }
+        ) { innerPadding ->
+            if (useRail) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .consumeWindowInsets(innerPadding)
+                ) {
+                    AppNavigationRail(navController = navController)
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                         VelometricsNavHost(
                             navController = navController,
                             modifier = Modifier
-                                .padding(innerPadding)
-                                .consumeWindowInsets(innerPadding)
+                                .fillMaxHeight()
+                                .widthIn(max = MAX_CONTENT_WIDTH)
                         )
                     }
                 }
+            } else {
+                VelometricsNavHost(
+                    navController = navController,
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .consumeWindowInsets(innerPadding)
+                )
             }
         }
     }

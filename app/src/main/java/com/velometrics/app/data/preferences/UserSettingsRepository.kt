@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.velometrics.app.util.CyclingConstants
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,7 +49,7 @@ internal object SplitSystemWeightMigration : DataMigration<Preferences> {
 @Singleton
 class UserSettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) : LegacyFtpStore {
+) : LegacyFtpStore, OnboardingFlagStore {
     companion object {
         private val KEY_FTP = intPreferencesKey("ftp")
         private val KEY_HOME_LAT = doublePreferencesKey("home_lat")
@@ -57,6 +58,7 @@ class UserSettingsRepository @Inject constructor(
         private val KEY_DROPBOX_SYNC_FOLDER = stringPreferencesKey("dropbox_sync_folder")
         private val KEY_MAX_HR = intPreferencesKey("max_hr")
         private val KEY_SPEED_IQ_SHOW_ON_MAP = booleanPreferencesKey("speed_iq_show_on_map")
+        private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     }
 
     val homeLat: Flow<Double> = context.dataStore.data.map { prefs ->
@@ -96,6 +98,14 @@ class UserSettingsRepository @Inject constructor(
     /** Speed IQ "Show on map" toggle (#230): one switch for every ride, off until turned on. */
     val speedIqShowOnMap: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_SPEED_IQ_SHOW_ON_MAP] ?: false
+    }
+
+    override suspend fun isOnboardingDone(): Boolean = context.dataStore.data.first()[KEY_ONBOARDING_DONE] ?: false
+
+    override suspend fun markOnboardingDone() {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ONBOARDING_DONE] = true
+        }
     }
 
     // FTP now lives in FtpHistoryRepository (#218); this reads and clears the old single setting once.

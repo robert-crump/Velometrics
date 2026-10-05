@@ -1,3 +1,33 @@
+## Issue #238 -- Onboarding: rider profile and Dropbox connect on first run
+Completed: 2026-10-05
+
+### What was done
+
+- `OnboardingGate` (data/preferences) decides visibility: shown only while the new DataStore flag
+  `onboarding_done` is unset and the database has no rides. An install that has rides gets the flag set
+  on its first check, so an upgraded install never sees it, even after deleting its rides. The flag sits
+  behind `OnboardingFlagStore` (implemented by `UserSettingsRepository`, bound in RepositoryModule).
+- MainActivity: `OnboardingViewModel.visible` (null while the gate decides -> blank background) replaces
+  the whole app, nav bar included, with `OnboardingScreen`. The old body is now `AppContent()`.
+- Page 1 "Your profile" (`ProfileForm`, pure and tested): rider weight (default `DEFAULT_RIDER_WEIGHT_KG`
+  = 75) and bike + kit (10). FTP level chips (`FtpLevel`: 2.0 / 2.6 default / 3.2 / 4.0 W/kg) with
+  the live formula `2.6 W/kg × 75 kg = 195 W`. Year of birth (default current year − 40) gives a Tanaka
+  max HR with the live formula `208 − 0.7 × 40 = 180 bpm`. Typing an FTP clears the level ("I know my FTP")
+  so weight changes leave it alone until a level is picked again. Typing a max HR hides its formula
+  until the birth year changes. Continue is disabled only if a saved field is out of range
+  (`FTP_RANGE_W` 50–700, `MAX_HR_RANGE_BPM` 100–230, existing weight ranges). It saves rider/bike
+  weight, max HR and the FTP as the history's "Before first test" seed row. The birth year is never stored.
+- Page 2 "Connect Dropbox": Connect starts the existing OAuth flow. Onboarding finishes once
+  `isConnected` turns true (result in `onResume`), so Home's auto sync starts right after. "Later"
+  finishes directly. Back returns to the profile page. Either way the flag is set and Home opens.
+- Tests: `ProfileFormTest` (issue examples, defaults, live FTP/max HR updates, typed overrides,
+  validation), `OnboardingGateTest` (fresh install, upgrade with rides, stays hidden after deletion),
+  `OnboardingFlagSettingTest` (Robolectric persistence).
+- README screenshots: they import demo rides before launching, so the gate skips onboarding there.
+- Not done: no visual check on a device (layout, OAuth round trip).
+
+`testDebugUnitTest` (552 tests) and `assembleDebug` pass.
+
 ## Issue #237 -- Settings: split system weight into rider weight and bike + kit weight
 Completed: 2026-10-05
 
@@ -94,27 +124,4 @@ Completed: 2026-10-04
 
 `testDebugUnitTest` (532 tests) and `assembleDebug` pass.
 
-
-## Issue #228 -- Speed IQ: system weight setting (as of ride)
-Completed: 2026-10-04
-
-### What was done
-
-- Settings > Training has a "System weight (rider + bike + kit)" row after FTP. It's a DataStore int
-  (`system_weight_kg`), null until set, and must be 40–200 kg (`CyclingConstants.SYSTEM_WEIGHT_RANGE_KG`).
-  `NumberEditDialog` now takes a nullable current value and a valid range, and shows an error when
-  the input is out of range. The row says "Not set — Speed IQ assumes 85 kg" until a weight is set.
-- As of ride: `FitImportServiceImpl` reads the setting once per import and passes it to
-  `SessionMetricsCalculator.compute(systemWeightKg)`, which runs the `BrakingDetector` with that mass.
-  `SpeedIq.systemMassKg` is stored per ride, so changing the setting only affects later imports.
-- `SpeedIq.massFromSettings` (also in the summary JSON) is false when the weight wasn't set. No
-  migration: Gson reads a missing boolean as false, so rides imported before this show as assumed 85 kg.
-- If the weight was assumed, the card ends with "Assumed 85 kg rider + bike + kit · Set your weight in
-  Settings". Tapping it opens Settings on top of the ride.
-- Tests: penalty is linear in mass (equal steps at 70/85/100 kg on a hard stop). A gentle stop isn't
-  used because its last steps fall under the 150 W threshold at 70 kg. Also tested: the calculator uses
-  the setting or the 85 kg default, and the summary JSON round-trips the weight, including old rows.
-- Not done: no visual check on a device.
-
-`testDebugUnitTest` (526 tests) and `assembleDebug` pass.
 

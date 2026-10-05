@@ -233,6 +233,9 @@ object CyclingConstants {
     const val DEFAULT_BIKE_KIT_WEIGHT_KG = 10            // bike + kit until set; also the #237 migration split
     val RIDER_WEIGHT_RANGE_KG = 30..180                  // plausible body weight for the setting
     val BIKE_KIT_WEIGHT_RANGE_KG = 3..40                 // plausible bike + kit for the setting
+    const val DEFAULT_RIDER_WEIGHT_KG = 75               // onboarding pre-fill (#238): 85 kg system default − bike/kit
+    val FTP_RANGE_W = 50..700                            // plausible FTP for the onboarding field
+    val MAX_HR_RANGE_BPM = 100..230                      // plausible max HR for the onboarding field
     const val SPEED_IQ_CDA_M2 = 0.37
     const val SPEED_IQ_CRR = 0.013
     const val SPEED_IQ_AIR_DENSITY = 1.225              // kg/m³

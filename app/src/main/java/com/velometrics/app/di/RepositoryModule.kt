@@ -4,6 +4,7 @@ import com.velometrics.app.data.dropbox.DropboxCredentialStore
 import com.velometrics.app.data.fitimport.FitImportService
 import com.velometrics.app.data.fitimport.FitImportServiceImpl
 import com.velometrics.app.data.preferences.LegacyFtpStore
+import com.velometrics.app.data.preferences.OnboardingFlagStore
 import com.velometrics.app.data.preferences.UserSettingsRepository
 import com.velometrics.app.data.repository.BestEffortRepositoryImpl
 import com.velometrics.app.data.repository.CyclingSessionRepositoryImpl
@@ -41,6 +42,12 @@ abstract class RepositoryModule {
     abstract fun bindLegacyFtpStore(
         impl: UserSettingsRepository
     ): LegacyFtpStore
+
+    @Binds
+    @Singleton
+    abstract fun bindOnboardingFlagStore(
+        impl: UserSettingsRepository
+    ): OnboardingFlagStore
 
     @Binds
     @Singleton

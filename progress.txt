@@ -1,3 +1,24 @@
+## Issue #241 -- Session Detail: drawer covers floating buttons, thinner border
+Completed: 2026-10-05
+
+### What was done
+
+- `PullUpDrawer`: the floating header controls are now composed before the sheet, so the rising sheet
+  slides over them. Their `graphicsLayer` alpha is gone (it clipped the circles' contour on the first
+  drag pixel), so they're always fully opaque.
+- Docked controls: alpha comes from the pure `dockedHeaderAlpha(fraction, coverFraction)`. They stay
+  hidden until the sheet's top edge reaches the floating controls' top (status bar + 8 dp) and the last
+  `DOCKED_HEADER_FADE_SPAN` = 5 % to full height has begun, then fade to 1 at full height. The floating
+  controls are composed exactly while the docked ones are hidden (`dockedHeaderFadeStart`), so one pair
+  is always tappable and they never compete for touches. Dragging down reverses the order.
+- Floating circle border on Session Detail: 1 dp -> 0.5 dp.
+- Tests: `PullUpDrawerHeaderTest` (hidden below the window, 50 % at 97.5 %, opaque at full height,
+  fade delayed when the cover point is above 95 %, the window never shrinks to zero width, the hand-off
+  between floating and docked).
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (567 tests) and `assembleDebug` pass.
+
 ## Issue #235 -- HR vs. distance: point 0 at the ride start
 Completed: 2026-10-05
 
@@ -89,29 +110,3 @@ Completed: 2026-10-05
 - Not done: no visual check on a device. `riderWeightKg` is ready for the onboarding FTP estimate (#238).
 
 `testDebugUnitTest` (543 tests) and `assembleDebug` pass.
-
-## Issue #232 -- Speed IQ: power veto and 5 km/h minimum speed drop for braking events
-Completed: 2026-10-05
-
-### What was done
-
-- Power veto: `BrakingDetector.analyze(..., ftp)` takes the FTP in force on the ride date (ADR 0001),
-  passed by `SessionMetricsCalculator` from the import's `ftpOn(rideDate)`. A step whose centred 3 s
-  power (record k+1, the power covering the step) is above `SPEED_IQ_PEDAL_VETO_FTP_FRACTION` = 30 % of
-  FTP gets energy 0. So it isn't braking, breaks the run (the 2 s / 1500 J minimums then apply to the
-  fragments) and adds nothing to an event joined across it. Rides with estimated P (#229) and a null FTP
-  skip the veto.
-- Minimum speed drop: an event needs peak − low >= `SPEED_IQ_MIN_SPEED_DROP_KMH` = 5 km/h. Standing-only
-  events are separate and unaffected. A dropped braking event's adjoining stop can now become a
-  standing-only event if it's long enough.
-- Side effect: the first coasting second after pedalling is usually vetoed (its 3 s window includes the
-  pedalling), so an event's peak speed is one record later than before (44 -> 18 stop now reads 40.75 -> 18).
-- Tests (BrakingDetectorTest): 200 W through a 40 -> 24 dip is an event without FTP and none at FTP 250.
-  Coasting 40 -> 39 on an 8 % descent gives no event, while 40 -> 34 does. A real 44 -> 18 stop is detected
-  with the veto. A ride without power with stray 400 W readings skips the veto.
-- Existing rides keep their events until deleted and re-synced (no backfill, by decision). Thresholds get
-  recalibrated in #231.
-
-`testDebugUnitTest` (540 tests) and `assembleDebug` pass.
-
-

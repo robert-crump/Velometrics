@@ -358,7 +358,7 @@ private fun FloatingCircleButton(
         modifier = modifier
             .size(44.dp)
             .background(MaterialTheme.colorScheme.surface, CircleShape)
-            .border(1.dp, Color.White, CircleShape)
+            .border(0.5.dp, Color.White, CircleShape)
     ) {
         content()
     }

@@ -54,14 +54,35 @@ private val HANDLE_ROW_HEIGHT = 20.dp
 private val HANDLE_TOP_PADDING = 8.dp
 private val HANDLE_HEIGHT = 4.dp
 private val HEADER_ROW_HEIGHT = 48.dp
+private val FLOATING_HEADER_HORIZONTAL_PADDING = 12.dp
+private val FLOATING_HEADER_TOP_PADDING = 8.dp
+
+/** The docked header controls fade in over this last share of the way to full height (#241). */
+internal const val DOCKED_HEADER_FADE_SPAN = 0.05f
+
+/**
+ * Alpha of the docked header controls at drawer [fraction] (#241). They stay hidden until the sheet's
+ * top edge has passed [coverFraction] (where it covers the floating controls) and the last
+ * [DOCKED_HEADER_FADE_SPAN] to full height has begun, then fade in to 1 at full height.
+ */
+internal fun dockedHeaderAlpha(fraction: Float, coverFraction: Float, lastSnap: Float = 1f): Float {
+    val fadeStart = dockedHeaderFadeStart(coverFraction, lastSnap)
+    return ((fraction - fadeStart) / (lastSnap - fadeStart)).coerceIn(0f, 1f)
+}
+
+/** Fraction at which the docked controls start fading in; the floating ones are composed below it. */
+internal fun dockedHeaderFadeStart(coverFraction: Float, lastSnap: Float = 1f): Float =
+    maxOf(lastSnap - DOCKED_HEADER_FADE_SPAN, coverFraction)
+        .coerceAtMost(lastSnap - DOCKED_HEADER_FADE_SPAN / 5)
 
 /**
  * A snappy pull-up drawer with configurable snap positions.
  *
  * - The handle row can always be dragged.
- * - [headerStart]/[headerEnd] (e.g. back arrow / overflow menu) float over the content while the
- *   drawer is below full height and cross-fade into the handle row as the drawer reaches 100%.
- *   Their `docked` argument tells the caller which of the two placements is being composed.
+ * - [headerStart]/[headerEnd] (e.g. back arrow / overflow menu) float over the content, under the
+ *   sheet in z-order, so the rising sheet covers them. Once covered, their docked versions fade into
+ *   the handle row over the last few percent to full height (#241). Their `docked` argument tells
+ *   the caller which of the two placements is being composed.
  * - Below 100%, the entire content area also acts as a drag handle
  *   (upward = expand, downward = collapse). Scrolling is only enabled at 100%.
  * - At 100% with scroll at top, a downward drag collapses the drawer.
@@ -126,6 +147,11 @@ fun PullUpDrawer(
         val headerFullness = if (hasHeader) fullness else 0f
         val handleRowHeight: Dp =
             HANDLE_ROW_HEIGHT + (HEADER_ROW_HEIGHT + statusBarTop - HANDLE_ROW_HEIGHT) * headerFullness
+        // The sheet covers the floating controls once its top edge reaches theirs.
+        val floatingTopPx = with(density) { (statusBarTop + FLOATING_HEADER_TOP_PADDING).toPx() }
+        val coverFraction = if (maxHeightPx > 0f) 1f - floatingTopPx / maxHeightPx else lastSnap
+        val dockedAlpha = if (hasHeader) dockedHeaderAlpha(animatedFraction.value, coverFraction, lastSnap) else 0f
+        val showFloating = hasHeader && animatedFraction.value < dockedHeaderFadeStart(coverFraction, lastSnap)
 
         val drawerNestedScrollConnection = remember(maxHeightPx, snapFractions) {
             object : NestedScrollConnection {
@@ -214,6 +240,23 @@ fun PullUpDrawer(
             }
         }
 
+        // Drawn before the sheet so the sheet slides over them; fully opaque, no alpha layer (#241).
+        if (showFloating) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(
+                        start = FLOATING_HEADER_HORIZONTAL_PADDING,
+                        end = FLOATING_HEADER_HORIZONTAL_PADDING,
+                        top = FLOATING_HEADER_TOP_PADDING
+                    )
+            ) {
+                Box(modifier = Modifier.align(Alignment.TopStart)) { headerStart?.invoke(false) }
+                Box(modifier = Modifier.align(Alignment.TopEnd)) { headerEnd?.invoke(false) }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -263,12 +306,12 @@ fun PullUpDrawer(
                                 CircleShape
                             )
                     )
-                    if (headerFullness > 0f) {
+                    if (dockedAlpha > 0f) {
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(top = statusBarTop, start = 4.dp, end = 4.dp)
-                                .graphicsLayer { alpha = headerFullness },
+                                .graphicsLayer { alpha = dockedAlpha },
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -292,19 +335,6 @@ fun PullUpDrawer(
                         .verticalScroll(scrollState),
                     content = content
                 )
-            }
-        }
-
-        if (hasHeader && fullness < 1f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .graphicsLayer { alpha = 1f - fullness }
-            ) {
-                Box(modifier = Modifier.align(Alignment.TopStart)) { headerStart?.invoke(false) }
-                Box(modifier = Modifier.align(Alignment.TopEnd)) { headerEnd?.invoke(false) }
             }
         }
     }

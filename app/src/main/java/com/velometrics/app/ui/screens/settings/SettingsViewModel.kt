@@ -35,7 +35,8 @@ class SettingsViewModel @Inject constructor(
     val ftpEntries = ftpHistoryRepository.entries
     val currentFtp = ftpHistoryRepository.currentFtp
     val maxHr = userSettingsRepository.maxHr
-    val systemWeightKg = userSettingsRepository.systemWeightKg
+    val riderWeightKg = userSettingsRepository.riderWeightKg
+    val bikeKitWeightKg = userSettingsRepository.bikeKitWeightKg
     val homeLat = userSettingsRepository.homeLat
     val homeLon = userSettingsRepository.homeLon
     val homeDisplayName = userSettingsRepository.homeDisplayName
@@ -55,9 +56,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) { ftpHistoryRepository.delete(date) }
     }
 
-    /** Only future imports use it: each ride keeps the weight it was imported with (#228). */
-    fun saveSystemWeight(kg: Int) {
-        viewModelScope.launch(Dispatchers.IO) { userSettingsRepository.saveSystemWeightKg(kg) }
+    /** Only future imports use it: each ride keeps the system weight it was imported with (#228). */
+    fun saveRiderWeight(kg: Int) {
+        viewModelScope.launch(Dispatchers.IO) { userSettingsRepository.saveRiderWeightKg(kg) }
+    }
+
+    fun saveBikeKitWeight(kg: Int) {
+        viewModelScope.launch(Dispatchers.IO) { userSettingsRepository.saveBikeKitWeightKg(kg) }
     }
 
     fun requestMaxHrChange(newMaxHr: Int) {

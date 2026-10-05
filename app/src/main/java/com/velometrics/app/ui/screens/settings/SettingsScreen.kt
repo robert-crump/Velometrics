@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PedalBike
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.BugReport
@@ -40,7 +41,10 @@ fun SettingsScreen(
     val dumpStatus by viewModel.dumpStatus.collectAsState()
     val currentMaxHr by viewModel.maxHr.collectAsState(initial = CyclingConstants.DEFAULT_MAX_HR)
     val currentFtp by viewModel.currentFtp.collectAsState(initial = CyclingConstants.DEFAULT_FTP)
-    val systemWeightKg by viewModel.systemWeightKg.collectAsState(initial = null)
+    val riderWeightKg by viewModel.riderWeightKg.collectAsState(initial = null)
+    val bikeKitWeightKg by viewModel.bikeKitWeightKg.collectAsState(
+        initial = CyclingConstants.DEFAULT_BIKE_KIT_WEIGHT_KG
+    )
     val ftpEntries by viewModel.ftpEntries.collectAsState(initial = emptyList())
     val currentHomeLat by viewModel.homeLat.collectAsState(initial = CyclingConstants.HOME_LAT)
     val currentHomeLon by viewModel.homeLon.collectAsState(initial = CyclingConstants.HOME_LON)
@@ -54,7 +58,8 @@ fun SettingsScreen(
 
     var ftpDialog by remember { mutableStateOf<FtpDialogTarget?>(null) }
     var showMaxHrDialog by remember { mutableStateOf(false) }
-    var showWeightDialog by remember { mutableStateOf(false) }
+    var showRiderWeightDialog by remember { mutableStateOf(false) }
+    var showBikeKitWeightDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
 
     ftpDialog?.let { target ->
@@ -72,20 +77,37 @@ fun SettingsScreen(
         )
     }
 
-    if (showWeightDialog) {
-        val range = CyclingConstants.SYSTEM_WEIGHT_RANGE_KG
+    if (showRiderWeightDialog) {
+        val range = CyclingConstants.RIDER_WEIGHT_RANGE_KG
         NumberEditDialog(
-            title = "System weight",
-            label = "Rider + bike + kit (kg)",
-            currentValue = systemWeightKg,
+            title = "Rider weight",
+            label = "Body weight (kg)",
+            currentValue = riderWeightKg,
             validRange = range,
-            helperText = "Used by Speed IQ to turn braking into lost seconds " +
+            helperText = "Plus bike + kit, used by Speed IQ to turn braking into lost seconds " +
                 "(${range.first}–${range.last} kg). Each ride keeps the weight it was imported with; " +
                 "a change applies to future imports only.",
-            onDismiss = { showWeightDialog = false },
+            onDismiss = { showRiderWeightDialog = false },
             onConfirm = { parsed ->
-                showWeightDialog = false
-                viewModel.saveSystemWeight(parsed)
+                showRiderWeightDialog = false
+                viewModel.saveRiderWeight(parsed)
+            }
+        )
+    }
+
+    if (showBikeKitWeightDialog) {
+        val range = CyclingConstants.BIKE_KIT_WEIGHT_RANGE_KG
+        NumberEditDialog(
+            title = "Bike + kit weight",
+            label = "Bike + kit (kg)",
+            currentValue = bikeKitWeightKg,
+            validRange = range,
+            helperText = "Bike, bottles, bags and clothing (${range.first}–${range.last} kg). " +
+                "Added to the rider weight for Speed IQ; a change applies to future imports only.",
+            onDismiss = { showBikeKitWeightDialog = false },
+            onConfirm = { parsed ->
+                showBikeKitWeightDialog = false
+                viewModel.saveBikeKitWeight(parsed)
             }
         )
     }
@@ -188,10 +210,18 @@ fun SettingsScreen(
 
             SettingsRow(
                 icon = Icons.Default.Scale,
-                title = "System weight (rider + bike + kit)",
-                subtitle = systemWeightKg?.let { "$it kg" }
-                    ?: "Not set — Speed IQ assumes ${CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG.roundToInt()} kg",
-                onClick = { showWeightDialog = true }
+                title = "Rider weight",
+                subtitle = riderWeightKg?.let { "$it kg" }
+                    ?: "Not set — Speed IQ assumes ${CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG.roundToInt()} kg " +
+                        "rider + bike + kit",
+                onClick = { showRiderWeightDialog = true }
+            )
+
+            SettingsRow(
+                icon = Icons.Default.PedalBike,
+                title = "Bike + kit weight",
+                subtitle = "$bikeKitWeightKg kg",
+                onClick = { showBikeKitWeightDialog = true }
             )
 
             SettingsRow(

@@ -1,3 +1,23 @@
+## Issue #237 -- Settings: split system weight into rider weight and bike + kit weight
+Completed: 2026-10-05
+
+### What was done
+
+- DataStore keys `rider_weight_kg` (null until set) and `bike_kit_weight_kg` (default
+  `DEFAULT_BIKE_KIT_WEIGHT_KG` = 10). `UserSettingsRepository.systemWeightKg` is now derived as
+  rider + bike/kit, still null while the rider weight is unset, so the import (#228), the 85 kg
+  default and the "Assumed 85 kg … Set your weight in Settings" hint are unchanged.
+- Migration: `SplitSystemWeightMigration` (a DataStore `DataMigration` passed via `produceMigrations`)
+  turns an existing `system_weight_kg` into rider = system − 10 kg, bike/kit = 10 kg and removes the old
+  key. An unset system weight stays unset. Rides keep the system mass stored at their import.
+- Settings: "Rider weight" (30–180 kg) and "Bike + kit weight" (3–40 kg, PedalBike icon) rows with their
+  own dialogs, replacing the single "System weight" row. `SYSTEM_WEIGHT_RANGE_KG` is gone.
+- Tests (RiderAndBikeKitWeightTest): migration 82 -> 72 + 10 with the old key removed, unset not migrated,
+  and the Robolectric sum (unset -> null, 70 + default 10 = 80, 70 + 12 = 82 for a new repository instance).
+- Not done: no visual check on a device. `riderWeightKg` is ready for the onboarding FTP estimate (#238).
+
+`testDebugUnitTest` (543 tests) and `assembleDebug` pass.
+
 ## Issue #232 -- Speed IQ: power veto and 5 km/h minimum speed drop for braking events
 Completed: 2026-10-05
 
@@ -22,6 +42,7 @@ Completed: 2026-10-05
 
 `testDebugUnitTest` (540 tests) and `assembleDebug` pass.
 
+
 ## Issue #230 -- Speed IQ: 'Show on map' marker toggle
 Completed: 2026-10-04
 
@@ -45,6 +66,7 @@ Completed: 2026-10-04
 - Not done: no visual check on a device (marker look, camera padding, drawer animation).
 
 `testDebugUnitTest` (536 tests) and `assembleDebug` pass.
+
 
 ## Issue #229 -- Speed IQ: rides without power (estimated reference power)
 Completed: 2026-10-04
@@ -72,6 +94,7 @@ Completed: 2026-10-04
 
 `testDebugUnitTest` (532 tests) and `assembleDebug` pass.
 
+
 ## Issue #228 -- Speed IQ: system weight setting (as of ride)
 Completed: 2026-10-04
 
@@ -95,27 +118,3 @@ Completed: 2026-10-04
 
 `testDebugUnitTest` (526 tests) and `assembleDebug` pass.
 
-## Issue #227 -- Speed IQ: standing time and potential average speed
-Completed: 2026-10-04
-
-### What was done
-
-- Standing = clock seconds below 2 km/h (record-to-record steps with both ends < 2 km/h) or with the
-  FIT timer paused. The pauses are the same stop->start intervals as `pauseDurationSec`;
-  `SessionMetricsCalculator.pauseIntervals` now feeds both. A step inside a pause isn't counted twice.
-  Pieces closer than 5 s are one stop. A stop over 3 min (coffee stop) isn't counted at all.
-- A stop belongs to a braking event when it starts < 5 s after the event's last record and doesn't
-  end before the event begins. A stop with no braking is a standing-only event from 5 s (energy 0,
-  speeds 0, located at the record where the stop began). Shorter ones aren't counted anywhere.
-- `BrakingEvent.standingSec` and `lostSec` (penalty + standing); the top 5 are ranked by `lostSec`.
-  `SpeedIq.standingSec` / `standingInTimerSec` live in the summary JSON. No migration: Gson leaves
-  missing fields at 0, so rides imported before this read as 0 standing.
-- `SpeedIq.potentialAvgKmh(distance, net)` = distance / (net − braking − in-timer standing).
-  Standing under auto-pause is already outside net time.
-- Card: `Braking 3:12 · Standing 4:40 · 17 events`, then `Avg 30.0 → 31.1 km/h without penalties`
-  with an info-icon tooltip (M3 TooltipBox, shows on tap). Rows come from `speedIqEventRow`, e.g.
-  `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`. A standing-only row has no speeds.
-- Not done: no visual check on a device; README screenshots don't show the card.
-
-`testDebugUnitTest` (new BrakingDetector standing tests, `SpeedIqEventRowTest`, demo rides) and
-`assembleDebug` pass.

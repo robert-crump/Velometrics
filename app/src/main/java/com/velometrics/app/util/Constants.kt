@@ -230,7 +230,9 @@ object CyclingConstants {
 
     // Speed IQ braking events (#226). P_brake per second = -m·v·a - m·g·dh/dt + P_pedal - drag - rolling.
     const val SPEED_IQ_DEFAULT_SYSTEM_MASS_KG = 85.0   // rider + bike + kit while the setting is unset (#228)
-    val SYSTEM_WEIGHT_RANGE_KG = 40..200                 // plausible rider + bike + kit for the setting
+    const val DEFAULT_BIKE_KIT_WEIGHT_KG = 10            // bike + kit until set; also the #237 migration split
+    val RIDER_WEIGHT_RANGE_KG = 30..180                  // plausible body weight for the setting
+    val BIKE_KIT_WEIGHT_RANGE_KG = 3..40                 // plausible bike + kit for the setting
     const val SPEED_IQ_CDA_M2 = 0.37
     const val SPEED_IQ_CRR = 0.013
     const val SPEED_IQ_AIR_DENSITY = 1.225              // kg/m³

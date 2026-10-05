@@ -1,3 +1,18 @@
+## Issue #235 -- HR vs. distance: point 0 at the ride start
+Completed: 2026-10-05
+
+### What was done
+
+- `HrDistanceSeriesBuilder` now samples k = 0..100. Point 0 is the ride's first record (0 km), with HR
+  and altitude found by the same nearest-value lookup (±5 records) as the other points. New rides store
+  101 points.
+- No chart-side change: `HrDistanceChart` only uses each point's `distanceKm`, so old stored series
+  (100 points, first at 1 %) render as before. Existing rides get point 0 after delete and re-sync.
+- Tests: indices shifted by one, size 101, and two new cases: point 0 at 0 km with the first record's
+  HR/altitude, and point 0 falling back to a later record when the first lacks values.
+
+`testDebugUnitTest` (562 tests) and `assembleDebug` pass.
+
 ## Issue #233 -- Import: GPS filter for accuracy and acceleration, as in Ride-Graph
 Completed: 2026-10-05
 
@@ -98,30 +113,5 @@ Completed: 2026-10-05
   recalibrated in #231.
 
 `testDebugUnitTest` (540 tests) and `assembleDebug` pass.
-
-
-## Issue #230 -- Speed IQ: 'Show on map' marker toggle
-Completed: 2026-10-04
-
-### What was done
-
-- "Show on map" switch in the Speed IQ card header (`SectionCard` now takes an optional `headerAction`).
-  It's shown only when the ride has listed events. The state is a DataStore boolean
-  (`speed_iq_show_on_map`), false until turned on, shared by every ride
-  (`UserSettingsRepository.speedIqShowOnMap`, exposed by `SessionDetailViewModel`).
-- Event rows are numbered `1.`–`5.`. `speedIqMarkers(speedIq, showOnMap)` (ui/components/MapSpeedIqRenderer.kt)
-  turns the listed events into numbered markers at each event's lat/lon (its lowest-speed point). It returns
-  nothing when the toggle is off, there's no Speed IQ, no elevation, or no events. `MapSpeedIqRenderer` draws
-  them as red circles with white numbers and removes them when the list is empty.
-- While on, tapping a row sets a `MapFocus` and a `DrawerSnapRequest(0.15f)`. `PullUpDrawer` gained
-  `snapRequest` (animates there and reports via `onFractionSnapped`). `TrackMapWithDrawer` gained
-  `focus`: it centres on that point at zoom 15 (`SPEED_IQ_FOCUS_ZOOM`) with bottom padding for the
-  drawer, and goes back to fitting the track when the focus is cleared (turning the toggle off).
-  While off, rows aren't clickable.
-- Tests: `SpeedIqMarkersTest` (numbering/coordinates, off, no events/elevation/Speed IQ) and
-  `SpeedIqShowOnMapSettingTest` (Robolectric DataStore: default off, persists for a new repository instance).
-- Not done: no visual check on a device (marker look, camera padding, drawer animation).
-
-`testDebugUnitTest` (536 tests) and `assembleDebug` pass.
 
 

@@ -6,9 +6,10 @@ import com.velometrics.app.util.GeoUtils
 import kotlin.math.abs
 
 /**
- * Builds the heart rate / elevation vs. distance series persisted on a ride (#204): [POINT_COUNT]
- * samples where point k (1..100) is the first record whose cumulative distance reaches
- * k/100 of the ride, and the last point is the ride's final record.
+ * Builds the heart rate / elevation vs. distance series persisted on a ride (#204): [POINT_COUNT] + 1
+ * samples where point 0 is the ride's first record (#235), point k (1..99) is the first record whose
+ * cumulative distance reaches k/100 of the ride, and point 100 is the ride's final record. Series
+ * stored before #235 have 100 points (no point 0) and still render.
  */
 object HrDistanceSeriesBuilder {
 
@@ -39,7 +40,7 @@ object HrDistanceSeriesBuilder {
         if (totalMeters / 1000.0 < MIN_DISTANCE_KM) return null
 
         var index = 0
-        val points = (1..POINT_COUNT).map { k ->
+        val points = (0..POINT_COUNT).map { k ->
             if (k == POINT_COUNT) {
                 index = datapoints.lastIndex
             } else {

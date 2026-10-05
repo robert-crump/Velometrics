@@ -1,7 +1,7 @@
 package com.velometrics.app.domain.model
 
 /**
- * One of the 100 equal-distance samples of a ride's heart rate / elevation profile (#204).
+ * One of the 101 equal-distance samples (100 in series stored before #235) of a ride's heart rate / elevation profile (#204).
  * [heartRate] and [altitudeM] are null when no record near the sample carried a value.
  */
 data class HrDistancePoint(

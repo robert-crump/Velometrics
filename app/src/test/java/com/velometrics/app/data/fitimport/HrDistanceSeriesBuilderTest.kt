@@ -30,9 +30,9 @@ class HrDistanceSeriesBuilderTest {
     }
 
     @Test
-    fun `produces 100 points, the last being the final record`() {
+    fun `produces 101 points, the last being the final record`() {
         val points = HrDistanceSeriesBuilder.build(ride())!!
-        assertEquals(100, points.size)
+        assertEquals(101, points.size)
         assertEquals(200, points.last().heartRate) // record 1000 -> 100 + 100
         assertEquals(1000.0, points.last().altitudeM!!, 0.0)
         val total = HrDistanceSeriesBuilder.cumulativeMeters(ride()).last() / 1000.0
@@ -43,11 +43,28 @@ class HrDistanceSeriesBuilderTest {
     fun `point k is the first record reaching k over 100 of the distance`() {
         val points = HrDistanceSeriesBuilder.build(ride())!!
         // Uniform steps: point 1 lands on ~record 10, point 50 on ~record 500.
-        assertEquals(100 + sampleIndex(1) / 10, points[0].heartRate)
-        assertEquals(100 + sampleIndex(50) / 10, points[49].heartRate)
+        assertEquals(100 + sampleIndex(1) / 10, points[1].heartRate)
+        assertEquals(100 + sampleIndex(50) / 10, points[50].heartRate)
         assertTrue(sampleIndex(1) in 9..11)
         assertTrue(sampleIndex(50) in 499..501)
-        assertEquals(points.last().distanceKm / 100, points[0].distanceKm, 0.02)
+        assertEquals(points.last().distanceKm / 100, points[1].distanceKm, 0.02)
+    }
+
+    @Test
+    fun `point 0 is the first record at 0 km`() {
+        val point = HrDistanceSeriesBuilder.build(ride(hr = { 90 + it }, alt = { 300.0 + it }))!![0]
+        assertEquals(0.0, point.distanceKm, 0.0)
+        assertEquals(90, point.heartRate)
+        assertEquals(300.0, point.altitudeM!!, 0.0)
+    }
+
+    @Test
+    fun `point 0 falls back to the nearest later record when the first lacks values`() {
+        val points = HrDistanceSeriesBuilder.build(
+            ride(hr = { if (it < 3) null else 100 + it }, alt = { if (it == 0) null else it.toDouble() })
+        )!!
+        assertEquals(103, points[0].heartRate)
+        assertEquals(1.0, points[0].altitudeM!!, 0.0)
     }
 
     @Test
@@ -55,14 +72,14 @@ class HrDistanceSeriesBuilderTest {
         // Records around point 50's sample all lack HR except the ones 2 before and 2 after it.
         val s = sampleIndex(50)
         val hr = { i: Int -> if (i == s - 2) 111 else if (i == s + 2) 222 else if (i in s - 5..s + 5) null else 100 }
-        assertEquals(111, HrDistanceSeriesBuilder.build(ride(hr = hr))!![49].heartRate)
+        assertEquals(111, HrDistanceSeriesBuilder.build(ride(hr = hr))!![50].heartRate)
     }
 
     @Test
     fun `later record is used when it is nearer than any earlier one`() {
         val s = sampleIndex(50)
         val hr = { i: Int -> if (i == s + 3) 222 else if (i in s - 5..s + 5) null else 100 }
-        assertEquals(222, HrDistanceSeriesBuilder.build(ride(hr = hr))!![49].heartRate)
+        assertEquals(222, HrDistanceSeriesBuilder.build(ride(hr = hr))!![50].heartRate)
     }
 
     @Test
@@ -70,22 +87,22 @@ class HrDistanceSeriesBuilderTest {
         val s = sampleIndex(50)
         val hr = { i: Int -> if (i in s - 6..s + 6) null else 100 }
         val points = HrDistanceSeriesBuilder.build(ride(hr = hr))!!
-        assertNull(points[49].heartRate)
-        assertNotNull(points[48].heartRate)
+        assertNull(points[50].heartRate)
+        assertNotNull(points[49].heartRate)
     }
 
     @Test
     fun `zero HR is treated as missing`() {
         val s = sampleIndex(50)
         val hr = { i: Int -> if (i == s) 0 else if (i == s - 1) 140 else 100 }
-        assertEquals(140, HrDistanceSeriesBuilder.build(ride(hr = hr))!![49].heartRate)
+        assertEquals(140, HrDistanceSeriesBuilder.build(ride(hr = hr))!![50].heartRate)
     }
 
     @Test
     fun `altitude gaps are filled independently of HR`() {
         val s = sampleIndex(50)
         val alt = { i: Int -> if (i == s + 1) 42.0 else null }
-        assertEquals(42.0, HrDistanceSeriesBuilder.build(ride(alt = alt))!![49].altitudeM!!, 0.0)
+        assertEquals(42.0, HrDistanceSeriesBuilder.build(ride(alt = alt))!![50].altitudeM!!, 0.0)
     }
 
     @Test

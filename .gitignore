@@ -55,3 +55,8 @@ cleanup-report.md
 
 # Cycling graph DB (large binary asset, kept locally only)
 app/src/main/assets/velometrics.db
+
+# Real ride recordings (exact GPS tracks incl. home) - never commit, see #231
+app/src/test/fixtures-local/
+*.fit
+*.FIT

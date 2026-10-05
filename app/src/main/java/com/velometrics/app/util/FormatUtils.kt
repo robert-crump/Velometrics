@@ -53,6 +53,13 @@ object FormatUtils {
 
     fun formatPower(watts: Int): String = "$watts W"
 
+    // "26.1 km/h · 182 W" -- net-duration avg speed and avg power, "–" without power (#236).
+    fun formatSpeedAndPower(distanceKm: Double, netDurationSec: Int, averagePower: Int?): String {
+        val speed = if (netDurationSec > 0) distanceKm / netDurationSec * 3600 else 0.0
+        val power = averagePower?.let { formatPower(it) } ?: "–"
+        return "${formatSpeed(speed)} · $power"
+    }
+
     // Period-grouped thousands separator (e.g. "1.234"), the one separator used app-wide.
     fun formatWithThousandsSeparator(value: Int): String {
         val grouped = abs(value.toLong()).toString().reversed().chunked(3).joinToString(".").reversed()

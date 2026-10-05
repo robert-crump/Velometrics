@@ -337,7 +337,11 @@ fun RepeatedRouteDetailScreen(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
-                                    FormatUtils.formatDistance(session.distanceKm),
+                                    FormatUtils.formatSpeedAndPower(
+                                        session.distanceKm,
+                                        session.netDurationSec,
+                                        session.averagePower.takeIf { session.hasPower }
+                                    ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

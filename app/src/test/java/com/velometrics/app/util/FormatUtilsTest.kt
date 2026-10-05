@@ -199,4 +199,19 @@ class FormatUtilsTest {
         assertEquals("12", FormatUtils.formatDecimal(12.4, 0))
         assertEquals("3.1", FormatUtils.formatDecimal(3.14, 1))
     }
+
+    @Test
+    fun `formatSpeedAndPower shows avg speed and avg power`() {
+        assertEquals("26.1 km/h · 182 W", FormatUtils.formatSpeedAndPower(26.1, 3600, 182))
+    }
+
+    @Test
+    fun `formatSpeedAndPower shows dash without power`() {
+        assertEquals("30.0 km/h · –", FormatUtils.formatSpeedAndPower(15.0, 1800, null))
+    }
+
+    @Test
+    fun `formatSpeedAndPower zero duration gives zero speed`() {
+        assertEquals("0.0 km/h · 150 W", FormatUtils.formatSpeedAndPower(10.0, 0, 150))
+    }
 }

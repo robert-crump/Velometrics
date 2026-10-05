@@ -1,3 +1,18 @@
+## Issue #236 -- Repeated Route detail: avg speed and avg power in the Sessions list
+Completed: 2026-10-05
+
+### What was done
+
+- Sessions rows on Repeated Route detail now show date on the left and `26.1 km/h · 182 W` on the
+  right in place of the distance. Rides without power (`hasPower` false or no `averagePower`) show "–".
+- New pure `FormatUtils.formatSpeedAndPower(distanceKm, netDurationSec, averagePower)`; speed uses net
+  duration, the same as the Home ride rows.
+- Route list cards and the statistics grid are unchanged; tapping a row still opens the ride.
+- Tests: three `FormatUtilsTest` cases (with power, "–" without power, zero duration).
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (570 tests) and `assembleDebug` pass.
+
 ## Issue #241 -- Session Detail: drawer covers floating buttons, thinner border
 Completed: 2026-10-05
 
@@ -90,23 +105,3 @@ Completed: 2026-10-05
 - Not done: no visual check on a device (layout, OAuth round trip).
 
 `testDebugUnitTest` (552 tests) and `assembleDebug` pass.
-
-## Issue #237 -- Settings: split system weight into rider weight and bike + kit weight
-Completed: 2026-10-05
-
-### What was done
-
-- DataStore keys `rider_weight_kg` (null until set) and `bike_kit_weight_kg` (default
-  `DEFAULT_BIKE_KIT_WEIGHT_KG` = 10). `UserSettingsRepository.systemWeightKg` is now derived as
-  rider + bike/kit, still null while the rider weight is unset, so the import (#228), the 85 kg
-  default and the "Assumed 85 kg … Set your weight in Settings" hint are unchanged.
-- Migration: `SplitSystemWeightMigration` (a DataStore `DataMigration` passed via `produceMigrations`)
-  turns an existing `system_weight_kg` into rider = system − 10 kg, bike/kit = 10 kg and removes the old
-  key. An unset system weight stays unset. Rides keep the system mass stored at their import.
-- Settings: "Rider weight" (30–180 kg) and "Bike + kit weight" (3–40 kg, PedalBike icon) rows with their
-  own dialogs, replacing the single "System weight" row. `SYSTEM_WEIGHT_RANGE_KG` is gone.
-- Tests (RiderAndBikeKitWeightTest): migration 82 -> 72 + 10 with the old key removed, unset not migrated,
-  and the Robolectric sum (unset -> null, 70 + default 10 = 80, 70 + 12 = 82 for a new repository instance).
-- Not done: no visual check on a device. `riderWeightKg` is ready for the onboarding FTP estimate (#238).
-
-`testDebugUnitTest` (543 tests) and `assembleDebug` pass.

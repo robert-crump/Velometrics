@@ -75,10 +75,10 @@ class MainActivity : ComponentActivity() {
         // to an unreadable line length.
         val useRail = widthClass != WindowWidthSizeClass.Compact
 
-        // Session Detail draws its map edge-to-edge, so the status bar must stay see-through
-        // there: don't reserve the top inset for it.
+        // Session Detail and Map draw their map edge-to-edge (#240), so the status bar must stay
+        // see-through there: don't reserve the top inset for it.
         val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-        val edgeToEdgeTop = currentRoute == Screen.SessionDetail.route
+        val edgeToEdgeTop = currentRoute == Screen.SessionDetail.route || currentRoute == Screen.MapView.route
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = if (edgeToEdgeTop) {

@@ -33,6 +33,7 @@ import com.velometrics.app.ui.components.MapTrackRenderer
 import com.velometrics.app.ui.components.MapUserLocationRenderer
 import com.velometrics.app.ui.components.PoiIcons
 import com.velometrics.app.ui.components.PoiPopupCard
+import com.velometrics.app.ui.components.StatusBarScrim
 import com.velometrics.app.ui.components.openPoiInGoogleMaps
 import com.velometrics.app.ui.components.toGeoBounds
 import com.velometrics.app.ui.components.toLatLng
@@ -321,7 +322,9 @@ fun MapViewScreen(
             }
         )
 
-        // Chip rows stacked at top of map
+        StatusBarScrim()
+
+        // Chip rows stacked at top of map: 8 dp above the first row, 4 dp between, 8 dp below (#240)
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -329,7 +332,7 @@ fun MapViewScreen(
         ) {
             // POI category chip row — horizontally scrollable, single-select
             LazyRow(
-                modifier = Modifier.padding(vertical = 8.dp),
+                modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
@@ -366,7 +369,7 @@ fun MapViewScreen(
 
             // Overlay toggle chip row — Intervals/Flow segments, independent toggles
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(

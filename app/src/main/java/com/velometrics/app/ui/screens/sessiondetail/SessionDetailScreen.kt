@@ -137,6 +137,7 @@ fun SessionDetailScreen(
                     drawerFraction = drawerFraction,
                     focus = mapFocus
                 )
+                StatusBarScrim()
 
                 // Section membership per #188: which cards each group would render, computed up
                 // front so an empty section's header can be hidden entirely rather than shown

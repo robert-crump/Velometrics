@@ -1,3 +1,23 @@
+## Issue #240 -- Map edge-to-edge, status bar scrim, chip rows closer together
+Completed: 2026-10-05
+
+### What was done
+
+- Map screen is now edge-to-edge like Session Detail: `MainActivity` drops the top inset for
+  `Screen.MapView` too. The chip column's `statusBarsPadding()` now actually applies, so the chips
+  stay below the status bar while the tiles draw under it.
+- New `StatusBarScrim` component: black gradient 40 % -> 0 % alpha over 1.5x the status bar height.
+  Placed above the map and below controls on Map and Session Detail (under the drawer, so a fully open
+  drawer covers it).
+- Chip rows: POI row padding top 8 dp, Intervals / Flow row top 4 dp / bottom 8 dp (was 8/8 + 8/8).
+  Chips still keep their 48 dp touch targets, so the visible gap between the chips is 4 dp plus the
+  8 dp touch padding above and below each chip.
+- Status bar icon colour is unchanged (follows the system theme); in light mode the icons stay dark.
+- Tests: `StatusBarScrimTest` (height 1.5x, zero without a status bar, 40 % top alpha).
+- Not done: no visual check on a device.
+
+`testDebugUnitTest` (573 tests) and `assembleDebug` pass.
+
 ## Issue #236 -- Repeated Route detail: avg speed and avg power in the Sessions list
 Completed: 2026-10-05
 
@@ -75,33 +95,3 @@ Completed: 2026-10-05
 - Existing rides change only after delete and re-sync.
 
 `testDebugUnitTest` (560 tests) and `assembleDebug` pass.
-
-## Issue #238 -- Onboarding: rider profile and Dropbox connect on first run
-Completed: 2026-10-05
-
-### What was done
-
-- `OnboardingGate` (data/preferences) decides visibility: shown only while the new DataStore flag
-  `onboarding_done` is unset and the database has no rides. An install that has rides gets the flag set
-  on its first check, so an upgraded install never sees it, even after deleting its rides. The flag sits
-  behind `OnboardingFlagStore` (implemented by `UserSettingsRepository`, bound in RepositoryModule).
-- MainActivity: `OnboardingViewModel.visible` (null while the gate decides -> blank background) replaces
-  the whole app, nav bar included, with `OnboardingScreen`. The old body is now `AppContent()`.
-- Page 1 "Your profile" (`ProfileForm`, pure and tested): rider weight (default `DEFAULT_RIDER_WEIGHT_KG`
-  = 75) and bike + kit (10). FTP level chips (`FtpLevel`: 2.0 / 2.6 default / 3.2 / 4.0 W/kg) with
-  the live formula `2.6 W/kg × 75 kg = 195 W`. Year of birth (default current year − 40) gives a Tanaka
-  max HR with the live formula `208 − 0.7 × 40 = 180 bpm`. Typing an FTP clears the level ("I know my FTP")
-  so weight changes leave it alone until a level is picked again. Typing a max HR hides its formula
-  until the birth year changes. Continue is disabled only if a saved field is out of range
-  (`FTP_RANGE_W` 50–700, `MAX_HR_RANGE_BPM` 100–230, existing weight ranges). It saves rider/bike
-  weight, max HR and the FTP as the history's "Before first test" seed row. The birth year is never stored.
-- Page 2 "Connect Dropbox": Connect starts the existing OAuth flow. Onboarding finishes once
-  `isConnected` turns true (result in `onResume`), so Home's auto sync starts right after. "Later"
-  finishes directly. Back returns to the profile page. Either way the flag is set and Home opens.
-- Tests: `ProfileFormTest` (issue examples, defaults, live FTP/max HR updates, typed overrides,
-  validation), `OnboardingGateTest` (fresh install, upgrade with rides, stays hidden after deletion),
-  `OnboardingFlagSettingTest` (Robolectric persistence).
-- README screenshots: they import demo rides before launching, so the gate skips onboarding there.
-- Not done: no visual check on a device (layout, OAuth round trip).
-
-`testDebugUnitTest` (552 tests) and `assembleDebug` pass.

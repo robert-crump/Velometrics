@@ -19,7 +19,9 @@ import com.velometrics.app.data.local.entity.PoiEntity
         PoiEntity::class,
         MapMetadataEntity::class,
     ],
-    version = 7,
+    // Bump on every refresh of the bundled velometrics.db asset: createFromAsset only re-copies
+    // the asset over an existing install's copy when this version differs from the on-device one.
+    version = 8,
     exportSchema = false
 )
 abstract class CyclingAssetDatabase : RoomDatabase() {

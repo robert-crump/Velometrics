@@ -23,10 +23,8 @@ class MapMatcherTest {
             lengthM = lengthM, highway = "residential", name = null,
             isTraversed = false, geometryEncoded = "",
             speedMedian = null, speedMean = null, speedCount = null,
-            speedP25 = null, speedP75 = null, speedP90 = null,
             powerMedian = null, powerMean = null, powerCount = null,
-            powerP25 = null, powerP75 = null, powerP90 = null,
-            slopePercent = 0.0, traversalCount = 0, lastTraversal = null, timeOfDayDist = null
+            slopePercent = 0.0, traversalCount = 0, lastTraversal = null
         )
     }
 

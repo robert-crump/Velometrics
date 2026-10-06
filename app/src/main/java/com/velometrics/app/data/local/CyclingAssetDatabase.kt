@@ -36,7 +36,7 @@ abstract class CyclingAssetDatabase : RoomDatabase() {
          * version) fails loudly here instead of silently falling through to
          * `fallbackToDestructiveMigration` and wiping the asset.
          */
-        const val EXPECTED_SCHEMA_VERSION = 1
+        const val EXPECTED_SCHEMA_VERSION = 3
 
         fun schemaVersionCallback(): Callback = object : Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) {

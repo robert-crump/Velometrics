@@ -72,6 +72,14 @@ class CyclingAssetDatabaseFixtureTest {
             val edges = db.mapEdgeDao()
                 .getNear(metadata.bboxSouth, metadata.bboxNorth, metadata.bboxWest, metadata.bboxEast)
             assertTrue("map_edges must be readable via the bbox join", edges.isNotEmpty())
+
+            // schema_version 3 (Ride-Graph#170) added the blob's flow counts; the Flow segments
+            // overlay reads them via json_extract, so at least one fixture edge must qualify.
+            val flowSegments = db.mapEdgeDao().getFlowSegmentsNear(
+                metadata.bboxSouth, metadata.bboxNorth, metadata.bboxWest, metadata.bboxEast,
+                minFlowCount = 3
+            )
+            assertTrue("flow counts must reach the Flow segments query", flowSegments.isNotEmpty())
         } finally {
             db.close()
         }

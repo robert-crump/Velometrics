@@ -31,19 +31,12 @@ class GpxExporterTest {
         speedMedian = 25.0,
         speedMean = 25.0,
         speedCount = 10,
-        speedP25 = null,
-        speedP75 = null,
-        speedP90 = null,
         powerMedian = null,
         powerMean = null,
         powerCount = null,
-        powerP25 = null,
-        powerP75 = null,
-        powerP90 = null,
         slopePercent = null,
         traversalCount = 5,
         lastTraversal = "2025-01-01",
-        timeOfDayDist = null,
     )
 
     @Test

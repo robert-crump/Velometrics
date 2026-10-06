@@ -4,74 +4,78 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import com.velometrics.app.domain.model.RideTag
 import com.velometrics.app.domain.model.energy
-import java.util.Locale
+import com.velometrics.app.domain.service.RecapMetricKind.AVERAGE_POWER
+import com.velometrics.app.domain.service.RecapMetricKind.CARDIAC_DRIFT
+import com.velometrics.app.domain.service.RecapMetricKind.DISTANCE
+import com.velometrics.app.domain.service.RecapMetricKind.DURATION
+import com.velometrics.app.domain.service.RecapMetricKind.FAT_BURNED
+import com.velometrics.app.domain.service.RecapMetricKind.FAT_EFFICIENCY
+import com.velometrics.app.domain.service.RecapMetricKind.HEART_RATE
+import com.velometrics.app.domain.service.RecapMetricKind.INTERVAL_COUNT
+import com.velometrics.app.domain.service.RecapMetricKind.INTERVAL_POWER
+import com.velometrics.app.domain.service.RecapMetricKind.INTERVAL_TIME
+import com.velometrics.app.domain.service.RecapMetricKind.TIME_BELOW_60_FTP
 
 /**
- * Tag-scoped comparison stat lines (#171, all-time pool since #214): one "value (vs. median)" line
- * per metric, comparing this ride to every earlier ride sharing its tag ([comparison], from
- * [SessionComparator.computeTagComparison] with this same [tag] — [SessionNarrativeAssembler] is
- * the single call path that guarantees it). Values carry only their unit, no prose.
+ * Tag-scoped recap paragraph (#171, all-time pool since #214, prose since #224): compares this ride
+ * to every earlier ride sharing its tag ([comparison], from [SessionComparator.computeTagComparison]
+ * with this same [tag] — [SessionNarrativeAssembler] is the single call path that guarantees it)
+ * and hands the candidates to [ComparisonProse].
  *
- * [RideTag.ZONE_2], [RideTag.INTERVALS] and [RideTag.RECOVERY] have fixed metric lists; any other
- * tag (custom or legacy) gets a generic one. Each metric drops out independently when this ride or
- * the pool lacks it. The list is empty below [MIN_TAG_SCOPED_SAMPLES] prior rides.
+ * [RideTag.ZONE_2], [RideTag.INTERVALS] and [RideTag.RECOVERY] have fixed candidate lists and
+ * anchors; any other tag (custom or legacy) gets a generic one. Each metric drops out independently
+ * when this ride or the pool lacks it. Cardiac drift is only a candidate when the ride has no #222
+ * drift advice paragraph, which already states the percentage. Null below [MIN_TAG_SCOPED_SAMPLES]
+ * prior rides.
  */
 object TagComparisonNarrative {
 
     /** Below this many tag-scoped prior rides, there's nothing meaningful to compare against. */
     private const val MIN_TAG_SCOPED_SAMPLES = 2
 
-    fun lines(
+    fun paragraph(
         session: CyclingSession,
         tag: String,
         comparison: TagComparison,
         intervals: List<IntervalSession> = emptyList()
-    ): List<String> {
-        if (comparison.sampleCount < MIN_TAG_SCOPED_SAMPLES) return emptyList()
+    ): String? {
+        if (comparison.sampleCount < MIN_TAG_SCOPED_SAMPLES) return null
         val m = comparison.medians
 
-        val duration = pair(session.netDurationSec, m.netDurationSec) { compactDuration(it) }
-        val power = pair(session.averagePower, m.avgPower) { "$it W" }
-        val heartRate = pair(session.avgHeartRate, m.avgHeartRate) { "$it bpm" }
-        val drift = pair(session.cardiacDriftPercent, m.cardiacDriftPercent) { "%.1f%%".format(Locale.US, it) }
-        val fatEfficiency = pair(session.fatEfficiencyScore?.toDouble(), m.fatEfficiency, " fat efficiency") { "%.0f".format(Locale.US, it) }
+        val duration = RecapMetric.of(DURATION, session.netDurationSec, m.netDurationSec)
+        val power = RecapMetric.of(AVERAGE_POWER, session.averagePower, m.avgPower)
+        val heartRate = RecapMetric.of(HEART_RATE, session.avgHeartRate, m.avgHeartRate)
+        val drift = RecapMetric.of(CARDIAC_DRIFT, session.cardiacDriftPercent, m.cardiacDriftPercent)
+            .takeIf { session.cardiacDriftCauses == null }
+        val fatEfficiency = RecapMetric.of(FAT_EFFICIENCY, session.fatEfficiencyScore, m.fatEfficiency)
 
-        return listOfNotNull(
-            *when (tag) {
-                RideTag.ZONE_2.label -> arrayOf(
-                    fatEfficiency,
-                    pair(session.energy?.fatGrams, m.fatGrams, " fat") { "%.0f g".format(Locale.US, it) },
-                    duration, power, drift
-                )
-                RideTag.INTERVALS.label -> arrayOf(
-                    pair(session.intervalCount, m.intervalCount) { "$it intervals" },
-                    pair(session.intervalTotalTimeSec, m.intervalTotalTimeSec) { compactDuration(it) },
-                    pair(intervals.durationWeightedAvgPower(), m.intervalAvgPower) { "$it W" },
-                    power
-                )
-                RideTag.RECOVERY.label -> arrayOf(
-                    duration, power,
-                    pair(session.timeBelowSixtyPercentFtpSec, m.timeBelowSixtyPercentFtpSec) { compactDuration(it) },
-                    heartRate
-                )
-                else -> arrayOf(
-                    pair(session.distanceKm, m.distanceKm) { "%.1f km".format(Locale.US, it) },
-                    duration, power, heartRate, drift, fatEfficiency
-                )
-            }
+        val (candidates, anchor) = when (tag) {
+            RideTag.ZONE_2.label -> listOf(
+                fatEfficiency,
+                RecapMetric.of(FAT_BURNED, session.energy?.fatGrams, m.fatGrams),
+                duration, power, drift
+            ) to AVERAGE_POWER
+            RideTag.INTERVALS.label -> listOf(
+                RecapMetric.of(INTERVAL_COUNT, session.intervalCount, m.intervalCount),
+                RecapMetric.of(INTERVAL_TIME, session.intervalTotalTimeSec, m.intervalTotalTimeSec),
+                RecapMetric.of(INTERVAL_POWER, intervals.durationWeightedAvgPower(), m.intervalAvgPower),
+                power
+            ) to INTERVAL_POWER
+            RideTag.RECOVERY.label -> listOf(
+                duration, power,
+                RecapMetric.of(TIME_BELOW_60_FTP, session.timeBelowSixtyPercentFtpSec, m.timeBelowSixtyPercentFtpSec),
+                heartRate
+            ) to AVERAGE_POWER
+            else -> listOf(
+                RecapMetric.of(DISTANCE, session.distanceKm, m.distanceKm),
+                duration, power, heartRate, drift, fatEfficiency
+            ) to DURATION
+        }
+        return ComparisonProse.paragraph(
+            comparedWith = "other $tag rides",
+            typical = "your typical $tag ride",
+            candidates = candidates.filterNotNull(),
+            anchor = anchor
         )
-    }
-
-    /** "value[label] (vs. median)", or null when either side is missing; [label] names the metric on the current value only. */
-    private fun <T : Number> pair(current: T?, median: T?, label: String = "", format: (T) -> String): String? {
-        if (current == null || median == null) return null
-        return "${format(current)}$label (vs. ${format(median)})"
-    }
-
-    /** "2h41min" / "45min" — compact, no space, as in the #214 recap wording. */
-    private fun compactDuration(totalSeconds: Int): String {
-        val h = totalSeconds / 3600
-        val min = (totalSeconds % 3600) / 60
-        return if (h > 0) "${h}h${min}min" else "${min}min"
     }
 }

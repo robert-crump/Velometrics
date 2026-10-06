@@ -3,8 +3,7 @@ package com.velometrics.app.domain.service
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
@@ -114,21 +113,21 @@ class TagComparisonNarrativeTest {
         )
     )
 
-    private fun lines(
+    private fun paragraph(
         session: CyclingSession,
         comparison: TagComparison,
         tag: String = "Zone 2",
         intervals: List<IntervalSession> = emptyList()
-    ) = TagComparisonNarrative.lines(session, tag, comparison, intervals)
+    ) = TagComparisonNarrative.paragraph(session, tag, comparison, intervals)
 
     @Test
-    fun `fewer than 2 tag-scoped sessions yields no lines`() {
-        assertTrue(lines(makeSession(), makeComparison(last5SessionCount = 1)).isEmpty())
-        assertTrue(lines(makeSession(), makeComparison(last5SessionCount = 0)).isEmpty())
+    fun `fewer than 2 tag-scoped sessions yields no paragraph`() {
+        assertNull(paragraph(makeSession(), makeComparison(last5SessionCount = 1)))
+        assertNull(paragraph(makeSession(), makeComparison(last5SessionCount = 0)))
     }
 
     @Test
-    fun `zone 2 renders metrics and units only, in fixed order`() {
+    fun `zone 2 anchors on average power and ranks the rest by deviation`() {
         val session = makeSession(hasPower = true, averagePower = 150, fatEfficiencyScore = 80, cardiacDriftPercent = 4.0)
         val comparison = makeComparison(
             medianFatEfficiencyLast5 = 69.0,
@@ -137,8 +136,24 @@ class TagComparisonNarrativeTest {
             medianCardiacDriftPercentLast5 = 5.0
         )
         assertEquals(
-            listOf("80 fat efficiency (vs. 69)", "1h0min (vs. 45min)", "150 W (vs. 140 W)", "4.0% (vs. 5.0%)"),
-            lines(session, comparison)
+            "Compared with other Zone 2 rides, average power was higher (150 W vs. 140 W) and fat efficiency was higher (80 vs. 69). " +
+                "Your ride was also longer (1h00min vs. 45min).",
+            paragraph(session, comparison)
+        )
+    }
+
+    @Test
+    fun `cardiac drift is left to the drift advice paragraph when the ride has one`() {
+        val comparison = makeComparison(medianAvgPowerLast5 = 150, medianCardiacDriftPercentLast5 = 3.0)
+        val noAdvice = makeSession(hasPower = true, averagePower = 150, cardiacDriftPercent = 6.0)
+        assertEquals(
+            "Compared with other Zone 2 rides, cardiac drift was higher (6.0% vs. 3.0%). Average power (150 W vs. 150 W) was comparable.",
+            paragraph(noAdvice, comparison)
+        )
+        val withAdvice = noAdvice.copy(cardiacDriftCauses = emptyList())
+        assertEquals(
+            "This ride was close to your typical Zone 2 ride. Average power (150 W vs. 150 W) was comparable.",
+            paragraph(withAdvice, comparison)
         )
     }
 
@@ -146,11 +161,11 @@ class TagComparisonNarrativeTest {
     fun `metrics drop out independently when the ride or the pool lacks them`() {
         val session = makeSession(hasPower = true, averagePower = 150)
         val comparison = makeComparison(medianAvgPowerLast5 = 140, medianCardiacDriftPercentLast5 = 5.0)
-        assertEquals(listOf("150 W (vs. 140 W)"), lines(session, comparison))
+        assertEquals("Compared with other Zone 2 rides, average power was higher (150 W vs. 140 W).", paragraph(session, comparison))
     }
 
     @Test
-    fun `intervals renders count, time, interval power and overall power`() {
+    fun `intervals anchors on interval power`() {
         val session = makeSession(
             tag = "Intervals", hasPower = true, averagePower = 180, intervalCount = 4, intervalTotalTimeSec = 1200
         )
@@ -161,14 +176,16 @@ class TagComparisonNarrativeTest {
             medianAvgPowerLast5 = 170
         )
         val intervals = listOf(makeInterval(restBeforeNextIntervalSec = 150, avgPower = 260))
+        // Interval time sits exactly on the 20% boundary (300 s of 1500 s), so it counts as comparable.
         assertEquals(
-            listOf("4 intervals (vs. 5 intervals)", "20min (vs. 25min)", "260 W (vs. 250 W)", "180 W (vs. 170 W)"),
-            lines(session, comparison, "Intervals", intervals)
+            "Compared with other Intervals rides, average power was higher (180 W vs. 170 W). " +
+                "Interval power (260 W vs. 250 W) and interval time (20min vs. 25min) were comparable.",
+            paragraph(session, comparison, "Intervals", intervals)
         )
     }
 
     @Test
-    fun `recovery renders duration, power, time below 60 percent FTP and heart rate`() {
+    fun `recovery anchors on average power`() {
         val session = makeSession(
             tag = "Recovery", hasPower = true, averagePower = 110, timeBelowSixtyPercentFtpSec = 3000, avgHeartRate = 118
         )
@@ -179,18 +196,20 @@ class TagComparisonNarrativeTest {
             medianAvgHeartRate = 121
         )
         assertEquals(
-            listOf("1h0min (vs. 55min)", "110 W (vs. 120 W)", "50min (vs. 45min)", "118 bpm (vs. 121 bpm)"),
-            lines(session, comparison, "Recovery")
+            "Compared with other Recovery rides, average power was lower (110 W vs. 120 W). " +
+                "Time below 60% FTP (50min vs. 45min) and heart rate (118 bpm vs. 121 bpm) were comparable.",
+            paragraph(session, comparison, "Recovery")
         )
     }
 
     @Test
-    fun `other tags get the generic metric list`() {
+    fun `other tags get the generic list, anchored on duration`() {
         val session = makeSession(tag = "Commute", distanceKm = 12.3, hasPower = true, averagePower = 130)
         val comparison = makeComparison(medianDistanceKmLast5 = 11.0, medianNetDurationSec = 3000, medianAvgPowerLast5 = 125)
         assertEquals(
-            listOf("12.3 km (vs. 11.0 km)", "1h0min (vs. 50min)", "130 W (vs. 125 W)"),
-            lines(session, comparison, "Commute")
+            "This ride was close to your typical Commute ride. " +
+                "Duration (1h00min vs. 50min), average power (130 W vs. 125 W) and distance (12.3 km vs. 11.0 km) were all comparable.",
+            paragraph(session, comparison, "Commute")
         )
     }
 }

@@ -98,7 +98,7 @@ class SessionDetailViewModelTest {
     )
 
     @Test
-    fun `narrative exposes the Zone 2 recap headline and stat lines`() = runTest(testDispatcher) {
+    fun `narrative exposes the Zone 2 recap headline and prose`() = runTest(testDispatcher) {
         val repo = FakeCyclingSessionRepository()
         fun zone2(id: Long, start: String, fatEfficiency: Int, fatG: Double, netSec: Int, power: Int, drift: Double) =
             buildSession(id).copy(
@@ -123,8 +123,9 @@ class SessionDetailViewModelTest {
         val narrative = vm.narrative.value!!
         assertEquals("vs. Zone 2", narrative.headline)
         assertEquals(
-            listOf("80 fat efficiency (vs. 70)", "20 g fat (vs. 10 g)", "1h0min (vs. 30min)", "150 W (vs. 120 W)", "4.0% (vs. 3.0%)"),
-            narrative.lines
+            "Compared with other Zone 2 rides, average power was higher (150 W vs. 120 W) and you burned more fat (20 g vs. 10 g). " +
+                "Your ride was also longer (1h00min vs. 30min).",
+            narrative.text
         )
         collector.cancel()
     }

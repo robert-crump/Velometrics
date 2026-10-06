@@ -42,14 +42,15 @@ class RouteRecapTest {
         RepeatedRoute(7L, if (custom) "Canal loop" else "Repeated Route 1", custom, rides.toList(), null)
 
     @Test
-    fun `recap uses the exact format and excludes the current ride from the median`() {
+    fun `recap prose excludes the current ride from the median`() {
         val r = route(ride(1, 26.2, 210, 142), ride(2, 26.0, 190, 145), ride(3, 28.0, 200, 147))
         val recap = SessionNarrativeAssembler.buildRouteRecap(1, r)!!
         assertEquals(7L, recap.routeId)
         assertEquals("vs. Repeated Route 1", recap.headline)
         assertEquals(
-            listOf("26.2 km/h (vs. 27.0 km/h)", "210 W (vs. 195 W)", "142 bpm (vs. 146 bpm)"),
-            recap.lines
+            "Compared with your other rides on Repeated Route 1, average power was higher (210 W vs. 195 W). " +
+                "Speed (26.2 km/h vs. 27.0 km/h) and heart rate (142 bpm vs. 146 bpm) were comparable.",
+            recap.text
         )
     }
 
@@ -60,11 +61,12 @@ class RouteRecapTest {
     }
 
     @Test
-    fun `stat lines drop independently when other rides lack the data`() {
+    fun `metrics drop independently when other rides lack the data`() {
         val r = route(ride(1, 26.0, 210, 142), ride(2, 26.0, null, 145), ride(3, 26.0, null, null))
         assertEquals(
-            listOf("26.0 km/h (vs. 26.0 km/h)", "142 bpm (vs. 145 bpm)"),
-            SessionNarrativeAssembler.buildRouteRecap(1, r)!!.lines
+            "This ride was close to your usual ride on Repeated Route 1. " +
+                "Speed (26.0 km/h vs. 26.0 km/h) and heart rate (142 bpm vs. 145 bpm) were both comparable.",
+            SessionNarrativeAssembler.buildRouteRecap(1, r)!!.text
         )
     }
 

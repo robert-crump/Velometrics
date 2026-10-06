@@ -723,21 +723,19 @@ private fun StatLines(lines: List<StatLineData>) {
     }
 }
 
-/** A "vs. [TAG]" / "vs. [Repeated Route]" headline over one stat line per metric, in metric-value size. */
+/** A "vs. [TAG]" / "vs. [Repeated Route]" / "Cardiac drift" headline over its short prose paragraph. */
 @Composable
-private fun RecapLines(headline: String, lines: List<String>, topPadding: Dp = 8.dp) {
+private fun RecapParagraph(headline: String, text: String, topPadding: Dp = 8.dp) {
     Text(
         text = headline,
         style = MaterialTheme.typography.titleSmall,
         modifier = Modifier.padding(top = topPadding)
     )
-    lines.forEach { line ->
-        Text(
-            text = line,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light),
-            modifier = Modifier.padding(top = 4.dp)
-        )
-    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light),
+        modifier = Modifier.padding(top = 4.dp)
+    )
 }
 
 @Composable
@@ -788,7 +786,7 @@ private fun RideSummaryGrid(
             }
         }
         if (narrative != null) {
-            RecapLines(headline = narrative.headline, lines = narrative.lines, topPadding = 24.dp)
+            RecapParagraph(headline = narrative.headline, text = narrative.text, topPadding = 24.dp)
         }
         if (routeRecap != null) {
             Column(
@@ -796,17 +794,17 @@ private fun RideSummaryGrid(
                     .fillMaxWidth()
                     .clickable { onRouteRecapClick(routeRecap.routeId) }
             ) {
-                RecapLines(
+                RecapParagraph(
                     headline = routeRecap.headline,
-                    lines = routeRecap.lines,
+                    text = routeRecap.text,
                     topPadding = if (narrative != null) 8.dp else 24.dp
                 )
             }
         }
         if (cardiacDriftAdvice != null) {
-            RecapLines(
+            RecapParagraph(
                 headline = "Cardiac drift",
-                lines = listOf(cardiacDriftAdvice),
+                text = cardiacDriftAdvice,
                 topPadding = if (narrative != null || routeRecap != null) 8.dp else 24.dp
             )
         }

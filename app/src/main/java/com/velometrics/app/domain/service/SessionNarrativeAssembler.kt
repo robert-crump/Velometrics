@@ -6,7 +6,6 @@ import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.RepeatedRoute
 import com.velometrics.app.util.CyclingConstants.ROUTE_CLUSTER_MIN_GROUP_SIZE
 import com.velometrics.app.util.median
-import java.util.Locale
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import kotlinx.coroutines.CancellationException
@@ -21,11 +20,11 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 
-/** The Session Detail tag recap (#214): [headline] is "vs. [TAG]", [lines] one stat line per metric. */
-data class SessionNarrative(val headline: String, val lines: List<String>)
+/** The Session Detail tag recap (#214): [headline] is "vs. [TAG]", [text] the two-sentence comparison (#224). */
+data class SessionNarrative(val headline: String, val text: String)
 
 /** The Session Detail Repeated Route recap (#217); tapping it opens the route's detail screen. */
-data class RouteRecap(val routeId: Long, val headline: String, val lines: List<String>)
+data class RouteRecap(val routeId: Long, val headline: String, val text: String)
 
 /**
  * Single entry point for the Session Detail tag recap (#214): owns the tag-scoped comparison pool,
@@ -66,9 +65,8 @@ class SessionNarrativeAssembler @Inject constructor(
         return try {
             val comparison = sessionComparator.computeTagComparison(session, tag)
             val intervals = intervalRepository.getIntervalsForSession(session.id).first()
-            TagComparisonNarrative.lines(session, tag, comparison, intervals)
-                .takeIf { it.isNotEmpty() }
-                ?.let { SessionNarrative(headline = "vs. $tag", lines = it) }
+            TagComparisonNarrative.paragraph(session, tag, comparison, intervals)
+                ?.let { SessionNarrative(headline = "vs. $tag", text = it) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -104,7 +102,7 @@ class SessionNarrativeAssembler @Inject constructor(
             .onEach { recapCache.putRouteRecap(sessionId, it) }
 
     companion object {
-        /** Compares against all *other* rides on the route; null if it doesn't qualify or no stat renders. */
+        /** Compares against all *other* rides on the route; null if it doesn't qualify or no metric renders. */
         fun buildRouteRecap(sessionId: Long, route: RepeatedRoute): RouteRecap? {
             if (route.sessions.size < ROUTE_CLUSTER_MIN_GROUP_SIZE) return null
             val current = route.sessions.firstOrNull { it.id == sessionId } ?: return null
@@ -113,19 +111,20 @@ class SessionNarrativeAssembler @Inject constructor(
             fun speed(s: CyclingSession): Double? =
                 if (s.netDurationSec > 0) s.distanceKm / s.netDurationSec * 3600 else null
 
-            val lines = listOfNotNull(
-                stat(speed(current), others.mapNotNull(::speed), " km/h", "%.1f"),
-                stat(current.averagePower?.toDouble(), others.mapNotNull { it.averagePower?.toDouble() }, " W", "%.0f"),
-                stat(current.avgHeartRate?.toDouble(), others.mapNotNull { it.avgHeartRate?.toDouble() }, " bpm", "%.0f")
-            )
-            if (lines.isEmpty()) return null
-            return RouteRecap(route.id, "vs. ${route.name}", lines)
-        }
+            fun metric(kind: RecapMetricKind, value: (CyclingSession) -> Double?) =
+                RecapMetric.of(kind, value(current), others.mapNotNull(value).median())
 
-        private fun stat(value: Double?, others: List<Double>, unit: String, fmt: String): String? {
-            val cur = value ?: return null
-            val med = others.median() ?: return null
-            return "${fmt.format(Locale.US, cur)}$unit (vs. ${fmt.format(Locale.US, med)}$unit)"
+            val text = ComparisonProse.paragraph(
+                comparedWith = "your other rides on ${route.name}",
+                typical = "your usual ride on ${route.name}",
+                candidates = listOfNotNull(
+                    metric(RecapMetricKind.SPEED, ::speed),
+                    metric(RecapMetricKind.AVERAGE_POWER) { it.averagePower?.toDouble() },
+                    metric(RecapMetricKind.HEART_RATE) { it.avgHeartRate?.toDouble() }
+                ),
+                anchor = RecapMetricKind.SPEED
+            ) ?: return null
+            return RouteRecap(route.id, "vs. ${route.name}", text)
         }
     }
 }

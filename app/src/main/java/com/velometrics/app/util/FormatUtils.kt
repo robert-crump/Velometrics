@@ -18,6 +18,13 @@ object FormatUtils {
         return if (h > 0) "${h}h ${m}min" else "${m}min"
     }
 
+    /** "1h05min" / "45min" — no spaces, for durations inside Session Detail prose (#224). */
+    fun formatDurationCompact(totalSeconds: Int): String {
+        val h = totalSeconds / 3600
+        val m = (totalSeconds % 3600) / 60
+        return if (h > 0) "${h}h${"%02d".format(Locale.US, m)}min" else "${m}min"
+    }
+
     fun formatDuration(totalSeconds: Int): String {
         if (totalSeconds <= 0) return "0s"
         val hours = totalSeconds / 3600

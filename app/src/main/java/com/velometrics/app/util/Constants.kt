@@ -63,6 +63,15 @@ object CyclingConstants {
     const val CARDIAC_DRIFT_FUELING_MIN_SEC = 7200          // rides >= 2 h always get the eating advice
     const val CARDIAC_DRIFT_MAX_CAUSES = 2
 
+    // Session Detail recap prose (#224): "comparable" bands around the pool median; a value on the boundary is comparable
+    const val RECAP_BAND_DURATION_DISTANCE = 0.20       // relative; also interval time, time below 60% FTP, fat burned
+    const val RECAP_BAND_SPEED = 0.05                   // relative
+    const val RECAP_BAND_POWER_HR = 0.05                // relative; avg power, interval power, heart rate
+    const val RECAP_BAND_CARDIAC_DRIFT_PP = 1.0         // absolute, percentage points
+    const val RECAP_BAND_FAT_EFFICIENCY = 5.0           // absolute, score points
+    const val RECAP_BAND_INTERVAL_COUNT = 2.0           // absolute, intervals
+    const val RECAP_MAX_METRICS = 3
+
     // Home location (Aachen, Germany)
     const val HOME_LAT = 50.78117
     const val HOME_LON = 6.07261

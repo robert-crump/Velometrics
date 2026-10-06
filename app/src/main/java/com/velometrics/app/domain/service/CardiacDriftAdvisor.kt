@@ -4,6 +4,7 @@ import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CardiacDriftCause
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.util.CyclingConstants
+import com.velometrics.app.util.FormatUtils
 import com.velometrics.app.util.median
 import java.time.ZoneId
 import java.util.Locale
@@ -77,7 +78,7 @@ object CardiacDriftAdvisor {
                     "a pace harder than endurance riding (IF ${"%.2f".format(Locale.US, it)})"
                 }
                 CardiacDriftCause.DURATION -> session.cardiacDriftDurationBaselineSec?.let {
-                    "a ride much longer than usual (${compactDuration(session.netDurationSec)} vs. ${compactDuration(it)})"
+                    "a ride much longer than usual (${FormatUtils.formatDurationCompact(session.netDurationSec)} vs. ${FormatUtils.formatDurationCompact(it)})"
                 }
             }
         }
@@ -96,10 +97,4 @@ object CardiacDriftAdvisor {
 
     private fun joinNatural(items: List<String>): String =
         if (items.size <= 1) items.joinToString() else items.dropLast(1).joinToString(", ") + " and " + items.last()
-
-    private fun compactDuration(totalSeconds: Int): String {
-        val h = totalSeconds / 3600
-        val min = (totalSeconds % 3600) / 60
-        return if (h > 0) "${h}h${"%02d".format(Locale.US, min)}" else "${min}min"
-    }
 }

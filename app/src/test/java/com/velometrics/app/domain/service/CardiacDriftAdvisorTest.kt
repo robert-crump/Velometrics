@@ -126,7 +126,7 @@ class CardiacDriftAdvisorTest {
         )
         assertEquals(
             "Cardiac drift was moderate (6.8%), most likely because of a pace harder than endurance riding (IF 0.82) " +
-                "and a ride much longer than usual (3h10 vs. 2h05). Next time, keep the power lower on long rides so " +
+                "and a ride much longer than usual (3h10min vs. 2h05min). Next time, keep the power lower on long rides so " +
                 "your heart rate stays steady, build up ride length gradually and eat every 30–45 min.",
             CardiacDriftAdvisor.paragraph(s, ftp, utc)
         )

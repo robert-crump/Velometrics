@@ -1,6 +1,6 @@
 package com.velometrics.app.ui.components
 
-import com.velometrics.app.domain.model.BrakingEvent
+import com.velometrics.app.domain.model.SpeedIqEvent
 import com.velometrics.app.domain.model.SpeedIq
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,11 +8,11 @@ import org.junit.Test
 
 class SpeedIqMarkersTest {
 
-    private fun event(lat: Double, lon: Double) = BrakingEvent(
+    private fun event(lat: Double, lon: Double) = SpeedIqEvent(
         km = 1.0, brakingEnergyJ = 5000.0, penaltySec = 20.0, peakKmh = 40.0, lowKmh = 5.0, lat = lat, lon = lon
     )
 
-    private fun speedIq(events: List<BrakingEvent>, hasElevation: Boolean = true) = SpeedIq(
+    private fun speedIq(events: List<SpeedIqEvent>, hasElevation: Boolean = true) = SpeedIq(
         hasElevation = hasElevation, brakingPenaltySec = 60.0, standingSec = 0.0, standingInTimerSec = 0.0,
         eventCount = events.size, referencePowerW = 200, systemMassKg = 85.0, topEvents = events
     )

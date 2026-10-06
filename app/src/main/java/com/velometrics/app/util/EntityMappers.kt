@@ -71,7 +71,7 @@ fun CyclingSessionEntity.toDomain(): CyclingSession {
         cardiacDriftDurationBaselineSec = cardiacDriftDurationBaselineSec,
         speedIq = speedIqSummary.parseJsonOrNull<SpeedIqSummary>()?.let { summary ->
             // Older rows are stored highest lost time first; show them in ride order too
-            summary.toDomain(speedIqEvents.parseJsonOrNull<List<BrakingEvent>>().orEmpty().sortedBy { it.km })
+            summary.toDomain(speedIqEvents.parseJsonOrNull<List<SpeedIqEvent>>().orEmpty().sortedBy { it.km })
         }
     )
 }
@@ -136,18 +136,22 @@ data class SpeedIqSummary(
     /** False when stored before #228, when every ride used the assumed 85 kg. */
     val massFromSettings: Boolean = false,
     /** False when stored before #229, when only rides with power had Speed IQ. */
-    val referencePowerEstimated: Boolean = false
+    val referencePowerEstimated: Boolean = false,
+    /** Both null when stored before #225, or for a ride without power. */
+    val slowSec: Double? = null,
+    val speedFactor: Double? = null
 ) {
-    fun toDomain(topEvents: List<BrakingEvent>) = SpeedIq(
+    fun toDomain(topEvents: List<SpeedIqEvent>) = SpeedIq(
         hasElevation, brakingPenaltySec, standingSec, standingInTimerSec, eventCount,
-        referencePowerW, systemMassKg, massFromSettings, referencePowerEstimated, topEvents
+        referencePowerW, systemMassKg, massFromSettings, referencePowerEstimated, topEvents,
+        slowSec, speedFactor
     )
 
     companion object {
         fun of(speedIq: SpeedIq) = SpeedIqSummary(
             speedIq.hasElevation, speedIq.brakingPenaltySec, speedIq.eventCount,
             speedIq.referencePowerW, speedIq.systemMassKg, speedIq.standingSec, speedIq.standingInTimerSec,
-            speedIq.massFromSettings, speedIq.referencePowerEstimated
+            speedIq.massFromSettings, speedIq.referencePowerEstimated, speedIq.slowSec, speedIq.speedFactor
         )
     }
 }

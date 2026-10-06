@@ -14,3 +14,13 @@ fun List<Double>.median(): Double? {
         (sorted[mid - 1] + sorted[mid]) / 2.0
     }
 }
+
+/** The [p]-th percentile (0..1) with linear interpolation between ranks, or null if the list is empty. */
+fun List<Double>.percentile(p: Double): Double? {
+    if (isEmpty()) return null
+    val sorted = sorted()
+    val rank = p.coerceIn(0.0, 1.0) * (sorted.size - 1)
+    val lo = rank.toInt()
+    val hi = minOf(lo + 1, sorted.lastIndex)
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo)
+}

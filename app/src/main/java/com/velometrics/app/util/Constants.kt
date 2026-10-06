@@ -279,6 +279,22 @@ object CyclingConstants {
     const val SPEED_IQ_MARKER_RADIUS = 11f
     const val SPEED_IQ_FOCUS_ZOOM = 15.0                  // tapping an event row zooms the map to this
 
+    // Speed IQ slow segments (#225): stretches ridden below the physics speed for the power before them.
+    // Values from the #225 grill-me session, checked against the #231 rides: k came out at 1.01-1.03 on
+    // all three (CdA/Crr fit), and with descents expecting only the flat speed 7-15 segments a ride
+    // remain, 9-22 km/h against 19-30 expected (junctions, gates).
+    const val SPEED_IQ_SLOW_POWER_WINDOW_SEC = 60         // P_exp: trailing mean of pedalling power; long enough that one 3 s kick doesn't lift it
+    const val SPEED_IQ_SLOW_POWER_CAP_PERCENTILE = 0.75   // ...capped at this percentile of the ride's pedalling power, so climb power doesn't carry onto the flat
+    const val SPEED_IQ_SLOW_SPEED_FRACTION = 0.85         // below this share of v_exp a second is slow and P_exp freezes
+    const val SPEED_IQ_SLOW_THAW_SEC = 3                  // back above the fraction this long ends the freeze
+    const val SPEED_IQ_SLOW_MAX_FREEZE_SEC = 300          // a freeze ends after this; beyond it, power from before isn't "this place" any more
+    const val SPEED_IQ_SLOW_MIN_LOSS_SEC = 5.0            // a slow segment counts from this much lost clock time, as standing-only events
+    const val SPEED_IQ_SLOW_MIN_SLOPE = -0.03             // steeper descents are left to braking events: free-rolling speed is no expectation
+    const val SPEED_IQ_SLOW_SLOPE_WINDOW_M = 100.0        // slope = Δh/Δs over this centred distance, so slow riding doesn't make it noisy
+    const val SPEED_IQ_SLOW_MIN_SLOPE_RUN_M = 20.0        // ...needing at least this much distance, else the previous slope holds
+    const val SPEED_IQ_SLOW_SPEED_FACTOR_MIN = 0.8        // per-ride k = median(v / v_physics), clamped: beyond this is bad data, not wind
+    const val SPEED_IQ_SLOW_SPEED_FACTOR_MAX = 1.2
+
     // Speed color map for visualization
     val SPEED_COLOR_MAP = mapOf(
         "0 km/h" to "#000000",

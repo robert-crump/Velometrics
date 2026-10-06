@@ -3,7 +3,7 @@
 import com.velometrics.app.util.Json
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.Datapoint
-import com.velometrics.app.domain.service.BrakingDetector
+import com.velometrics.app.domain.service.SpeedIqAnalyzer
 import com.velometrics.app.util.CyclingConstants
 import com.velometrics.app.util.GeoUtils
 import com.velometrics.app.util.median
@@ -124,11 +124,11 @@ class SessionMetricsCalculator @Inject constructor() {
             maxSpeedKmh = datapoints.mapNotNull { it.speedKmh }.maxOrNull(),
             // 18. Ride temperature (#222): plain mean of the records that carry one
             avgTemperatureC = datapoints.mapNotNull { it.temperatureC }.takeIf { it.isNotEmpty() }?.average(),
-            // 19. Speed IQ braking and standing (#226, #227) with the system weight as of import (#228);
+            // 19. Speed IQ braking, standing (#226, #227) and slow segments (#225) with the system weight as of import (#228);
             // a ride without power uses the estimated reference power, or gets none without one (#229);
             // pedalling above 30 % of ride-date FTP vetoes braking (#232)
             speedIq = if (hasPower || estimatedReferencePowerW != null) {
-                BrakingDetector.analyze(
+                SpeedIqAnalyzer.analyze(
                     datapoints, pauses,
                     systemWeightKg?.toDouble() ?: CyclingConstants.SPEED_IQ_DEFAULT_SYSTEM_MASS_KG,
                     estimatedReferencePowerW.takeUnless { hasPower },

@@ -50,5 +50,5 @@ data class CyclingSessionEntity(
     val cardiacDriftCauses: String? = null, // comma-separated CardiacDriftCause names; "" = none fired (#222)
     val cardiacDriftDurationBaselineSec: Int? = null, // #222
     val speedIqSummary: String? = null, // JSON SpeedIqSummary; import-time only, no backfill (#226)
-    val speedIqEvents: String? = null   // JSON list of the top BrakingEvents (#226)
+    val speedIqEvents: String? = null   // JSON list of the top SpeedIqEvents (#226)
 )

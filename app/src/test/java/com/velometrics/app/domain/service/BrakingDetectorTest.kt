@@ -82,7 +82,7 @@ class BrakingDetectorTest {
         trace.ride(power = 0, grade = 0.0, seconds = 600) { it <= 25 / 3.6 }
         pedalling(30, trace, speedMps = 25 / 3.6)
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())!!
 
         assertTrue(result.hasElevation)
         assertEquals(0, result.eventCount)
@@ -96,7 +96,7 @@ class BrakingDetectorTest {
         assertTrue("climb slowed the rider to 14 km/h", trace.speeds.last() <= 14 / 3.6 + 0.01)
         trace.ride(power = 190, grade = 0.08, seconds = 30)
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())!!
 
         assertEquals(0, result.eventCount)
     }
@@ -119,7 +119,7 @@ class BrakingDetectorTest {
 
     @Test
     fun `braking from 50 to 0 kmh evenly over 15 s on a 5 percent descent`() {
-        val result = BrakingDetector.analyze(descentStop().toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(descentStop().toDatapoints())!!
 
         // Over the ~104 m stop: ½mv² 8.2 kJ + m·g·Δh 4.3 kJ − drag 1.9 kJ − rolling 1.1 kJ ≈ 9.5 kJ.
         // (#223's worked example says ≈ 10.9 kJ / 57 s; with CdA 0.30 (#231) and ρ 1.225 the drag over
@@ -160,7 +160,7 @@ class BrakingDetectorTest {
         listOf(26.0, 23.0, 20.0).forEach { trace.add(it / 3.6, 100.0, 0) }
         pedalling(30, trace, speedMps = 20 / 3.6)
 
-        assertEquals(0, BrakingDetector.analyze(trace.toDatapoints())!!.eventCount)
+        assertEquals(0, SpeedIqAnalyzer.analyze(trace.toDatapoints())!!.eventCount)
     }
 
     @Test
@@ -170,7 +170,7 @@ class BrakingDetectorTest {
         standing(30, trace)
         pedalling(10, trace)
 
-        val result = BrakingDetector.analyze(trace.toDatapoints(gapAfter = 29, gapSec = 120))!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints(gapAfter = 29, gapSec = 120))!!
 
         // The 30 s standing after the resume is a standing-only event, but nothing is braking.
         assertEquals(0.0, result.brakingPenaltySec, 0.0)
@@ -187,7 +187,7 @@ class BrakingDetectorTest {
             pedalling(30, trace)
         }
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())!!
 
         assertEquals(7, result.eventCount)
         assertEquals(5, result.topEvents.size)
@@ -199,7 +199,7 @@ class BrakingDetectorTest {
     fun `a ride without altitude has no elevation and no events`() {
         val trace = Trace().apply { repeat(60) { add(8.0, null, 190) } }
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())
 
         assertNotNull(result)
         assertFalse(result!!.hasElevation)
@@ -210,15 +210,15 @@ class BrakingDetectorTest {
     @Test
     fun `a ride without power has no Speed IQ`() {
         val trace = Trace().apply { repeat(60) { add(8.0, 100.0, 0) } }
-        assertNull(BrakingDetector.analyze(trace.toDatapoints()))
+        assertNull(SpeedIqAnalyzer.analyze(trace.toDatapoints()))
     }
 
     @Test
     fun `a ride without power is analysed at the estimated P with pedal work at 0`() {
-        val measured = BrakingDetector.analyze(descentStop().toDatapoints())!!
+        val measured = SpeedIqAnalyzer.analyze(descentStop().toDatapoints())!!
         // The same ride without a power meter: power readings are ignored, not just missing.
         val noPower = descentStop().toDatapoints().map { it.copy(power = null) }
-        val estimated = BrakingDetector.analyze(noPower, estimatedReferencePowerW = 165.0)!!
+        val estimated = SpeedIqAnalyzer.analyze(noPower, estimatedReferencePowerW = 165.0)!!
 
         assertTrue(estimated.referencePowerEstimated)
         assertFalse(measured.referencePowerEstimated)
@@ -230,14 +230,14 @@ class BrakingDetectorTest {
 
         // Stray power readings on a ride flagged without power don't add pedal work.
         val stray = descentStop().toDatapoints().map { it.copy(power = 400) }
-        assertEquals(event.brakingEnergyJ, BrakingDetector.analyze(stray, estimatedReferencePowerW = 165.0)!!.topEvents.single().brakingEnergyJ, 1e-9)
+        assertEquals(event.brakingEnergyJ, SpeedIqAnalyzer.analyze(stray, estimatedReferencePowerW = 165.0)!!.topEvents.single().brakingEnergyJ, 1e-9)
     }
 
     @Test
     fun `the estimated P is the median of the earlier rides' P, else 60 percent of FTP`() {
-        assertEquals(165.0, BrakingDetector.estimateReferencePower((120..210 step 10).toList(), ftp = 250), 1e-9)
-        assertEquals(190.0, BrakingDetector.estimateReferencePower(listOf(150, 190, 260), ftp = 250), 1e-9)
-        assertEquals(150.0, BrakingDetector.estimateReferencePower(emptyList(), ftp = 250), 1e-9)
+        assertEquals(165.0, SpeedIqAnalyzer.estimateReferencePower((120..210 step 10).toList(), ftp = 250), 1e-9)
+        assertEquals(190.0, SpeedIqAnalyzer.estimateReferencePower(listOf(150, 190, 260), ftp = 250), 1e-9)
+        assertEquals(150.0, SpeedIqAnalyzer.estimateReferencePower(emptyList(), ftp = 250), 1e-9)
     }
 
     /** Pedal at 40 km/h, then brake evenly to [lowKmh] over 10 s with no power. */
@@ -257,7 +257,7 @@ class BrakingDetectorTest {
         val datapoints = trace.toDatapoints(gapAfter = lastBeforePause, gapSec = 30)
         val pause = datapoints[lastBeforePause].timestamp..datapoints[lastBeforePause + 1].timestamp
 
-        val result = BrakingDetector.analyze(datapoints, listOf(pause))!!
+        val result = SpeedIqAnalyzer.analyze(datapoints, listOf(pause))!!
 
         assertEquals(1, result.eventCount)
         val event = result.topEvents.single()
@@ -280,7 +280,7 @@ class BrakingDetectorTest {
         standing(20, trace)
         pedalling(30, trace)
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())!!
 
         assertEquals(1, result.eventCount)
         assertEquals(20.0, result.topEvents.single().standingSec, 1e-9)
@@ -298,7 +298,7 @@ class BrakingDetectorTest {
         standing(601, trace)
         pedalling(30, trace)
 
-        val result = BrakingDetector.analyze(trace.toDatapoints())!!
+        val result = SpeedIqAnalyzer.analyze(trace.toDatapoints())!!
 
         assertEquals(1, result.eventCount)
         assertEquals(0.0, result.topEvents.single().standingSec, 0.0)
@@ -310,7 +310,7 @@ class BrakingDetectorTest {
     fun `a stop with no braking is its own event from 5 s standing`() {
         // Standing at the start, then pedalling away: no braking above the threshold anywhere.
         val long = standing(6, Trace()).also { pedalling(30, it) }
-        val longResult = BrakingDetector.analyze(long.toDatapoints())!!
+        val longResult = SpeedIqAnalyzer.analyze(long.toDatapoints())!!
         assertEquals(1, longResult.eventCount)
         val event = longResult.topEvents.single()
         assertEquals(0.0, event.brakingEnergyJ, 0.0)
@@ -318,7 +318,7 @@ class BrakingDetectorTest {
         assertEquals(5.0, longResult.standingInTimerSec, 1e-9)
 
         val short = standing(5, Trace()).also { pedalling(30, it) }
-        val shortResult = BrakingDetector.analyze(short.toDatapoints())!!
+        val shortResult = SpeedIqAnalyzer.analyze(short.toDatapoints())!!
         assertEquals(0, shortResult.eventCount)
         assertEquals(0.0, shortResult.standingSec, 0.0)
         assertEquals(0.0, shortResult.standingInTimerSec, 0.0)
@@ -339,7 +339,7 @@ class BrakingDetectorTest {
         standing(20, trace)
         val datapoints = trace.toDatapoints()
         val penalty = listOf(70.0, 85.0, 100.0).map { m ->
-            BrakingDetector.analyze(datapoints, massKg = m)!!.also { assertEquals(m, it.systemMassKg, 0.0) }.brakingPenaltySec
+            SpeedIqAnalyzer.analyze(datapoints, massKg = m)!!.also { assertEquals(m, it.systemMassKg, 0.0) }.brakingPenaltySec
         }
 
         // Kinetic, potential and rolling terms are all m-proportional; drag is not, so the line has an offset.
@@ -374,10 +374,12 @@ class BrakingDetectorTest {
     fun `pedalling at 200 W through a speed dip is not braking with FTP 250`() {
         // 40 -> 24 km/h in 8 s while holding 200 W: the model reads ~365 W braked away per second.
         val datapoints = speedChange(40.0, 24.0, seconds = 8, powerW = 200).toDatapoints()
-        assertEquals("without the veto the dip reads as braking", 1, BrakingDetector.analyze(datapoints)!!.eventCount)
+        assertEquals("without the veto the dip reads as braking", 1, SpeedIqAnalyzer.analyze(datapoints)!!.eventCount)
 
-        // 200 W > 30 % of 250 W
-        assertEquals(0, BrakingDetector.analyze(datapoints, ftp = 250)!!.eventCount)
+        // 200 W > 30 % of 250 W. Holding 200 W at 24 km/h on the flat is still a slow segment (#225).
+        val vetoed = SpeedIqAnalyzer.analyze(datapoints, ftp = 250)!!
+        assertEquals(0.0, vetoed.brakingPenaltySec, 0.0)
+        assertTrue(vetoed.topEvents.none { it.brakingEnergyJ > 0 })
     }
 
     @Test
@@ -385,10 +387,10 @@ class BrakingDetectorTest {
         // An 8 % descent at 40 km/h coasting: gravity outpulls drag and rolling by ~300 W, so 20 s
         // holding the speed carries ~6 kJ the model calls braking. A 1 km/h drop isn't a braking event.
         val ghost = speedChange(40.0, 39.0, seconds = 20, powerW = 0, grade = 0.08).toDatapoints()
-        assertEquals(0, BrakingDetector.analyze(ghost, ftp = 250)!!.eventCount)
+        assertEquals(0, SpeedIqAnalyzer.analyze(ghost, ftp = 250)!!.eventCount)
 
         val real = speedChange(40.0, 34.0, seconds = 20, powerW = 0, grade = 0.08).toDatapoints()
-        val event = BrakingDetector.analyze(real, ftp = 250)!!.topEvents.single()
+        val event = SpeedIqAnalyzer.analyze(real, ftp = 250)!!.topEvents.single()
         // The first coasting second's 3 s power still averages in the 200 W before it, so it's
         // vetoed and the event starts one record (0.3 km/h) in.
         assertEquals(39.7, event.peakKmh, 0.31)
@@ -399,7 +401,7 @@ class BrakingDetectorTest {
     fun `a real 44 to 18 kmh stop is still detected with the veto`() {
         val datapoints = speedChange(44.0, 18.0, seconds = 8, powerW = 0).toDatapoints()
 
-        val result = BrakingDetector.analyze(datapoints, ftp = 250)!!
+        val result = SpeedIqAnalyzer.analyze(datapoints, ftp = 250)!!
 
         assertEquals(1, result.eventCount)
         val event = result.topEvents.single()
@@ -414,7 +416,7 @@ class BrakingDetectorTest {
     fun `a ride without power skips the veto`() {
         // Stray 400 W readings on a ride flagged without power would veto every step at FTP 250.
         val stray = descentStop().toDatapoints().map { it.copy(power = 400) }
-        val result = BrakingDetector.analyze(stray, estimatedReferencePowerW = 165.0, ftp = 250)!!
+        val result = SpeedIqAnalyzer.analyze(stray, estimatedReferencePowerW = 165.0, ftp = 250)!!
         assertEquals(1, result.eventCount)
     }
 }

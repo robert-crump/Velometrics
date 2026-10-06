@@ -10,7 +10,7 @@ import com.velometrics.app.domain.repository.BestEffortRepository
 import com.velometrics.app.domain.repository.CyclingSessionRepository
 import com.velometrics.app.domain.repository.IntervalRepository
 import com.velometrics.app.domain.service.BestEffortCalculator
-import com.velometrics.app.domain.service.BrakingDetector
+import com.velometrics.app.domain.service.SpeedIqAnalyzer
 import com.velometrics.app.domain.service.CardiacDriftAdviceService
 import com.velometrics.app.domain.service.IntervalDetector
 import com.velometrics.app.domain.service.IntervalMatcher
@@ -110,7 +110,7 @@ class FitImportServiceImpl @Inject constructor(
             val rideDate = datapoints.first().timestamp.atZone(ZoneId.systemDefault()).toLocalDate()
             val ftp = ftpHistoryRepository.history.first().ftpOn(rideDate)
             // Speed IQ's P for a ride without power, from the power rides before it or FTP (#229)
-            val estimatedReferencePowerW = if (hasPower) null else BrakingDetector.estimateReferencePower(
+            val estimatedReferencePowerW = if (hasPower) null else SpeedIqAnalyzer.estimateReferencePower(
                 sessionRepository.getSpeedIqReferencePowersBefore(
                     datapoints.first().timestamp, CyclingConstants.SPEED_IQ_FALLBACK_RIDES
                 ),

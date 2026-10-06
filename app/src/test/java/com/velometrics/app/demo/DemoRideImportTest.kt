@@ -165,10 +165,12 @@ class DemoRideImportTest {
             // Every ride has at least one stop; corners and descents add a handful more.
             assertTrue("${it.ride.fileName}: ${speedIq.eventCount} events", speedIq.eventCount in 1..40)
             assertTrue(it.ride.fileName, speedIq.topEvents.size <= 5)
-            // Braking rows go from a peak down; standing-only rows have no braking and some standing.
+            // Braking rows go from a peak down; the rest have standing or slow loss (#225), slow ones
+            // below their expected speed.
             assertTrue(it.ride.fileName, speedIq.topEvents.all { e ->
-                if (e.brakingEnergyJ > 0) e.peakKmh > e.lowKmh && e.penaltySec > 0 else e.standingSec > 0
+                if (e.brakingEnergyJ > 0) e.peakKmh > e.lowKmh && e.penaltySec > 0 else e.standingSec > 0 || e.slowSec > 0
             })
+            assertTrue(it.ride.fileName, speedIq.topEvents.filter { e -> e.slowSec > 0 }.all { e -> e.slowAvgKmh!! < e.slowExpectedKmh!! })
             assertTrue(it.ride.fileName, speedIq.standingInTimerSec <= speedIq.standingSec + 1e-9)
         }
     }

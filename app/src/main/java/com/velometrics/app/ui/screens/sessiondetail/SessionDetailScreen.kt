@@ -38,7 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.velometrics.app.domain.model.CardiacDriftBand
 import com.velometrics.app.domain.model.CyclingSession
 import com.velometrics.app.domain.model.IntervalSession
-import com.velometrics.app.domain.model.BrakingEvent
+import com.velometrics.app.domain.model.SpeedIqEvent
 import com.velometrics.app.domain.model.SpeedIq
 import com.velometrics.app.domain.model.energy
 import com.velometrics.app.domain.service.SessionComparison
@@ -566,8 +566,9 @@ private fun ShowOnMapToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit
 }
 
 /**
- * Speed IQ (#226, #227): braking and standing totals, the potential average speed, then up to five
- * events ranked by time lost, e.g. `1. km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`.
+ * Speed IQ (#226, #227, #225): braking, standing and slow totals (slow only where analysed), the
+ * potential average speed, then up to five events ranked by time lost, e.g.
+ * `1. km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`.
  * The numbers match the map markers (#230); [onEventClick] is null while they're hidden.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -577,7 +578,7 @@ private fun SpeedIqContent(
     distanceKm: Double,
     netDurationSec: Int,
     onOpenSettings: () -> Unit,
-    onEventClick: ((BrakingEvent) -> Unit)? = null
+    onEventClick: ((SpeedIqEvent) -> Unit)? = null
 ) {
     if (!speedIq.hasElevation) {
         Text(
@@ -588,9 +589,10 @@ private fun SpeedIqContent(
         return
     }
     val events = if (speedIq.eventCount == 1) "1 event" else "${speedIq.eventCount} events"
+    val slow = speedIq.slowSec?.let { "Slow ${FormatUtils.formatDurationMinSec(it.roundToInt())} · " }.orEmpty()
     Text(
         text = "Braking ${FormatUtils.formatDurationMinSec(speedIq.brakingPenaltySec.roundToInt())} · " +
-            "Standing ${FormatUtils.formatDurationMinSec(speedIq.standingSec.roundToInt())} · $events",
+            "Standing ${FormatUtils.formatDurationMinSec(speedIq.standingSec.roundToInt())} · $slow$events",
         style = StatLineTextStyle.copy(fontWeight = FontWeight.Bold)
     )
     val potentialKmh = speedIq.potentialAvgKmh(distanceKm, netDurationSec)
@@ -651,16 +653,27 @@ private fun SpeedIqContent(
     }
 }
 
-/** `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`; a standing-only row has no speeds. */
-internal fun speedIqEventRow(event: BrakingEvent): String {
+/**
+ * `km 17.5 · 1:17 lost · 57 s braking + 20 s standing · 50→0 km/h`. A row with braking shows peak→low;
+ * one without shows the slow average against the expected speed (#225), e.g.
+ * `km 3.2 · 0:30 lost · 30 s slow · Ø 15 instead of 30 km/h`; a standing-only row has no speeds.
+ */
+internal fun speedIqEventRow(event: SpeedIqEvent): String {
     fun seconds(sec: Double) = sec.roundToInt().let { if (it < 60) "$it s" else FormatUtils.formatDurationMinSec(it) }
     val braking = event.brakingEnergyJ > 0
     val standing = event.standingSec.roundToInt() > 0
+    val slow = event.slowSec.roundToInt() > 0
     val parts = listOfNotNull(
         if (braking) "${seconds(event.penaltySec)} braking" else null,
-        if (standing) "${seconds(event.standingSec)} standing" else null
+        if (standing) "${seconds(event.standingSec)} standing" else null,
+        if (slow) "${seconds(event.slowSec)} slow" else null
     ).joinToString(" + ")
-    val speeds = if (braking) " · ${event.peakKmh.roundToInt()}→${event.lowKmh.roundToInt()} km/h" else ""
+    val speeds = when {
+        braking -> " · ${event.peakKmh.roundToInt()}→${event.lowKmh.roundToInt()} km/h"
+        slow && event.slowAvgKmh != null && event.slowExpectedKmh != null ->
+            " · Ø ${event.slowAvgKmh.roundToInt()} instead of ${event.slowExpectedKmh.roundToInt()} km/h"
+        else -> ""
+    }
     return "km ${FormatUtils.formatDecimal(event.km, 1)} · " +
         "${FormatUtils.formatDurationMinSec(event.lostSec.roundToInt())} lost · $parts$speeds"
 }

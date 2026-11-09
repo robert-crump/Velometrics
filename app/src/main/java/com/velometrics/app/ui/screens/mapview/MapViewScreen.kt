@@ -46,7 +46,6 @@ import com.velometrics.app.util.HeadingSensor
 import com.velometrics.app.domain.model.RepeatedInterval
 import com.velometrics.app.util.LocationSample
 import com.velometrics.app.util.LocationSmoothing
-import com.velometrics.app.util.MapOverlayUtils
 import com.velometrics.app.util.ScaleBarInfo
 import com.velometrics.app.util.ScaleBarUtils
 import kotlinx.coroutines.withContext
@@ -143,7 +142,7 @@ fun MapViewScreen(
         try {
             MapUserLocationRenderer.render(context, ms.second, loc, accuracy, currentHeading)
         } catch (_: IllegalStateException) {
-            return@LaunchedEffect
+            // Style not usable right now; skip this update
         }
     }
 
@@ -164,7 +163,7 @@ fun MapViewScreen(
         try {
             MapUserLocationRenderer.updateHeading(context, ms.second, heading)
         } catch (_: IllegalStateException) {
-            return@LaunchedEffect
+            // Style not usable right now; skip this update
         }
     }
 
@@ -191,7 +190,7 @@ fun MapViewScreen(
         visibleSessionIds.forEach { sessionId ->
             val trackId = sessionId.toString()
             val session = sessions.find { it.id == sessionId }
-            if (session != null && trackId !in renderedTrackIds - toRemove.toSet()) {
+            if (session != null && trackId !in renderedTrackIds) {
                 val points = withContext(Dispatchers.Default) {
                     GpsTrackParser.parse(session.gpsTrack)
                 }
@@ -243,38 +242,35 @@ fun MapViewScreen(
     LaunchedEffect(highlightedIntervalId, allIntervals, mapAndStyle) {
         val ms = mapAndStyle ?: return@LaunchedEffect
         MapIntervalRenderer.removeHighlight(ms.second)
-        val id = highlightedIntervalId
-        if (id != null) {
-            val interval = allIntervals.find { it.id == id }
-            if (interval != null) {
-                MapIntervalRenderer.renderHighlight(ms.second, interval)
-            }
+        val interval = highlightedIntervalId?.let { id -> allIntervals.find { it.id == id } }
+        if (interval != null) {
+            MapIntervalRenderer.renderHighlight(ms.second, interval)
         }
     }
 
     // Map click listener for POI and interval tap interaction
     LaunchedEffect(mapAndStyle) {
-        val ms = mapAndStyle ?: return@LaunchedEffect
-        ms.first.addOnMapClickListener { latLng ->
-            val screenPoint = ms.first.projection.toScreenLocation(latLng)
+        val map = mapAndStyle?.first ?: return@LaunchedEffect
+        map.addOnMapClickListener { latLng ->
+            val screenPoint = map.projection.toScreenLocation(latLng)
 
             // POI cluster tap → zoom in
             if (currentShowPoi) {
-                val clusterLocation = MapFeatureQuery.poiClusterAt(ms.first, screenPoint)
+                val clusterLocation = MapFeatureQuery.poiClusterAt(map, screenPoint)
                 if (clusterLocation != null) {
-                    ms.first.animateCamera(
-                        CameraUpdateFactory.newLatLngZoom(clusterLocation.toLatLng(), ms.first.cameraPosition.zoom + 2.0), 500
+                    map.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(clusterLocation.toLatLng(), map.cameraPosition.zoom + 2.0), 500
                     )
                     return@addOnMapClickListener true
                 }
 
                 // Individual POI tap → popup
-                val poiId = MapFeatureQuery.poiIdAt(ms.first, screenPoint)
+                val poiId = MapFeatureQuery.poiIdAt(map, screenPoint)
                 if (poiId != null) {
                     val poi = currentVisiblePois.find { it.poiId == poiId }
                     if (poi != null) {
                         viewModel.selectPoiFromMap(poi)
-                        ms.first.animateCamera(
+                        map.animateCamera(
                             CameraUpdateFactory.newLatLng(LatLng(poi.lat, poi.lon))
                         )
                         return@addOnMapClickListener true
@@ -288,7 +284,7 @@ fun MapViewScreen(
             }
 
             // Query repeated-interval layer
-            val repeatedIntervalIdStr = MapFeatureQuery.repeatedIntervalIdAt(ms.first, screenPoint)
+            val repeatedIntervalIdStr = MapFeatureQuery.repeatedIntervalIdAt(map, screenPoint)
             if (repeatedIntervalIdStr != null) {
                 val group = currentGroups.find { it.id.toString() == repeatedIntervalIdStr }
                 if (group != null) { viewModel.selectGroup(group) }
@@ -341,10 +337,7 @@ fun MapViewScreen(
                         selected = activePoiChip == MapViewViewModel.ALL_POIS_CHIP,
                         onClick = { viewModel.selectPoiChip(MapViewViewModel.ALL_POIS_CHIP) },
                         label = { Text(MapViewViewModel.ALL_POIS_CHIP) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        )
+                        colors = mapChipColors()
                     )
                 }
                 items(availablePoiCategories) { category ->
@@ -359,10 +352,7 @@ fun MapViewScreen(
                                 tint = Color.White
                             )
                         },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        )
+                        colors = mapChipColors()
                     )
                 }
             }
@@ -376,19 +366,13 @@ fun MapViewScreen(
                     selected = showIntervalOverlay,
                     onClick = { viewModel.toggleIntervalOverlay() },
                     label = { Text("Intervals") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    )
+                    colors = mapChipColors()
                 )
                 FilterChip(
                     selected = showFlowSegments,
                     onClick = { viewModel.toggleFlowSegments() },
                     label = { Text("Flow segments") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    )
+                    colors = mapChipColors()
                 )
             }
 
@@ -453,9 +437,9 @@ fun MapViewScreen(
     }
 
     // Grouped prototype detail bottom sheet
-    if (selectedGroup != null) {
+    selectedGroup?.let { group ->
         PrototypeGroupSheet(
-            group = selectedGroup!!,
+            group = group,
             highlightedIntervalId = highlightedIntervalId,
             onIntervalTap = { interval -> viewModel.highlightInterval(interval.id) },
             onDismiss = { viewModel.clearSelection() }
@@ -463,6 +447,13 @@ fun MapViewScreen(
     }
 
 }
+
+/** Shared fill for the map's POI-category and overlay-toggle chips. */
+@Composable
+private fun mapChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

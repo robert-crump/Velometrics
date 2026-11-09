@@ -19,7 +19,6 @@ data class TimerEvent(val timestamp: Instant, val eventType: String)
 @Singleton
 class SessionMetricsCalculator @Inject constructor() {
 
-
     fun compute(
         fileName: String,
         fileSha1: String,
@@ -64,7 +63,7 @@ class SessionMetricsCalculator @Inject constructor() {
         } else null
 
         // 11. GPS track
-        val gpsTrack = downsampleAndSerialize(datapoints)
+        val gpsTrack = serializeGpsTrack(datapoints)
 
         // 12. Cardiac efficiency input (avg heart rate)
         val avgHeartRate = computeAvgHeartRate(datapoints)
@@ -164,21 +163,24 @@ class SessionMetricsCalculator @Inject constructor() {
     }
 
     private fun computeHrZones(datapoints: List<Datapoint>, maxHr: Int): Map<String, Int> {
-        val zones = CyclingConstants.HR_ZONES.associate { (label, _) -> label to 0 }.toMutableMap()
-        val maxHrDouble = maxHr.toDouble()
+        val ratios = datapoints.mapNotNull { it.heartRate }.filter { it > 0 }.map { it / maxHr.toDouble() }
+        return countByBin(ratios, CyclingConstants.HR_ZONES)
+    }
 
-        for (dp in datapoints) {
-            val hr = dp.heartRate ?: continue
-            if (hr <= 0) continue
-            val ratio = hr / maxHrDouble
-            for ((label, range) in CyclingConstants.HR_ZONES) {
-                if (ratio >= range.first && ratio < range.second) {
-                    zones[label] = (zones[label] ?: 0) + 1
-                    break
-                }
-            }
+    /**
+     * Counts [values] into [bins] (label → [lower, upper)), keeping every bin's label in order
+     * even when its count is zero. A value outside every bin isn't counted.
+     */
+    private fun countByBin(
+        values: List<Double>,
+        bins: List<Pair<String, Pair<Double, Double>>>
+    ): Map<String, Int> {
+        val counts = bins.associate { (label, _) -> label to 0 }.toMutableMap()
+        for (value in values) {
+            val label = bins.firstOrNull { (_, range) -> value >= range.first && value < range.second }?.first
+            if (label != null) counts[label] = counts.getValue(label) + 1
         }
-        return zones
+        return counts
     }
 
     /**
@@ -235,22 +237,8 @@ class SessionMetricsCalculator @Inject constructor() {
         return HrDistanceSeriesBuilder.cumulativeMeters(datapoints).last() / 1000.0
     }
 
-    private fun computeSpeedHistogram(datapoints: List<Datapoint>): Map<String, Int> {
-        val histogram = CyclingConstants.SPEED_HISTOGRAM_BINS.associate { (label, _) ->
-            label to 0
-        }.toMutableMap()
-
-        for (dp in datapoints) {
-            val speed = dp.speedKmh ?: 0.0
-            for ((label, range) in CyclingConstants.SPEED_HISTOGRAM_BINS) {
-                if (speed >= range.first && speed < range.second) {
-                    histogram[label] = (histogram[label] ?: 0) + 1
-                    break
-                }
-            }
-        }
-        return histogram
-    }
+    private fun computeSpeedHistogram(datapoints: List<Datapoint>): Map<String, Int> =
+        countByBin(datapoints.map { it.speedKmh ?: 0.0 }, CyclingConstants.SPEED_HISTOGRAM_BINS)
 
     /**
      * Power zones, average/normalized power, fat/carbs burned, and fat efficiency — everything
@@ -263,10 +251,10 @@ class SessionMetricsCalculator @Inject constructor() {
             powerZoneDistribution = computePowerZones(datapoints, ftp),
             averagePower = computeAveragePower(datapoints),
             normalizedPower = computeNormalizedPower(datapoints),
-            fatBurnedGrams = computeFatBurned(datapoints, effectivePowers),
-            carbsBurnedGrams = computeCarbsBurned(datapoints, effectivePowers),
-            fatEfficiencyHistogram = computeFatEfficiencyHistogram(datapoints, effectivePowers),
-            fatEfficiencyScore = computeFatEfficiencyScore(datapoints, effectivePowers),
+            fatBurnedGrams = computeFatBurned(effectivePowers),
+            carbsBurnedGrams = computeCarbsBurned(effectivePowers),
+            fatEfficiencyHistogram = computeFatEfficiencyHistogram(effectivePowers),
+            fatEfficiencyScore = computeFatEfficiencyScore(effectivePowers),
             timeBelowSixtyPercentFtpSec = computeTimeBelowSixtyPercentFtp(datapoints, ftp)
         )
     }
@@ -282,26 +270,11 @@ class SessionMetricsCalculator @Inject constructor() {
         val timeBelowSixtyPercentFtpSec: Int
     )
 
+    /** FTP-relative power zones, with 0 W (coasting / missing power) in its own leading "0 W" bucket. */
     private fun computePowerZones(datapoints: List<Datapoint>, ftp: Int): Map<String, Int> {
-        val zones = mutableMapOf("0 W" to 0)
-        CyclingConstants.POWER_ZONES.forEach { (label, _) -> zones[label] = 0 }
-
-        val ftpDouble = ftp.toDouble()
-
-        for (dp in datapoints) {
-            val power = dp.power ?: 0
-            if (power == 0) {
-                zones["0 W"] = (zones["0 W"] ?: 0) + 1
-                continue
-            }
-            val ratio = power / ftpDouble
-            for ((label, range) in CyclingConstants.POWER_ZONES) {
-                if (ratio >= range.first && ratio < range.second) {
-                    zones[label] = (zones[label] ?: 0) + 1
-                    break
-                }
-            }
-        }
+        val powers = datapoints.map { it.power ?: 0 }
+        val zones = mutableMapOf("0 W" to powers.count { it == 0 })
+        zones += countByBin(powers.filter { it != 0 }.map { it / ftp.toDouble() }, CyclingConstants.POWER_ZONES)
         return zones
     }
 
@@ -375,19 +348,11 @@ class SessionMetricsCalculator @Inject constructor() {
         return result.toList()
     }
 
-    private fun computeFatBurned(datapoints: List<Datapoint>, effectivePowers: List<Double>): Double {
-        val totalFatKcal = datapoints.indices.sumOf { idx ->
-            GeoUtils.fatBurnKcalPerSec(effectivePowers[idx])
-        }
-        return totalFatKcal / CyclingConstants.KCAL_PER_GRAM_FAT
-    }
+    private fun computeFatBurned(effectivePowers: List<Double>): Double =
+        effectivePowers.sumOf { GeoUtils.fatBurnKcalPerSec(it) } / CyclingConstants.KCAL_PER_GRAM_FAT
 
-    private fun computeCarbsBurned(datapoints: List<Datapoint>, effectivePowers: List<Double>): Double {
-        val totalCarbsKcal = datapoints.indices.sumOf { idx ->
-            GeoUtils.carbBurnKcalPerSec(effectivePowers[idx])
-        }
-        return totalCarbsKcal / 4.1
-    }
+    private fun computeCarbsBurned(effectivePowers: List<Double>): Double =
+        effectivePowers.sumOf { GeoUtils.carbBurnKcalPerSec(it) } / CyclingConstants.KCAL_PER_GRAM_CARB
 
     /**
      * Fat efficiency score (0-100).
@@ -398,20 +363,18 @@ class SessionMetricsCalculator @Inject constructor() {
      *         weight = carbBurnAtFatMax / carbBurn if power > FatMax
      * Score = sum(terms) / N × 100, where N = count of data points with effective power > 0.
      */
-    private fun computeFatEfficiencyScore(datapoints: List<Datapoint>, effectivePowers: List<Double>): Int? {
-        val fatMaxWatt = -CyclingConstants.FAT_B / (2.0 * CyclingConstants.FAT_A)
-        val fatMaxKcalPerSec = GeoUtils.fatBurnKcalPerSec(fatMaxWatt).coerceAtLeast(1e-9)
-        val carbBurnRateAtFatMax = GeoUtils.carbBurnKcalPerSec(fatMaxWatt).coerceAtLeast(1e-9)
+    private fun computeFatEfficiencyScore(effectivePowers: List<Double>): Int? {
+        val fatMaxKcalPerSec = GeoUtils.fatBurnKcalPerSec(FAT_MAX_WATT).coerceAtLeast(1e-9)
+        val carbBurnRateAtFatMax = GeoUtils.carbBurnKcalPerSec(FAT_MAX_WATT).coerceAtLeast(1e-9)
 
         var weightedSum = 0.0
         var count = 0
 
-        for (idx in datapoints.indices) {
-            val power = effectivePowers[idx]
+        for (power in effectivePowers) {
             if (power <= 0.0) continue
 
             val relativeFatBurn = GeoUtils.fatBurnKcalPerSec(power) / fatMaxKcalPerSec
-            val weight = if (power <= fatMaxWatt) {
+            val weight = if (power <= FAT_MAX_WATT) {
                 1.0
             } else {
                 val carbRate = GeoUtils.carbBurnKcalPerSec(power)
@@ -426,22 +389,21 @@ class SessionMetricsCalculator @Inject constructor() {
         return (weightedSum / count * 100).roundToInt()
     }
 
-    private fun computeFatEfficiencyHistogram(datapoints: List<Datapoint>, effectivePowers: List<Double>): Map<String, Int> {
-        val fatMaxWatt = -CyclingConstants.FAT_B / (2.0 * CyclingConstants.FAT_A)
-        val fatMaxKcalPerSec = GeoUtils.fatBurnKcalPerSec(fatMaxWatt).coerceAtLeast(1e-9)
+    private fun computeFatEfficiencyHistogram(effectivePowers: List<Double>): Map<String, Int> {
+        val fatMaxKcalPerSec = GeoUtils.fatBurnKcalPerSec(FAT_MAX_WATT).coerceAtLeast(1e-9)
 
         val histogram = mutableMapOf("Low (0-50%)" to 0, "Medium (50-80%)" to 0, "High (>80%)" to 0)
 
-        for (idx in datapoints.indices) {
-            val power = effectivePowers[idx]
+        for (power in effectivePowers) {
             if (power <= 0.0) continue
             val efficiency = (GeoUtils.fatBurnKcalPerSec(power) / fatMaxKcalPerSec * 100.0)
                 .coerceIn(0.0, 100.0)
-            when {
-                efficiency >= 80.0 -> histogram["High (>80%)"] = (histogram["High (>80%)"] ?: 0) + 1
-                efficiency >= 50.0 -> histogram["Medium (50-80%)"] = (histogram["Medium (50-80%)"] ?: 0) + 1
-                else -> histogram["Low (0-50%)"] = (histogram["Low (0-50%)"] ?: 0) + 1
+            val label = when {
+                efficiency >= 80.0 -> "High (>80%)"
+                efficiency >= 50.0 -> "Medium (50-80%)"
+                else -> "Low (0-50%)"
             }
+            histogram[label] = histogram.getValue(label) + 1
         }
         return histogram
     }
@@ -525,9 +487,14 @@ class SessionMetricsCalculator @Inject constructor() {
         return CardiacDriftResult(buckets, decouplingPercent)
     }
 
-    private fun downsampleAndSerialize(datapoints: List<Datapoint>): String? {
+    private fun serializeGpsTrack(datapoints: List<Datapoint>): String? {
         if (datapoints.isEmpty()) return null
         val coords = datapoints.map { listOf(it.lat, it.lon) }
         return Json.gson.toJson(coords)
+    }
+
+    private companion object {
+        /** Power at the vertex of the fat-burn parabola (FatMax), in watts. */
+        const val FAT_MAX_WATT = -CyclingConstants.FAT_B / (2.0 * CyclingConstants.FAT_A)
     }
 }

@@ -47,7 +47,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -97,8 +99,7 @@ private class OpenMultipleDocumentsSorted : ActivityResultContract<String, List<
         val clipData = intent.clipData
         return when {
             clipData != null -> (0 until clipData.itemCount).map { clipData.getItemAt(it).uri }
-            intent.data != null -> listOf(intent.data!!)
-            else -> emptyList()
+            else -> listOfNotNull(intent.data)
         }
     }
 }
@@ -251,127 +252,117 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-        PullToRefreshBox(
-            isRefreshing = isSyncing,
-            onRefresh = { viewModel.syncDropbox() },
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
+            PullToRefreshBox(
+                isRefreshing = isSyncing,
+                onRefresh = { viewModel.syncDropbox() },
+                modifier = Modifier.fillMaxSize()
             ) {
-                // Import progress indicator
-                when (val state = importState) {
-                    is ImportUiState.BatchLoading -> {
-                        LinearProgressIndicator(
-                            progress = { state.current.toFloat() / state.total.toFloat() },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Text(
-                            text = "Importing file ${state.current} of ${state.total}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
-                    is ImportUiState.Loading -> {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text(
-                            text = "Importing…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
-                    else -> {}
-                }
-    
-                when {
-                    isInitialLoading -> {
-                        // Empty but still scrollable, so PullToRefreshBox's nested-scroll
-                        // gesture detection has something to attach to before rides load.
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            item { Box(modifier = Modifier.fillParentMaxSize()) }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    // Import progress indicator
+                    when (val state = importState) {
+                        is ImportUiState.BatchLoading -> {
+                            LinearProgressIndicator(
+                                progress = { state.current.toFloat() / state.total.toFloat() },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            ImportStatusText("Importing file ${state.current} of ${state.total}")
                         }
+                        is ImportUiState.Loading -> {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            ImportStatusText("Importing…")
+                        }
+                        else -> {}
                     }
-                    sessions.isEmpty() -> {
-                        // Must be a scrollable container (not a plain Box) so the pull
-                        // gesture reaches PullToRefreshBox via nested scroll on a fresh
-                        // install, before any rides have been imported.
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
-                        ) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillParentMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.DirectionsBike,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(64.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Text(
-                                            "No rides imported yet",
-                                            style = MaterialTheme.typography.titleLarge
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            "Tap the + button to import .fit files",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+
+                    when {
+                        isInitialLoading -> {
+                            // Empty but still scrollable, so PullToRefreshBox's nested-scroll
+                            // gesture detection has something to attach to before rides load.
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                item { Box(modifier = Modifier.fillParentMaxSize()) }
+                            }
+                        }
+                        sessions.isEmpty() -> {
+                            // Must be a scrollable container (not a plain Box) so the pull
+                            // gesture reaches PullToRefreshBox via nested scroll on a fresh
+                            // install, before any rides have been imported.
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f)
+                            ) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillParentMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.DirectionsBike,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(64.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                "No rides imported yet",
+                                                style = MaterialTheme.typography.titleLarge
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                "Tap the + button to import .fit files",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    else -> {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                // Monthly stats section — above the ride list
-                                item {
-                                    MonthlyStatsSection(
-                                        monthlyData = monthlyData,
-                                        selectedMonthIndex = selectedMonthIndex,
-                                        selectedSummary = selectedMonthSummary,
-                                        onMonthSelected = { viewModel.selectMonthIndex(it) }
-                                    )
-                                }
-    
-                                // Session list
-                                items(sessions) { session ->
-                                    SessionCard(
-                                        session = session,
-                                        selected = session.id in selectedSessionIds,
-                                        onClick = {
-                                            if (selectionMode) {
-                                                viewModel.toggleSessionSelected(session.id)
-                                            } else {
-                                                onSessionClick(session.id)
+                        else -> {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                                    // Monthly stats section — above the ride list
+                                    item {
+                                        MonthlyStatsSection(
+                                            monthlyData = monthlyData,
+                                            selectedMonthIndex = selectedMonthIndex,
+                                            selectedSummary = selectedMonthSummary,
+                                            onMonthSelected = { viewModel.selectMonthIndex(it) }
+                                        )
+                                    }
+
+                                    // Session list
+                                    items(sessions) { session ->
+                                        SessionCard(
+                                            session = session,
+                                            selected = session.id in selectedSessionIds,
+                                            onClick = {
+                                                if (selectionMode) {
+                                                    viewModel.toggleSessionSelected(session.id)
+                                                } else {
+                                                    onSessionClick(session.id)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                if (!selectionMode) viewModel.enterSelectionMode(session.id)
                                             }
-                                        },
-                                        onLongClick = {
-                                            if (!selectionMode) viewModel.enterSelectionMode(session.id)
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
+                                ScrollBarOverlay(
+                                    visible = showScrollBar,
+                                    listState = listState,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                )
                             }
-                            ScrollBarOverlay(
-                                visible = showScrollBar,
-                                listState = listState,
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            )
                         }
                     }
                 }
             }
-        }
 
             FloatingActionButton(
                 onClick = { filePickerLauncher.launch("*/*") },
@@ -383,7 +374,6 @@ fun HomeScreen(
                 Icon(Icons.Default.Add, contentDescription = "Import .fit file")
             }
         }
-
 
         // Bulk-delete confirmation for Home's multiselect (#194)
         if (showBulkDeleteConfirm) {
@@ -437,6 +427,17 @@ fun HomeScreen(
             )
         }
     }
+}
+
+/** Caption under the import progress bar. */
+@Composable
+private fun ImportStatusText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -582,8 +583,8 @@ private fun ScrollBarIndicator(
             drawRoundRect(
                 color = thumbColor,
                 topLeft = Offset(0f, thumbTop),
-                size = androidx.compose.ui.geometry.Size(size.width, thumbHeight),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width / 2f)
+                size = Size(size.width, thumbHeight),
+                cornerRadius = CornerRadius(size.width / 2f)
             )
         }
     }
@@ -682,9 +683,7 @@ private fun MonthlyLineChart(
 
     // Round max ride count up to the next multiple of 5 (minimum 5)
     val actualMax = monthlyData.maxOfOrNull { it.rideCount } ?: 0
-    val maxCount = if (actualMax == 0) 5
-                   else if (actualMax % 5 == 0) actualMax
-                   else (actualMax / 5 + 1) * 5
+    val maxCount = maxOf(5, (actualMax + 4) / 5 * 5)
 
     val pointCount = monthlyData.size
 
@@ -754,8 +753,7 @@ private fun MonthlyLineChart(
                     center = Offset(x, y)
                 )
 
-                val abbr = summary.yearMonth.month.name.take(1).uppercase() +
-                        summary.yearMonth.month.name.drop(1).take(2).lowercase()
+                val abbr = summary.yearMonth.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
                 labelPainter.draw(
                     this,
                     abbr,

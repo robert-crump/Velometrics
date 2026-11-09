@@ -21,6 +21,8 @@ import com.velometrics.app.BuildConfig
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -241,13 +243,7 @@ fun SettingsScreen(
                 title = "Home location",
                 subtitle = homeSubtitle,
                 onClick = onNavigateToHomeAddress,
-                trailing = {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                trailing = { ChevronIcon() }
             )
 
             // ── Data ──
@@ -310,13 +306,7 @@ fun SettingsScreen(
                 icon = Icons.Default.Info,
                 title = "About",
                 onClick = onNavigateToInfo,
-                trailing = {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                trailing = { ChevronIcon() }
             )
         }
     }
@@ -332,12 +322,22 @@ private fun SectionHeader(title: String) {
     )
 }
 
+/** Trailing "opens another screen" chevron for navigation rows. */
+@Composable
+private fun ChevronIcon() {
+    Icon(
+        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
 @Composable
 private fun SettingsRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    icon: ImageVector?,
     title: String,
     subtitle: String? = null,
-    subtitleColor: androidx.compose.ui.graphics.Color? = null,
+    subtitleColor: Color? = null,
     onClick: () -> Unit = {},
     trailing: @Composable (() -> Unit)? = null
 ) {

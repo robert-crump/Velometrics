@@ -1,6 +1,5 @@
 ﻿package com.velometrics.app.ui.screens.sessiondetail
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Info
@@ -25,7 +23,6 @@ import kotlinx.coroutines.launch
 import org.maplibre.android.maps.Style
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -109,14 +106,15 @@ fun SessionDetailScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        if (isLoading) {
-            LoadingBox(modifier = Modifier.padding(padding))
-            HeaderControls(onNavigateBack, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
-        } else if (session == null) {
-            NotFoundBox(text = "Session not found", modifier = Modifier.padding(padding))
+        val s = session
+        if (isLoading || s == null) {
+            if (isLoading) {
+                LoadingBox(modifier = Modifier.padding(padding))
+            } else {
+                NotFoundBox(text = "Session not found", modifier = Modifier.padding(padding))
+            }
             HeaderControls(onNavigateBack, overflowMenuExpanded, { overflowMenuExpanded = it }) { showDeleteConfirm = true }
         } else {
-            val s = session!!
             var drawerFraction by remember { mutableStateOf(0.5f) }
             var drawerSnapRequest by remember { mutableStateOf<DrawerSnapRequest?>(null) }
             var mapFocus by remember { mutableStateOf<MapFocus?>(null) }
@@ -786,14 +784,10 @@ private fun RideSummaryGrid(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            Column {
-                Text(
-                    text = dateFormatter.format(session.sessionStart),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                )
-            }
+            Text(
+                text = dateFormatter.format(session.sessionStart),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
             if (SHOW_COMPARISON_TRIANGLES) {
                 ComparisonModeToggle(mode = comparisonMode, onModeChange = { comparisonMode = it })
             }
